@@ -1,0 +1,3 @@
+[submodule "Extern/Althea"]
+	path = Extern/Althea
+	url = https://github.com/nithinp7/Althea.git
