@@ -45,14 +45,14 @@ public:
   SponzaTest();
   // virtual ~SponzaTest();
 
-  virtual void initGame(Application& app) override;
-  virtual void shutdownGame(Application& app) override;
+  void initGame(Application& app) override;
+  void shutdownGame(Application& app) override;
 
   void createRenderState(Application& app) override;
   void destroyRenderState(Application& app) override;
 
-  virtual void tick(Application& app, const FrameContext& frame) override;
-  virtual void draw(
+  void tick(Application& app, const FrameContext& frame) override;
+  void draw(
       Application& app,
       VkCommandBuffer commandBuffer,
       const FrameContext& frame) override;

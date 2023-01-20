@@ -1,0 +1,12 @@
+
+#version 450
+
+layout(local_size_x = 16, local_size_y = 16) in;
+layout(set=0, binding=0, rgba8) uniform readonly image2D environmentMap;
+layout(set=0, binding=1) uniform writeonly image2D irradianceMap;
+
+void main() {
+  ivec2 texelPos = ivec2(gl_GlobalInvocationID.xy);
+  vec4 color = imageLoad(environmentMap, texelPos);
+  imageStore(irradianceMap, texelPos, color);
+}

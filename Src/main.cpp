@@ -1,5 +1,6 @@
 #include <Althea/Application.h>
 #include "SponzaTest.h"
+#include "GenIrradianceMap.h"
 
 #include <iostream>
 
@@ -7,7 +8,7 @@ using namespace AltheaEngine;
 
 int main() {
   Application app("../..", "../../Extern/Althea");
-  app.createGame<SponzaTest>();
+  app.createGame<GenIrradianceMap>();
 
   try {
     app.run();

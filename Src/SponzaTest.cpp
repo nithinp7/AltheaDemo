@@ -286,31 +286,8 @@ void SponzaTest::_initComputePass(Application& app) {
 
   this->_pComputePass->image = Image(app, imageOptions);
 
-  // TODO: abstract this into SamplerOptions struct with good default values!
-
-  VkSamplerCreateInfo samplerInfo{};
-  samplerInfo.sType = VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO;
-
-  samplerInfo.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-  samplerInfo.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-  samplerInfo.addressModeW = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-
-  samplerInfo.magFilter = VK_FILTER_LINEAR;
-  samplerInfo.minFilter = VK_FILTER_LINEAR;
-
-  samplerInfo.anisotropyEnable = VK_TRUE;
-  samplerInfo.maxAnisotropy =
-      app.getPhysicalDeviceProperties().limits.maxSamplerAnisotropy;
-
-  samplerInfo.mipmapMode = VK_SAMPLER_MIPMAP_MODE_NEAREST;
-  samplerInfo.mipLodBias = 0.0f;
-  samplerInfo.minLod = 0.0f;
-  samplerInfo.maxLod = 0.0f;
-
-  samplerInfo.borderColor = VK_BORDER_COLOR_INT_OPAQUE_BLACK;
-  samplerInfo.unnormalizedCoordinates = VK_FALSE;
-
-  this->_pComputePass->sampler = Sampler(app, samplerInfo);
+  SamplerOptions options{};
+  this->_pComputePass->sampler = Sampler(app, options);
   this->_pComputePass->view = ImageView(
       app,
       this->_pComputePass->image.getImage(),
