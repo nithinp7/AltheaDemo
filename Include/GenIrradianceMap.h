@@ -19,9 +19,12 @@ namespace AltheaEngine {
 class Application;
 } // namespace AltheaEngine
 
+// TODO Put all these in separate namespace!!
+
 struct GenIrradiancePass {
   std::unique_ptr<DescriptorSetAllocator> materialAllocator{};
   std::unique_ptr<DescriptorSet> material{};
+  
   ComputePipeline pipeline{};
 };
 

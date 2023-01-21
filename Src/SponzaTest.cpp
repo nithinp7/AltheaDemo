@@ -1,6 +1,7 @@
 #include "SponzaTest.h"
 
 #include <Althea/Application.h>
+#include <Althea/SingleTimeCommandBuffer.h>
 #include <Althea/Camera.h>
 #include <Althea/Cubemap.h>
 #include <Althea/DescriptorSet.h>
@@ -116,10 +117,12 @@ void SponzaTest::createRenderState(Application& app) {
       // Compute shader output.
       .addTextureBinding();
 
+  SingleTimeCommandBuffer commandBuffer(app);
+  
   this->_pGlobalResources =
       std::make_shared<PerFrameResources>(app, globalResourceLayout);
   this->_pGlobalUniforms =
-      std::make_unique<TransientUniforms<GlobalUniforms>>(app);
+      std::make_unique<TransientUniforms<GlobalUniforms>>(app, commandBuffer);
 
   std::vector<SubpassBuilder> subpassBuilders;
 
@@ -182,10 +185,11 @@ void SponzaTest::createRenderState(Application& app) {
       GEngineDirectory + "/Content/Models/Skybox/front.jpg",
       GEngineDirectory + "/Content/Models/Skybox/back.jpg"};
 
-  this->_pSkybox = std::make_unique<Skybox>(app, skyboxImagePaths, true);
+  this->_pSkybox = std::make_unique<Skybox>(app, commandBuffer, skyboxImagePaths, true);
 
   this->_pSponzaModel = std::make_unique<Model>(
       app,
+      commandBuffer,
       // "/Content/Models/Sponza/glTF/Sponza.gltf",
       GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf",
       *this->_pGltfMaterialAllocator);

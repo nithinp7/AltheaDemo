@@ -1,12 +1,61 @@
 
 #version 450
 
+#define PI 3.14159265359
+
 layout(local_size_x = 16, local_size_y = 16) in;
-layout(set=0, binding=0, rgba8) uniform readonly image2D environmentMap;
+// layout(set=0, binding=0, rgba8) uniform readonly image2D environmentMap;
+layout(set=0, binding=0) uniform sampler2D environmentMap;
 layout(set=0, binding=1) uniform writeonly image2D irradianceMap;
+
+layout(push_constant) uniform PushConstants {
+  float width;
+  float height;
+} pushConstants;
 
 void main() {
   ivec2 texelPos = ivec2(gl_GlobalInvocationID.xy);
-  vec4 color = imageLoad(environmentMap, texelPos);
+  vec2 texelUv = vec2(texelPos) / vec2(pushConstants.width, pushConstants.height);
+
+  float yaw = PI * (2.0 * texelUv.x - 1.0);
+  float pitch = PI * (texelUv.y - 0.5);
+  // float u_start = texelUv.x - 0.25;
+  // float u_end = texelUv.x + 0.25;
+  // float v_start = texelUv.y - 0.5;
+  // float v_end = texelUv.y + 0.5;
+
+  vec3 irradiance = vec3(0.0);
+  int sampleCount = 0;
+  for (int i = 0; i <= 25; ++i) {
+    float du = 0.5 * float(i) / 25.0 - 0.25;
+    float u = texelUv.x + du;
+
+    // Yaw angle relative to normal (TODO: account for u_offset??)
+    float dYaw = 2.0 * PI * du;
+    float cosdYaw = cos(dYaw);
+    for (int j = 0; j <= 25; ++j) {
+      float dv = float(j) / 25.0 - 0.5;
+      float v = texelUv.y + dv;
+      float flip_u = float(v > 1.0 || v < 0.0);
+      float u_offset = flip_u * 0.5;
+      vec2 uv = vec2(u + u_offset, v);
+
+      float dPitch = PI * dv;
+      float NdotL = cosdYaw * cos(dPitch);
+
+      irradiance += texture(environmentMap, uv).rgb * NdotL;
+      ++sampleCount;
+    }
+  }
+
+  vec4 color = vec4(PI * irradiance / sampleCount, 1.0);
+  // color = color / color.a;
+
+  // vec2 uv = vec2(0.5 * yaw, pitch) / PI + 0.5;
+
+
+  // vec4 color = texture(environmentMap, uv);
+  // vec4 color = vec4(uv, 0.0, 1.0);
+  // vec4 color = imageLoad(environmentMap, texelPos);
   imageStore(irradianceMap, texelPos, color);
 }

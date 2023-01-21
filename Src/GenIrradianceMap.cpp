@@ -3,6 +3,7 @@
 #include <Althea/Application.h>
 #include <Althea/InputManager.h>
 #include <Althea/Utilities.h>
+#include <Althea/SingleTimeCommandBuffer.h>
 #include <CesiumGltf/ImageCesium.h>
 #include <CesiumGltfReader/GltfReader.h>
 #include <gsl/span>
@@ -12,28 +13,43 @@
 #include <stdexcept>
 #include <vector>
 
+#ifndef STB_IMAGE_IMPLEMENTATION
+#include <stb_image.h>
+#endif
+
 using namespace AltheaEngine;
 
-static CesiumGltf::ImageCesium loadHdri(const std::string& path) {
+namespace {
+struct ImageDetailsPushConstants {
+  float width;
+  float height;
+};
+
+CesiumGltf::ImageCesium loadHdri(const std::string& path) {
   std::vector<char> data = Utilities::readFile(path);
 
-  CesiumGltfReader::ImageReaderResult result =
-      CesiumGltfReader::GltfReader::readImage(
-          gsl::span<const std::byte>(
-              reinterpret_cast<const std::byte*>(data.data()),
-              data.size()),
-          {});
+  CesiumGltf::ImageCesium image;
+  image.channels = 4;
+  image.bytesPerChannel = 4;
 
-  if (!result.image) {
-    throw std::runtime_error("Could not load skybox image!");
-  }
+  int32_t originalChannels;
+  float* pHdriImage = stbi_loadf_from_memory(
+      reinterpret_cast<stbi_uc*>(data.data()),
+      static_cast<int>(data.size()),
+      &image.width,
+      &image.height,
+      &originalChannels,
+      4);
 
-  if (CesiumGltfReader::GltfReader::generateMipMaps(*result.image)) {
-    throw std::runtime_error("Could not generate mipmap for skybox image!");
-  }
+  image.pixelData.resize(
+      image.width * image.height * image.channels * image.bytesPerChannel);
+  std::memcpy(image.pixelData.data(), pHdriImage, image.pixelData.size());
 
-  return std::move(*result.image);
+  stbi_image_free(pHdriImage);
+
+  return std::move(image);
 }
+} // namespace
 
 void GenIrradianceMap::initGame(Application& app) {
   const VkExtent2D& windowDims = app.getSwapChainExtent();
@@ -59,7 +75,7 @@ void GenIrradianceMap::initGame(Application& app) {
           }
         }
       });
-  
+
   // Refresh render state (useful to update compute shader)
   // TODO: implement compute pipeline hot-reloading
   input.addKeyBinding(
@@ -68,8 +84,7 @@ void GenIrradianceMap::initGame(Application& app) {
         vkDeviceWaitIdle(app.getDevice());
         that->destroyRenderState(app);
         that->createRenderState(app);
-      }
-  );
+      });
 }
 
 void GenIrradianceMap::shutdownGame(Application& app) {
@@ -81,34 +96,46 @@ void GenIrradianceMap::createRenderState(Application& app) {
   this->_pCameraController->getCamera().setAspectRatio(
       (float)extent.width / (float)extent.height);
 
+  SingleTimeCommandBuffer commandBuffer(app);
+
   // Environment map
-  CesiumGltf::ImageCesium envMapImg =
-      loadHdri(GProjectDirectory + "/Content/HDRI_Skybox/LuxuryRoom.hdr");
-  this->_environmentMap.image = Image(
-      app,
-      envMapImg,
-      VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-          VK_IMAGE_USAGE_SAMPLED_BIT);
-  const ImageOptions& imageDetails = this->_environmentMap.image.getOptions();
+  CesiumGltf::ImageCesium envMapImg = loadHdri(
+      GProjectDirectory + "/Content/HDRI_Skybox/NeoclassicalInterior.hdr");
+  // loadHdri(GProjectDirectory + "/Content/HDRI_Skybox/LuxuryRoom.hdr");
+
+  ImageOptions imageOptions{};
+  imageOptions.width = static_cast<uint32_t>(envMapImg.width);
+  imageOptions.height = static_cast<uint32_t>(envMapImg.height);
+  imageOptions.mipCount =
+      Utilities::computeMipCount(imageOptions.width, imageOptions.height);
+  imageOptions.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+  imageOptions.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                       VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                       VK_IMAGE_USAGE_SAMPLED_BIT;
+  this->_environmentMap.image =
+      Image(app, commandBuffer, envMapImg.pixelData, imageOptions);
 
   SamplerOptions samplerOptions{};
-  samplerOptions.mipCount = imageDetails.mipCount;
+  samplerOptions.mipCount = imageOptions.mipCount;
+  samplerOptions.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  samplerOptions.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
   this->_environmentMap.sampler = Sampler(app, samplerOptions);
 
   // TODO: create straight from image details?
   this->_environmentMap.view = ImageView(
       app,
       this->_environmentMap.image.getImage(),
-      imageDetails.format,
-      imageDetails.mipCount,
+      imageOptions.format,
+      imageOptions.mipCount,
       1,
       VK_IMAGE_VIEW_TYPE_2D,
       VK_IMAGE_ASPECT_COLOR_BIT);
 
   // Create device-only resource for irradiance map
   ImageOptions irrMapOptions{};
-  irrMapOptions.width = imageDetails.width;
-  irrMapOptions.height = imageDetails.height;
+  irrMapOptions.width = imageOptions.width;
+  irrMapOptions.height = imageOptions.height;
+  irrMapOptions.format = imageOptions.format;
   irrMapOptions.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
 
   this->_irradianceMap.image = Image(app, irrMapOptions);
@@ -116,7 +143,7 @@ void GenIrradianceMap::createRenderState(Application& app) {
   this->_irradianceMap.view = ImageView(
       app,
       this->_irradianceMap.image.getImage(),
-      imageDetails.format,
+      imageOptions.format,
       1,
       1,
       VK_IMAGE_VIEW_TYPE_2D,
@@ -126,7 +153,7 @@ void GenIrradianceMap::createRenderState(Application& app) {
   DescriptorSetLayoutBuilder computeResourcesLayout{};
   computeResourcesLayout
       // Environment map input
-      .addStorageImageBinding()
+      .addTextureBinding(VK_SHADER_STAGE_COMPUTE_BIT)
       // Irradiance map output
       .addStorageImageBinding();
 
@@ -137,7 +164,7 @@ void GenIrradianceMap::createRenderState(Application& app) {
   this->_computePass.material
       ->assign()
       // Bind environment map input
-      .bindStorageImage(
+      .bindTextureDescriptor(
           this->_environmentMap.view,
           this->_environmentMap.sampler)
       // Bind irradiance map output
@@ -148,8 +175,9 @@ void GenIrradianceMap::createRenderState(Application& app) {
   ComputePipelineBuilder computeBuilder;
   computeBuilder.setComputeShader(
       GProjectDirectory + "/Shaders/GenIrradianceMap.comp");
-  computeBuilder.layoutBuilder.addDescriptorSet(
-      this->_computePass.materialAllocator->getLayout());
+  computeBuilder.layoutBuilder
+      .addDescriptorSet(this->_computePass.materialAllocator->getLayout())
+      .addPushConstants<ImageDetailsPushConstants>(VK_SHADER_STAGE_COMPUTE_BIT);
 
   this->_computePass.pipeline = ComputePipeline(app, std::move(computeBuilder));
 
@@ -168,11 +196,11 @@ void GenIrradianceMap::createRenderState(Application& app) {
   this->_renderPass.pGlobalResources =
       std::make_unique<PerFrameResources>(app, globalResourcesBuilder);
   this->_renderPass.pGlobalUniforms =
-      std::make_unique<TransientUniforms<CameraUniforms>>(app);
+      std::make_unique<TransientUniforms<CameraUniforms>>(app, commandBuffer);
 
   this->_renderPass.pGlobalResources
       ->assign()
-      // Enviornment map
+      // Environment map
       .bindTexture(this->_environmentMap.view, this->_environmentMap.sampler)
       // Irradiance map
       .bindTexture(this->_irradianceMap.view, this->_irradianceMap.sampler)
@@ -226,6 +254,7 @@ void GenIrradianceMap::destroyRenderState(Application& app) {
   this->_renderPass = {};
   this->_environmentMap = {};
   this->_irradianceMap = {};
+  this->_generateIrradianceMap = true;
 }
 
 void GenIrradianceMap::tick(Application& app, const FrameContext& frame) {
@@ -259,7 +288,7 @@ void GenIrradianceMap::draw(
   if (this->_generateIrradianceMap) {
     this->_environmentMap.image.transitionLayout(
         commandBuffer,
-        VK_IMAGE_LAYOUT_GENERAL,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         VK_ACCESS_SHADER_READ_BIT,
         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
     this->_irradianceMap.image.transitionLayout(
@@ -283,6 +312,17 @@ void GenIrradianceMap::draw(
         nullptr);
 
     const ImageOptions& imageDetails = this->_environmentMap.image.getOptions();
+    ImageDetailsPushConstants pushConstants{};
+    pushConstants.width = static_cast<float>(imageDetails.width);
+    pushConstants.height = static_cast<float>(imageDetails.height);
+    vkCmdPushConstants(
+        commandBuffer,
+        this->_computePass.pipeline.getLayout(),
+        VK_SHADER_STAGE_COMPUTE_BIT,
+        0,
+        sizeof(ImageDetailsPushConstants),
+        &pushConstants);
+
     uint32_t groupCountX = imageDetails.width / 16;
     uint32_t groupCountY = imageDetails.height / 16;
     vkCmdDispatch(commandBuffer, groupCountX, groupCountY, 1);
