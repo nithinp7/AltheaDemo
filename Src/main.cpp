@@ -1,10 +1,12 @@
-#include <Althea/Application.h>
-#include "SponzaTest.h"
 #include "GenIrradianceMap.h"
+#include "SponzaTest.h"
+
+#include <Althea/Application.h>
 
 #include <iostream>
 
 using namespace AltheaEngine;
+using namespace AltheaDemo;
 
 int main() {
   Application app("../..", "../../Extern/Althea");

@@ -1,14 +1,13 @@
 #pragma once
 
-#include <Althea/IGameInstance.h>
+#include <Althea/CameraController.h>
 #include <Althea/ComputePipeline.h>
+#include <Althea/IGameInstance.h>
 #include <Althea/Image.h>
-#include <Althea/Sampler.h>
 #include <Althea/PerFrameResources.h>
 #include <Althea/RenderPass.h>
+#include <Althea/Sampler.h>
 #include <Althea/TransientUniforms.h>
-#include <Althea/CameraController.h>
-
 #include <glm/glm.hpp>
 
 #include <memory>
@@ -19,12 +18,11 @@ namespace AltheaEngine {
 class Application;
 } // namespace AltheaEngine
 
-// TODO Put all these in separate namespace!!
-
+namespace AltheaDemo {
 struct GenIrradiancePass {
   std::unique_ptr<DescriptorSetAllocator> materialAllocator{};
   std::unique_ptr<DescriptorSet> material{};
-  
+
   ComputePipeline pipeline{};
 };
 
@@ -79,3 +77,4 @@ private:
 
   bool _generateIrradianceMap = true;
 };
+} // namespace AltheaDemo

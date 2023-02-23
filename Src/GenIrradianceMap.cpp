@@ -2,20 +2,23 @@
 
 #include <Althea/Application.h>
 #include <Althea/InputManager.h>
-#include <Althea/Utilities.h>
 #include <Althea/SingleTimeCommandBuffer.h>
+#include <Althea/Utilities.h>
 #include <CesiumGltf/ImageCesium.h>
 #include <CesiumGltfReader/GltfReader.h>
 #include <gsl/span>
 #include <stb_image.h>
 
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <vector>
 
-#ifndef STB_IMAGE_IMPLEMENTATION
-#include <stb_image.h>
-#endif
+#define STB_IMAGE_WRITE_IMPLEMENTATION
+#define STBI_MSC_SECURE_CRT
+#include "stb_image_write.h"
+
+#define CHANNEL_NUM 3
 
 using namespace AltheaEngine;
 
@@ -49,8 +52,22 @@ CesiumGltf::ImageCesium loadHdri(const std::string& path) {
 
   return std::move(image);
 }
+
+void saveHdri(
+    const std::string& path,
+    int width,
+    int height,
+    gsl::span<const std::byte> data) {
+  stbi_write_hdr(
+      path.c_str(),
+      width,
+      height,
+      4,
+      reinterpret_cast<const float*>(data.data()));
+}
 } // namespace
 
+namespace AltheaDemo {
 void GenIrradianceMap::initGame(Application& app) {
   const VkExtent2D& windowDims = app.getSwapChainExtent();
   this->_pCameraController = std::make_unique<CameraController>(
@@ -136,7 +153,9 @@ void GenIrradianceMap::createRenderState(Application& app) {
   irrMapOptions.width = imageOptions.width;
   irrMapOptions.height = imageOptions.height;
   irrMapOptions.format = imageOptions.format;
-  irrMapOptions.usage = VK_IMAGE_USAGE_SAMPLED_BIT | VK_IMAGE_USAGE_STORAGE_BIT;
+  irrMapOptions.usage = VK_IMAGE_USAGE_SAMPLED_BIT |
+                        VK_IMAGE_USAGE_STORAGE_BIT |
+                        VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
 
   this->_irradianceMap.image = Image(app, irrMapOptions);
   this->_irradianceMap.sampler = Sampler(app, samplerOptions);
@@ -332,6 +351,46 @@ void GenIrradianceMap::draw(
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
         VK_ACCESS_SHADER_READ_BIT,
         VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+
+    VmaAllocationCreateInfo stagingAllocInfo{};
+    stagingAllocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
+    stagingAllocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+    stagingAllocInfo.requiredFlags = VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT;
+
+    BufferAllocation stagingBuffer = BufferUtilities::createBuffer(
+        app,
+        commandBuffer,
+        imageDetails.width * imageDetails.height * 32 * 4,
+        VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+        stagingAllocInfo);
+
+    this->_irradianceMap.image
+        .copyMipToBuffer(commandBuffer, stagingBuffer.getBuffer(), 0, 0);
+
+    // Write out image and delete the staging buffer once the frame is
+    // complete
+    app.addDeletiontask(DeletionTask{
+        [width = imageDetails.width,
+         height = imageDetails.height,
+         pStagingBuffer = new BufferAllocation(std::move(stagingBuffer))]() {
+          size_t bufferSize = pStagingBuffer->getInfo().size;
+          std::vector<std::byte> buffer;
+          buffer.resize(bufferSize);
+
+          void* pStaging = pStagingBuffer->mapMemory();
+          std::memcpy(buffer.data(), pStaging, bufferSize);
+          pStagingBuffer->unmapMemory();
+
+          saveHdri(
+              GProjectDirectory + "/IrradianceMaps/test.hdr",
+              static_cast<int>(width),
+              static_cast<int>(height),
+              buffer);
+
+          delete pStagingBuffer;
+        },
+        app.getCurrentFrameRingBufferIndex()});
+
     this->_irradianceMap.image.transitionLayout(
         commandBuffer,
         VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -349,3 +408,4 @@ void GenIrradianceMap::draw(
       .setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1))
       .draw(DrawableEnvMap{});
 }
+} // namespace AltheaDemo

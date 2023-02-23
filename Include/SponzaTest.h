@@ -13,7 +13,6 @@
 #include <Althea/Sampler.h>
 #include <Althea/Skybox.h>
 #include <Althea/TransientUniforms.h>
-
 #include <glm/glm.hpp>
 
 using namespace AltheaEngine;
@@ -22,6 +21,7 @@ namespace AltheaEngine {
 class Application;
 } // namespace AltheaEngine
 
+namespace AltheaDemo {
 struct GlobalUniforms {
   glm::mat4 projection;
   glm::mat4 inverseProjection;
@@ -80,3 +80,4 @@ private:
   std::string _currentShader = "BasicGltf";
   bool _envMap = false;
 };
+} // namespace AltheaDemo

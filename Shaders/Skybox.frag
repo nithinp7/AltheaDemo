@@ -18,4 +18,7 @@ void main() {
   vec2 uv = vec2(0.5 * yaw, pitch) / PI + 0.5;
   // color = texture(environmentMap, uv);
   color = texture(irradianceMap, uv);
+
+  // HDR to standard range
+  // color.rgb = color.rgb / (color.rgb + vec3(1.0));
 }

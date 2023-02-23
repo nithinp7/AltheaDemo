@@ -1,7 +1,6 @@
 #include "SponzaTest.h"
 
 #include <Althea/Application.h>
-#include <Althea/SingleTimeCommandBuffer.h>
 #include <Althea/Camera.h>
 #include <Althea/Cubemap.h>
 #include <Althea/DescriptorSet.h>
@@ -9,7 +8,7 @@
 #include <Althea/InputManager.h>
 #include <Althea/ModelViewProjection.h>
 #include <Althea/Primitive.h>
-
+#include <Althea/SingleTimeCommandBuffer.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 #include <vulkan/vulkan.h>
@@ -23,6 +22,7 @@
 
 using namespace AltheaEngine;
 
+namespace AltheaDemo {
 SponzaTest::SponzaTest() {}
 
 void SponzaTest::initGame(Application& app) {
@@ -118,7 +118,7 @@ void SponzaTest::createRenderState(Application& app) {
       .addTextureBinding();
 
   SingleTimeCommandBuffer commandBuffer(app);
-  
+
   this->_pGlobalResources =
       std::make_shared<PerFrameResources>(app, globalResourceLayout);
   this->_pGlobalUniforms =
@@ -185,7 +185,8 @@ void SponzaTest::createRenderState(Application& app) {
       GEngineDirectory + "/Content/Models/Skybox/front.jpg",
       GEngineDirectory + "/Content/Models/Skybox/back.jpg"};
 
-  this->_pSkybox = std::make_unique<Skybox>(app, commandBuffer, skyboxImagePaths, true);
+  this->_pSkybox =
+      std::make_unique<Skybox>(app, commandBuffer, skyboxImagePaths, true);
 
   this->_pSponzaModel = std::make_unique<Model>(
       app,
@@ -318,3 +319,4 @@ void SponzaTest::_initComputePass(Application& app) {
   this->_pComputePass->pipeline =
       ComputePipeline(app, std::move(computeBuilder));
 }
+} // namespace AltheaDemo
