@@ -86,8 +86,6 @@ void SponzaTest::createRenderState(Application& app) {
   this->_pCameraController->getCamera().setAspectRatio(
       (float)extent.width / (float)extent.height);
 
-  this->_initComputePass(app);
-
   // TODO: Default color and depth-stencil clear values for attachments?
   VkClearValue colorClear;
   colorClear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
@@ -113,9 +111,7 @@ void SponzaTest::createRenderState(Application& app) {
       // Add slot for skybox cubemap.
       .addTextureBinding()
       // Global uniforms.
-      .addUniformBufferBinding()
-      // Compute shader output.
-      .addTextureBinding();
+      .addUniformBufferBinding();
 
   SingleTimeCommandBuffer commandBuffer(app);
 
@@ -158,8 +154,7 @@ void SponzaTest::createRenderState(Application& app) {
         // Vertex shader
         .addVertexShader(GEngineDirectory + "/Shaders/GltfPBR.vert")
         // Fragment shader
-        // .addFragmentShader("/Shaders/GltfPBR.frag")
-        .addFragmentShader(GEngineDirectory + "/Shaders/GltfComp.frag")
+        .addFragmentShader(GEngineDirectory + "/Shaders/GltfPBR.frag")
 
         // Pipeline resource layouts
         .layoutBuilder
@@ -199,9 +194,7 @@ void SponzaTest::createRenderState(Application& app) {
   const std::shared_ptr<Cubemap>& pCubemap = this->_pSkybox->getCubemap();
   this->_pGlobalResources->assign()
       .bindTexture(pCubemap->getImageView(), pCubemap->getSampler())
-      .bindTransientUniforms(*this->_pGlobalUniforms)
-      // Compute output
-      .bindTexture(this->_pComputePass->view, this->_pComputePass->sampler);
+      .bindTransientUniforms(*this->_pGlobalUniforms);
 }
 
 void SponzaTest::destroyRenderState(Application& app) {
@@ -211,7 +204,6 @@ void SponzaTest::destroyRenderState(Application& app) {
   this->_pGlobalResources.reset();
   this->_pGlobalUniforms.reset();
   this->_pGltfMaterialAllocator.reset();
-  this->_pComputePass.reset();
 }
 
 void SponzaTest::tick(Application& app, const FrameContext& frame) {
@@ -236,34 +228,6 @@ void SponzaTest::draw(
     VkCommandBuffer commandBuffer,
     const FrameContext& frame) {
 
-  this->_pComputePass->image.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_GENERAL,
-      VK_ACCESS_SHADER_WRITE_BIT,
-      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
-
-  this->_pComputePass->pipeline.bindPipeline(commandBuffer);
-
-  VkDescriptorSet currentSet =
-      this->_pComputePass->resources.getCurrentDescriptorSet(frame);
-  vkCmdBindDescriptorSets(
-      commandBuffer,
-      VK_PIPELINE_BIND_POINT_COMPUTE,
-      this->_pComputePass->pipeline.getLayout(),
-      0,
-      1,
-      &currentSet,
-      0,
-      nullptr);
-
-  vkCmdDispatch(commandBuffer, 32, 32, 1);
-
-  this->_pComputePass->image.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-      VK_ACCESS_SHADER_READ_BIT,
-      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-
   VkDescriptorSet globalDescriptorSet =
       this->_pGlobalResources->getCurrentDescriptorSet(frame);
 
@@ -276,47 +240,5 @@ void SponzaTest::draw(
       .nextSubpass()
       // Draw Sponza model
       .draw(*this->_pSponzaModel);
-}
-
-// Experimental compute pass code:
-void SponzaTest::_initComputePass(Application& app) {
-  // Init compute shader
-  this->_pComputePass = std::make_unique<ComputePass>();
-
-  ImageOptions imageOptions{};
-  imageOptions.width = 512;
-  imageOptions.height = 512;
-  imageOptions.format = VK_FORMAT_R8G8B8A8_UNORM;
-  imageOptions.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-
-  this->_pComputePass->image = Image(app, imageOptions);
-
-  SamplerOptions options{};
-  this->_pComputePass->sampler = Sampler(app, options);
-  this->_pComputePass->view = ImageView(
-      app,
-      this->_pComputePass->image.getImage(),
-      VK_FORMAT_R8G8B8A8_UNORM,
-      1,
-      1,
-      VK_IMAGE_VIEW_TYPE_2D,
-      VK_IMAGE_ASPECT_COLOR_BIT);
-
-  DescriptorSetLayoutBuilder computeResourcesLayout;
-  computeResourcesLayout.addStorageImageBinding();
-
-  this->_pComputePass->resources =
-      PerFrameResources(app, computeResourcesLayout);
-  this->_pComputePass->resources.assign().bindStorageImage(
-      this->_pComputePass->view,
-      this->_pComputePass->sampler);
-
-  ComputePipelineBuilder computeBuilder;
-  computeBuilder.setComputeShader(GEngineDirectory + "/Shaders/Test.comp");
-  computeBuilder.layoutBuilder.addDescriptorSet(
-      this->_pComputePass->resources.getLayout());
-
-  this->_pComputePass->pipeline =
-      ComputePipeline(app, std::move(computeBuilder));
 }
 } // namespace AltheaDemo

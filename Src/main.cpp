@@ -10,7 +10,7 @@ using namespace AltheaDemo;
 
 int main() {
   Application app("../..", "../../Extern/Althea");
-  app.createGame<GenIrradianceMap>();
+  app.createGame<SponzaTest>();
 
   try {
     app.run();
