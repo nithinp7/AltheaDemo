@@ -22,6 +22,8 @@ class Application;
 } // namespace AltheaEngine
 
 namespace AltheaDemo {
+namespace SponzaTest {
+
 struct GlobalUniforms {
   glm::mat4 projection;
   glm::mat4 inverseProjection;
@@ -29,6 +31,18 @@ struct GlobalUniforms {
   glm::mat4 inverseView;
   glm::vec3 lightDir;
   float time;
+};
+
+struct EnvironmentMap {
+  Image image;
+  ImageView view;
+  Sampler sampler;
+};
+
+struct IrradianceMap {
+  Image image;
+  ImageView view;
+  Sampler sampler;
 };
 
 class SponzaTest : public IGameInstance {
@@ -63,8 +77,12 @@ private:
 
   std::unique_ptr<Skybox> _pSkybox;
   std::unique_ptr<Model> _pSponzaModel;
+  
+  EnvironmentMap _environmentMap;
+  IrradianceMap _irradianceMap;
 
   std::string _currentShader = "BasicGltf";
   bool _envMap = false;
 };
+} // namespace SponzaTest
 } // namespace AltheaDemo

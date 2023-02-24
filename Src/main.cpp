@@ -10,7 +10,7 @@ using namespace AltheaDemo;
 
 int main() {
   Application app("../..", "../../Extern/Althea");
-  app.createGame<SponzaTest>();
+  app.createGame<SponzaTest::SponzaTest>();
 
   try {
     app.run();

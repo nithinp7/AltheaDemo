@@ -19,6 +19,8 @@ class Application;
 } // namespace AltheaEngine
 
 namespace AltheaDemo {
+namespace GenIrradianceMap {
+
 struct GenIrradiancePass {
   std::unique_ptr<DescriptorSetAllocator> materialAllocator{};
   std::unique_ptr<DescriptorSet> material{};
@@ -77,4 +79,5 @@ private:
 
   bool _generateIrradianceMap = true;
 };
+} // namespace GenIrradianceMap
 } // namespace AltheaDemo

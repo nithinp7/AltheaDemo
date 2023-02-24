@@ -9,6 +9,7 @@
 #include <Althea/ModelViewProjection.h>
 #include <Althea/Primitive.h>
 #include <Althea/SingleTimeCommandBuffer.h>
+#include <Althea/Utilities.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 #include <vulkan/vulkan.h>
@@ -23,6 +24,8 @@
 using namespace AltheaEngine;
 
 namespace AltheaDemo {
+namespace SponzaTest {
+
 SponzaTest::SponzaTest() {}
 
 void SponzaTest::initGame(Application& app) {
@@ -86,6 +89,64 @@ void SponzaTest::createRenderState(Application& app) {
   this->_pCameraController->getCamera().setAspectRatio(
       (float)extent.width / (float)extent.height);
 
+  SingleTimeCommandBuffer commandBuffer(app);
+
+  // Environment map
+  CesiumGltf::ImageCesium envMapImg = Utilities::loadHdri(
+      GProjectDirectory + "/Content/HDRI_Skybox/NeoclassicalInterior.hdr");
+  
+  ImageOptions imageOptions{};
+  imageOptions.width = static_cast<uint32_t>(envMapImg.width);
+  imageOptions.height = static_cast<uint32_t>(envMapImg.height);
+  imageOptions.mipCount = 1;
+      // Utilities::computeMipCount(imageOptions.width, imageOptions.height);
+  imageOptions.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+  imageOptions.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                       VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                       VK_IMAGE_USAGE_SAMPLED_BIT;
+  this->_environmentMap.image =
+      Image(app, commandBuffer, envMapImg.pixelData, imageOptions);
+
+  SamplerOptions samplerOptions{};
+  samplerOptions.mipCount = imageOptions.mipCount;
+  samplerOptions.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  samplerOptions.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  samplerOptions.minFilter = VK_FILTER_LINEAR;
+  this->_environmentMap.sampler = Sampler(app, samplerOptions);
+
+  // TODO: create straight from image details?
+  this->_environmentMap.view = ImageView(
+      app,
+      this->_environmentMap.image.getImage(),
+      imageOptions.format,
+      imageOptions.mipCount,
+      1,
+      VK_IMAGE_VIEW_TYPE_2D,
+      VK_IMAGE_ASPECT_COLOR_BIT);
+
+  CesiumGltf::ImageCesium irrMapImg = Utilities::loadHdri(
+      GProjectDirectory + "/IrradianceMaps/test.hdr");
+
+  ImageOptions irrMapOptions{};
+  irrMapOptions.width = imageOptions.width;
+  irrMapOptions.height = imageOptions.height;
+  irrMapOptions.format = imageOptions.format;
+  irrMapOptions.usage = VK_IMAGE_USAGE_SAMPLED_BIT |
+                        VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                        VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+
+  this->_irradianceMap.image = 
+      Image(app, commandBuffer, irrMapImg.pixelData, irrMapOptions);
+  this->_irradianceMap.sampler = Sampler(app, samplerOptions);
+  this->_irradianceMap.view = ImageView(
+      app,
+      this->_irradianceMap.image.getImage(),
+      imageOptions.format,
+      1,
+      1,
+      VK_IMAGE_VIEW_TYPE_2D,
+      VK_IMAGE_ASPECT_COLOR_BIT);
+
   // TODO: Default color and depth-stencil clear values for attachments?
   VkClearValue colorClear;
   colorClear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
@@ -108,12 +169,12 @@ void SponzaTest::createRenderState(Application& app) {
   DescriptorSetLayoutBuilder globalResourceLayout;
 
   globalResourceLayout
-      // Add slot for skybox cubemap.
+      // Add slot for environmentMap
       .addTextureBinding()
+      // Add slot for irradianceMap
+      // .addTextureBinding()
       // Global uniforms.
       .addUniformBufferBinding();
-
-  SingleTimeCommandBuffer commandBuffer(app);
 
   this->_pGlobalResources =
       std::make_shared<PerFrameResources>(app, globalResourceLayout);
@@ -172,17 +233,6 @@ void SponzaTest::createRenderState(Application& app) {
 
   std::vector<Subpass>& subpasses = this->_pRenderPass->getSubpasses();
 
-  const static std::array<std::string, 6> skyboxImagePaths = {
-      GEngineDirectory + "/Content/Models/Skybox/right.jpg",
-      GEngineDirectory + "/Content/Models/Skybox/left.jpg",
-      GEngineDirectory + "/Content/Models/Skybox/top.jpg",
-      GEngineDirectory + "/Content/Models/Skybox/bottom.jpg",
-      GEngineDirectory + "/Content/Models/Skybox/front.jpg",
-      GEngineDirectory + "/Content/Models/Skybox/back.jpg"};
-
-  this->_pSkybox =
-      std::make_unique<Skybox>(app, commandBuffer, skyboxImagePaths, true);
-
   this->_pSponzaModel = std::make_unique<Model>(
       app,
       commandBuffer,
@@ -190,10 +240,8 @@ void SponzaTest::createRenderState(Application& app) {
       GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf",
       *this->_pGltfMaterialAllocator);
 
-  // Bind the skybox cubemap as a global resource
-  const std::shared_ptr<Cubemap>& pCubemap = this->_pSkybox->getCubemap();
   this->_pGlobalResources->assign()
-      .bindTexture(pCubemap->getImageView(), pCubemap->getSampler())
+      .bindTexture(this->_environmentMap.view, this->_environmentMap.sampler)
       .bindTransientUniforms(*this->_pGlobalUniforms);
 }
 
@@ -204,6 +252,8 @@ void SponzaTest::destroyRenderState(Application& app) {
   this->_pGlobalResources.reset();
   this->_pGlobalUniforms.reset();
   this->_pGltfMaterialAllocator.reset();
+  this->_environmentMap = {};
+  this->_irradianceMap = {};
 }
 
 void SponzaTest::tick(Application& app, const FrameContext& frame) {
@@ -241,4 +291,5 @@ void SponzaTest::draw(
       // Draw Sponza model
       .draw(*this->_pSponzaModel);
 }
+} // namespace SponzaTest
 } // namespace AltheaDemo

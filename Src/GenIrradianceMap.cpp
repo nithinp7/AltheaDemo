@@ -7,18 +7,11 @@
 #include <CesiumGltf/ImageCesium.h>
 #include <CesiumGltfReader/GltfReader.h>
 #include <gsl/span>
-#include <stb_image.h>
 
 #include <iostream>
 #include <memory>
 #include <stdexcept>
 #include <vector>
-
-#define STB_IMAGE_WRITE_IMPLEMENTATION
-#define STBI_MSC_SECURE_CRT
-#include "stb_image_write.h"
-
-#define CHANNEL_NUM 3
 
 using namespace AltheaEngine;
 
@@ -27,47 +20,11 @@ struct ImageDetailsPushConstants {
   float width;
   float height;
 };
-
-CesiumGltf::ImageCesium loadHdri(const std::string& path) {
-  std::vector<char> data = Utilities::readFile(path);
-
-  CesiumGltf::ImageCesium image;
-  image.channels = 4;
-  image.bytesPerChannel = 4;
-
-  int32_t originalChannels;
-  float* pHdriImage = stbi_loadf_from_memory(
-      reinterpret_cast<stbi_uc*>(data.data()),
-      static_cast<int>(data.size()),
-      &image.width,
-      &image.height,
-      &originalChannels,
-      4);
-
-  image.pixelData.resize(
-      image.width * image.height * image.channels * image.bytesPerChannel);
-  std::memcpy(image.pixelData.data(), pHdriImage, image.pixelData.size());
-
-  stbi_image_free(pHdriImage);
-
-  return std::move(image);
-}
-
-void saveHdri(
-    const std::string& path,
-    int width,
-    int height,
-    gsl::span<const std::byte> data) {
-  stbi_write_hdr(
-      path.c_str(),
-      width,
-      height,
-      4,
-      reinterpret_cast<const float*>(data.data()));
-}
 } // namespace
 
 namespace AltheaDemo {
+namespace GenIrradianceMap {
+
 void GenIrradianceMap::initGame(Application& app) {
   const VkExtent2D& windowDims = app.getSwapChainExtent();
   this->_pCameraController = std::make_unique<CameraController>(
@@ -116,7 +73,7 @@ void GenIrradianceMap::createRenderState(Application& app) {
   SingleTimeCommandBuffer commandBuffer(app);
 
   // Environment map
-  CesiumGltf::ImageCesium envMapImg = loadHdri(
+  CesiumGltf::ImageCesium envMapImg = Utilities::loadHdri(
       GProjectDirectory + "/Content/HDRI_Skybox/NeoclassicalInterior.hdr");
   // loadHdri(GProjectDirectory + "/Content/HDRI_Skybox/LuxuryRoom.hdr");
 
@@ -381,7 +338,7 @@ void GenIrradianceMap::draw(
           std::memcpy(buffer.data(), pStaging, bufferSize);
           pStagingBuffer->unmapMemory();
 
-          saveHdri(
+          Utilities::saveHdri(
               GProjectDirectory + "/IrradianceMaps/test.hdr",
               static_cast<int>(width),
               static_cast<int>(height),
@@ -408,4 +365,6 @@ void GenIrradianceMap::draw(
       .setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1))
       .draw(DrawableEnvMap{});
 }
+
+} // namespace GenIrradianceMap
 } // namespace AltheaDemo
