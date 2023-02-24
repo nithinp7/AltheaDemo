@@ -94,18 +94,24 @@ void SponzaTest::createRenderState(Application& app) {
   // Environment map
   CesiumGltf::ImageCesium envMapImg = Utilities::loadHdri(
       GProjectDirectory + "/Content/HDRI_Skybox/NeoclassicalInterior.hdr");
-  
+
   ImageOptions imageOptions{};
   imageOptions.width = static_cast<uint32_t>(envMapImg.width);
   imageOptions.height = static_cast<uint32_t>(envMapImg.height);
   imageOptions.mipCount = 1;
-      // Utilities::computeMipCount(imageOptions.width, imageOptions.height);
+  // Utilities::computeMipCount(imageOptions.width, imageOptions.height);
   imageOptions.format = VK_FORMAT_R32G32B32A32_SFLOAT;
   imageOptions.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                        VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
                        VK_IMAGE_USAGE_SAMPLED_BIT;
   this->_environmentMap.image =
       Image(app, commandBuffer, envMapImg.pixelData, imageOptions);
+
+  this->_environmentMap.image.transitionLayout(
+      commandBuffer,
+      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+      VK_ACCESS_SHADER_READ_BIT,
+      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 
   SamplerOptions samplerOptions{};
   samplerOptions.mipCount = imageOptions.mipCount;
@@ -124,19 +130,26 @@ void SponzaTest::createRenderState(Application& app) {
       VK_IMAGE_VIEW_TYPE_2D,
       VK_IMAGE_ASPECT_COLOR_BIT);
 
-  CesiumGltf::ImageCesium irrMapImg = Utilities::loadHdri(
-      GProjectDirectory + "/IrradianceMaps/test.hdr");
+  CesiumGltf::ImageCesium irrMapImg =
+      Utilities::loadHdri(GProjectDirectory + "/IrradianceMaps/test.hdr");
 
   ImageOptions irrMapOptions{};
   irrMapOptions.width = imageOptions.width;
   irrMapOptions.height = imageOptions.height;
   irrMapOptions.format = imageOptions.format;
-  irrMapOptions.usage = VK_IMAGE_USAGE_SAMPLED_BIT |
-                        VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                        VK_IMAGE_USAGE_TRANSFER_SRC_BIT;
+  irrMapOptions.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                        VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                        VK_IMAGE_USAGE_SAMPLED_BIT;
 
-  this->_irradianceMap.image = 
+  this->_irradianceMap.image =
       Image(app, commandBuffer, irrMapImg.pixelData, irrMapOptions);
+      
+  this->_irradianceMap.image.transitionLayout(
+      commandBuffer,
+      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+      VK_ACCESS_SHADER_READ_BIT,
+      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+
   this->_irradianceMap.sampler = Sampler(app, samplerOptions);
   this->_irradianceMap.view = ImageView(
       app,
@@ -172,7 +185,7 @@ void SponzaTest::createRenderState(Application& app) {
       // Add slot for environmentMap
       .addTextureBinding()
       // Add slot for irradianceMap
-      // .addTextureBinding()
+      .addTextureBinding()
       // Global uniforms.
       .addUniformBufferBinding();
 
@@ -236,12 +249,13 @@ void SponzaTest::createRenderState(Application& app) {
   this->_pSponzaModel = std::make_unique<Model>(
       app,
       commandBuffer,
-      // "/Content/Models/Sponza/glTF/Sponza.gltf",
-      GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf",
+      GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf",
+      // GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf",
       *this->_pGltfMaterialAllocator);
 
   this->_pGlobalResources->assign()
       .bindTexture(this->_environmentMap.view, this->_environmentMap.sampler)
+      .bindTexture(this->_irradianceMap.view, this->_irradianceMap.sampler)
       .bindTransientUniforms(*this->_pGlobalUniforms);
 }
 
