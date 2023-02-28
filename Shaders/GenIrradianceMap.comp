@@ -2,7 +2,7 @@
 #version 450
 
 #define PI 3.14159265359
-#define MAX_SAMPLES 500
+#define MAX_SAMPLES 250
 
 layout(local_size_x = 16, local_size_y = 16) in;
 // layout(set=0, binding=0, rgba8) uniform readonly image2D environmentMap;
@@ -15,6 +15,21 @@ layout(push_constant) uniform PushConstants {
 } pushConstants;
 
 
+// Useful functions for transforming directions
+// TODO: check if the exact tangent, bitangent coords matter
+void coordinateSystem(in vec3 v1, out vec3 v2, out vec3 v3) {
+    if (abs(v1.x) > abs(v1.y))
+            v2 = vec3(-v1.z, 0, v1.x) / sqrt(v1.x * v1.x + v1.z * v1.z);
+        else
+            v2 = vec3(0, v1.z, -v1.y) / sqrt(v1.y * v1.y + v1.z * v1.z);
+        v3 = cross(v1, v2);
+}
+
+mat3 LocalToWorld(vec3 nor) {
+    vec3 tan, bit;
+    coordinateSystem(nor, tan, bit);
+    return mat3(tan, bit, nor);
+}
 
 // Random number generator and sample warping
 // from ShaderToy https://www.shadertoy.com/view/4tXyWN
@@ -56,22 +71,6 @@ vec3 squareToHemisphereCosine(vec2 xi) {
 
 vec3 sampleHemisphereCosine() {
   return squareToHemisphereCosine(vec2(rng(), rng()));
-}
-
-// Useful functions for transforming directions
-// TODO: check if the exact tangent, bitangent coords matter
-void coordinateSystem(in vec3 v1, out vec3 v2, out vec3 v3) {
-    if (abs(v1.x) > abs(v1.y))
-            v2 = vec3(-v1.z, 0, v1.x) / sqrt(v1.x * v1.x + v1.z * v1.z);
-        else
-            v2 = vec3(0, v1.z, -v1.y) / sqrt(v1.y * v1.y + v1.z * v1.z);
-        v3 = cross(v1, v2);
-}
-
-mat3 LocalToWorld(vec3 nor) {
-    vec3 tan, bit;
-    coordinateSystem(nor, tan, bit);
-    return mat3(tan, bit, nor);
 }
 
 // Samples environment map given direction, as if it was a cubemap

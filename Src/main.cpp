@@ -1,4 +1,4 @@
-#include "GenIrradianceMap.h"
+#include "IBLPrecompute.h"
 #include "SponzaTest.h"
 
 #include <Althea/Application.h>
@@ -10,7 +10,8 @@ using namespace AltheaDemo;
 
 int main() {
   Application app("../..", "../../Extern/Althea");
-  app.createGame<SponzaTest::SponzaTest>();
+  // app.createGame<SponzaTest::SponzaTest>();
+  app.createGame<IBLPrecompute::IBLPrecompute>();
 
   try {
     app.run();

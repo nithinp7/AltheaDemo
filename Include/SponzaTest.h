@@ -1,5 +1,7 @@
 #pragma once
 
+#include "ImageResource.h"
+
 #include <Althea/Allocator.h>
 #include <Althea/CameraController.h>
 #include <Althea/ComputePipeline.h>
@@ -13,6 +15,7 @@
 #include <Althea/Sampler.h>
 #include <Althea/Skybox.h>
 #include <Althea/TransientUniforms.h>
+#include <Althea/Texture.h>
 #include <glm/glm.hpp>
 
 using namespace AltheaEngine;
@@ -31,18 +34,6 @@ struct GlobalUniforms {
   glm::mat4 inverseView;
   glm::vec3 lightDir;
   float time;
-};
-
-struct EnvironmentMap {
-  Image image;
-  ImageView view;
-  Sampler sampler;
-};
-
-struct IrradianceMap {
-  Image image;
-  ImageView view;
-  Sampler sampler;
 };
 
 class SponzaTest : public IGameInstance {
@@ -78,8 +69,9 @@ private:
   std::unique_ptr<Skybox> _pSkybox;
   std::unique_ptr<Model> _pSponzaModel;
   
-  EnvironmentMap _environmentMap;
-  IrradianceMap _irradianceMap;
+  ImageResource _environmentMap;
+  ImageResource _irradianceMap;
+  ImageResource _brdfLut;
 
   std::string _currentShader = "BasicGltf";
   bool _envMap = false;

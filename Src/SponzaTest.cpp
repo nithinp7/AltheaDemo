@@ -98,7 +98,7 @@ void SponzaTest::createRenderState(Application& app) {
   ImageOptions imageOptions{};
   imageOptions.width = static_cast<uint32_t>(envMapImg.width);
   imageOptions.height = static_cast<uint32_t>(envMapImg.height);
-  imageOptions.mipCount = 1;
+  imageOptions.mipCount = 6;
   // Utilities::computeMipCount(imageOptions.width, imageOptions.height);
   imageOptions.format = VK_FORMAT_R32G32B32A32_SFLOAT;
   imageOptions.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
@@ -113,12 +113,13 @@ void SponzaTest::createRenderState(Application& app) {
       VK_ACCESS_SHADER_READ_BIT,
       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 
-  SamplerOptions samplerOptions{};
-  samplerOptions.mipCount = imageOptions.mipCount;
-  samplerOptions.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  samplerOptions.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  samplerOptions.minFilter = VK_FILTER_LINEAR;
-  this->_environmentMap.sampler = Sampler(app, samplerOptions);
+  SamplerOptions envSamplerOptions{};
+  envSamplerOptions.mipCount = imageOptions.mipCount;
+  envSamplerOptions.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  envSamplerOptions.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  envSamplerOptions.minFilter = VK_FILTER_LINEAR;
+  envSamplerOptions.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+  this->_environmentMap.sampler = Sampler(app, envSamplerOptions);
 
   // TODO: create straight from image details?
   this->_environmentMap.view = ImageView(
@@ -131,7 +132,7 @@ void SponzaTest::createRenderState(Application& app) {
       VK_IMAGE_ASPECT_COLOR_BIT);
 
   CesiumGltf::ImageCesium irrMapImg =
-      Utilities::loadHdri(GProjectDirectory + "/IrradianceMaps/test.hdr");
+      Utilities::loadHdri(GProjectDirectory + "/PrecomputedMaps/test.hdr");
 
   ImageOptions irrMapOptions{};
   irrMapOptions.width = imageOptions.width;
@@ -140,6 +141,7 @@ void SponzaTest::createRenderState(Application& app) {
   irrMapOptions.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                         VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
                         VK_IMAGE_USAGE_SAMPLED_BIT;
+  irrMapOptions.mipCount = 1;
 
   this->_irradianceMap.image =
       Image(app, commandBuffer, irrMapImg.pixelData, irrMapOptions);
@@ -150,11 +152,54 @@ void SponzaTest::createRenderState(Application& app) {
       VK_ACCESS_SHADER_READ_BIT,
       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 
-  this->_irradianceMap.sampler = Sampler(app, samplerOptions);
+  SamplerOptions irrSamplerOptions{};
+  irrSamplerOptions.mipCount = irrMapOptions.mipCount;
+  irrSamplerOptions.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  irrSamplerOptions.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  irrSamplerOptions.minFilter = VK_FILTER_LINEAR;
+
+  this->_irradianceMap.sampler = Sampler(app, irrSamplerOptions);
   this->_irradianceMap.view = ImageView(
       app,
       this->_irradianceMap.image.getImage(),
       imageOptions.format,
+      1,
+      1,
+      VK_IMAGE_VIEW_TYPE_2D,
+      VK_IMAGE_ASPECT_COLOR_BIT);
+
+  // BRDF LUT
+  CesiumGltf::ImageCesium brdf = 
+      Utilities::loadPng(GProjectDirectory + "/PrecomputedMaps/ibl_brdf_lut.png");
+
+  ImageOptions brdfOptions{};
+  brdfOptions.width = static_cast<uint32_t>(brdf.width);
+  brdfOptions.height = static_cast<uint32_t>(brdf.height);
+  brdfOptions.format = VK_FORMAT_R8G8B8A8_UNORM;
+  brdfOptions.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                      VK_IMAGE_USAGE_SAMPLED_BIT;
+  brdfOptions.mipCount = 1;
+
+  this->_brdfLut.image =
+      Image(app, commandBuffer, brdf.pixelData, brdfOptions);
+      
+  this->_brdfLut.image.transitionLayout(
+      commandBuffer,
+      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+      VK_ACCESS_SHADER_READ_BIT,
+      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+
+  SamplerOptions brdfSamplerOptions{};
+  brdfSamplerOptions.mipCount = brdfOptions.mipCount;
+  brdfSamplerOptions.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  brdfSamplerOptions.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  brdfSamplerOptions.minFilter = VK_FILTER_LINEAR;
+
+  this->_brdfLut.sampler = Sampler(app, brdfSamplerOptions);
+  this->_brdfLut.view = ImageView(
+      app,
+      this->_brdfLut.image.getImage(),
+      brdfOptions.format,
       1,
       1,
       VK_IMAGE_VIEW_TYPE_2D,
@@ -185,6 +230,8 @@ void SponzaTest::createRenderState(Application& app) {
       // Add slot for environmentMap
       .addTextureBinding()
       // Add slot for irradianceMap
+      .addTextureBinding()
+      // BRDF LUT
       .addTextureBinding()
       // Global uniforms.
       .addUniformBufferBinding();
@@ -256,6 +303,7 @@ void SponzaTest::createRenderState(Application& app) {
   this->_pGlobalResources->assign()
       .bindTexture(this->_environmentMap.view, this->_environmentMap.sampler)
       .bindTexture(this->_irradianceMap.view, this->_irradianceMap.sampler)
+      .bindTexture(this->_brdfLut.view, this->_brdfLut.sampler)
       .bindTransientUniforms(*this->_pGlobalUniforms);
 }
 
@@ -268,6 +316,7 @@ void SponzaTest::destroyRenderState(Application& app) {
   this->_pGltfMaterialAllocator.reset();
   this->_environmentMap = {};
   this->_irradianceMap = {};
+  this->_brdfLut = {};
 }
 
 void SponzaTest::tick(Application& app, const FrameContext& frame) {

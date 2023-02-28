@@ -6,7 +6,7 @@ namespace AltheaDemo {
 /*static*/
 void PbrPrimitive::buildPipeline(GraphicsPipelineBuilder& builder) {
   builder.setPrimitiveType(PrimitiveType::TRIANGLES)
-      .addVertexInputBinding<PhysicsExperiments::Vertex>()
+      .addVertexInputBinding<AltheaDemo::Vertex>()
       .addVertexAttribute(VertexAttributeType::VEC3, offsetof(Vertex, position))
       .addVertexAttribute(VertexAttributeType::VEC3, offsetof(Vertex, normal))
 
@@ -24,7 +24,7 @@ void PbrPrimitive::buildMaterial(DescriptorSetLayoutBuilder& materialBuilder) {
 PbrPrimitive::PbrPrimitive(
     const Application& app,
     SingleTimeCommandBuffer& commandBuffer,
-    std::vector<PhysicsExperiments::Vertex>&& vertices,
+    std::vector<AltheaDemo::Vertex>&& vertices,
     std::vector<uint32_t>&& indices,
     const PbrPrimitiveConstants& constants,
     DescriptorSetAllocator& materialAllocator)
