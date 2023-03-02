@@ -2,7 +2,7 @@
 #version 450
 
 #define PI 3.14159265359
-#define MAX_SAMPLES 250
+#define MAX_SAMPLES 2000
 
 layout(local_size_x = 16, local_size_y = 16) in;
 layout(set=0, binding=0) uniform sampler2D environmentMap;
@@ -110,7 +110,9 @@ vec3 sampleEnvMap(vec3 dir) {
       pitch / PI + 0.5);
 
   vec3 color = texture(environmentMap, uv).rgb;
-  return color / (color + vec3(1.0));
+  // color.rgb = pow(color.rgb, vec3(1.0 / 2.2));
+
+  return color;//color / (color + vec3(1.0));
 }
 
 // Irradiance map generation 
@@ -136,8 +138,8 @@ void main() {
   for (int i = 0; i < MAX_SAMPLES; ++i) {
     vec3 H = localToWorld * sampleGGX(pushConstants.roughness);
     vec3 L = normalize(2.0 * dot(V, H) * H - V);
-
     float NdotL = max(dot(N, L), 0.0);
+
     if (NdotL > 0.0) {
       prefilteredColor += sampleEnvMap(L) * NdotL;
       totalWeight += NdotL;

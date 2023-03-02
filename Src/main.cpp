@@ -10,8 +10,8 @@ using namespace AltheaDemo;
 
 int main() {
   Application app("../..", "../../Extern/Althea");
-  // app.createGame<SponzaTest::SponzaTest>();
-  app.createGame<IBLPrecompute::IBLPrecompute>();
+  app.createGame<SponzaTest::SponzaTest>();
+  // app.createGame<IBLPrecompute::IBLPrecompute>();
 
   try {
     app.run();

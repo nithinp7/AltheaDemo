@@ -133,9 +133,10 @@ void IBLPrecompute::createRenderState(Application& app) {
   SingleTimeCommandBuffer commandBuffer(app);
 
   // Environment map
-  CesiumGltf::ImageCesium envMapImg = Utilities::loadHdri(
+  CesiumGltf::ImageCesium envMapImg = 
+  Utilities::loadHdri(
       GProjectDirectory + "/Content/HDRI_Skybox/NeoclassicalInterior.hdr");
-  // loadHdri(GProjectDirectory + "/Content/HDRI_Skybox/LuxuryRoom.hdr");
+      // Utilities::loadHdri(GProjectDirectory + "/Content/HDRI_Skybox/LuxuryRoom.hdr");
 
   ImageOptions imageOptions{};
   imageOptions.width = static_cast<uint32_t>(envMapImg.width);
@@ -469,7 +470,7 @@ void IBLPrecompute::draw(
       PrefilterEnvMapPushConstants prefilterEnvConstants{};
       prefilterEnvConstants.width = static_cast<float>(width);
       prefilterEnvConstants.height = static_cast<float>(height);
-      prefilterEnvConstants.roughness = static_cast<float>(i + 1.0f) / 5.0f;
+      prefilterEnvConstants.roughness = static_cast<float>(i) / 4.0f;
 
       vkCmdPushConstants(
           commandBuffer,

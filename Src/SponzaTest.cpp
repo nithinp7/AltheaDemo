@@ -93,7 +93,16 @@ void SponzaTest::createRenderState(Application& app) {
 
   // Environment map
   CesiumGltf::ImageCesium envMapImg = Utilities::loadHdri(
+      // GProjectDirectory + "/Content/HDRI_Skybox/LuxuryRoom.hdr");
+    
       GProjectDirectory + "/Content/HDRI_Skybox/NeoclassicalInterior.hdr");
+  std::vector<CesiumGltf::ImageCesium> prefilteredMips;
+  prefilteredMips.reserve(5);
+  for (uint32_t i = 1; i < 6; ++i) {
+    prefilteredMips.push_back(Utilities::loadHdri(
+        GProjectDirectory + "/PrecomputedMaps/Prefiltered" + std::to_string(i) +
+        ".hdr"));
+  }
 
   ImageOptions imageOptions{};
   imageOptions.width = static_cast<uint32_t>(envMapImg.width);
@@ -104,8 +113,7 @@ void SponzaTest::createRenderState(Application& app) {
   imageOptions.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                        VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
                        VK_IMAGE_USAGE_SAMPLED_BIT;
-  this->_environmentMap.image =
-      Image(app, commandBuffer, envMapImg.pixelData, imageOptions);
+  this->_environmentMap.image = Image(app, imageOptions);
 
   this->_environmentMap.image.transitionLayout(
       commandBuffer,
@@ -131,8 +139,27 @@ void SponzaTest::createRenderState(Application& app) {
       VK_IMAGE_VIEW_TYPE_2D,
       VK_IMAGE_ASPECT_COLOR_BIT);
 
-  CesiumGltf::ImageCesium irrMapImg =
-      Utilities::loadHdri(GProjectDirectory + "/PrecomputedMaps/test.hdr");
+  this->_environmentMap.image.transitionLayout(
+      commandBuffer,
+      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
+      VK_ACCESS_TRANSFER_WRITE_BIT,
+      VK_PIPELINE_STAGE_TRANSFER_BIT);
+
+  this->_environmentMap.image
+      .uploadMip(app, commandBuffer, envMapImg.pixelData, 0);
+  for (uint32_t i = 0; i < 5; ++i) {
+    this->_environmentMap.image
+        .uploadMip(app, commandBuffer, prefilteredMips[i].pixelData, i + 1);
+  }
+
+  this->_environmentMap.image.transitionLayout(
+      commandBuffer,
+      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+      VK_ACCESS_SHADER_READ_BIT,
+      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+
+  CesiumGltf::ImageCesium irrMapImg = Utilities::loadHdri(
+      GProjectDirectory + "/PrecomputedMaps/IrradianceMap.hdr");
 
   ImageOptions irrMapOptions{};
   irrMapOptions.width = imageOptions.width;
@@ -145,7 +172,7 @@ void SponzaTest::createRenderState(Application& app) {
 
   this->_irradianceMap.image =
       Image(app, commandBuffer, irrMapImg.pixelData, irrMapOptions);
-      
+
   this->_irradianceMap.image.transitionLayout(
       commandBuffer,
       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -169,20 +196,19 @@ void SponzaTest::createRenderState(Application& app) {
       VK_IMAGE_ASPECT_COLOR_BIT);
 
   // BRDF LUT
-  CesiumGltf::ImageCesium brdf = 
-      Utilities::loadPng(GProjectDirectory + "/PrecomputedMaps/ibl_brdf_lut.png");
+  CesiumGltf::ImageCesium brdf = Utilities::loadPng(
+      GProjectDirectory + "/PrecomputedMaps/ibl_brdf_lut.png");
 
   ImageOptions brdfOptions{};
   brdfOptions.width = static_cast<uint32_t>(brdf.width);
   brdfOptions.height = static_cast<uint32_t>(brdf.height);
   brdfOptions.format = VK_FORMAT_R8G8B8A8_UNORM;
-  brdfOptions.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                      VK_IMAGE_USAGE_SAMPLED_BIT;
+  brdfOptions.usage =
+      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
   brdfOptions.mipCount = 1;
 
-  this->_brdfLut.image =
-      Image(app, commandBuffer, brdf.pixelData, brdfOptions);
-      
+  this->_brdfLut.image = Image(app, commandBuffer, brdf.pixelData, brdfOptions);
+
   this->_brdfLut.image.transitionLayout(
       commandBuffer,
       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -296,8 +322,8 @@ void SponzaTest::createRenderState(Application& app) {
   this->_pSponzaModel = std::make_unique<Model>(
       app,
       commandBuffer,
-      GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf",
-      // GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf",
+      // GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf",
+      GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf",
       *this->_pGltfMaterialAllocator);
 
   this->_pGlobalResources->assign()
