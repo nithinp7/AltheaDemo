@@ -2,7 +2,7 @@
 #version 450
 
 #define PI 3.14159265359
-#define MAX_SAMPLES 500
+#define MAX_SAMPLES 1000
 
 layout(local_size_x = 16, local_size_y = 16) in;
 // layout(set=0, binding=0, rgba8) uniform readonly image2D environmentMap;
@@ -122,7 +122,7 @@ void main() {
     float cosTheta = dot(sampleDir, nor);
     float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
     // TODO: Is this sinTheta term correct?
-    irradiance += sampleEnvMap(sampleDir) * sinTheta;
+    irradiance += sampleEnvMap(sampleDir) * sinTheta * cosTheta;
   }
 
   // The PI term here is used to compensate for the cosine-weighted

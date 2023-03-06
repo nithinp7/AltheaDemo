@@ -70,6 +70,7 @@ private:
   std::unique_ptr<Model> _pSponzaModel;
   
   ImageResource _environmentMap;
+  ImageResource _prefilteredMap;
   ImageResource _irradianceMap;
   ImageResource _brdfLut;
 

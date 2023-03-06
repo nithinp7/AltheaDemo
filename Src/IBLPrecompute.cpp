@@ -22,6 +22,8 @@ struct ImageDetailsPushConstants {
 };
 
 struct PrefilterEnvMapPushConstants {
+  float envMapWidth;
+  float envMapHeight;
   float width;
   float height;
   float roughness;
@@ -133,16 +135,16 @@ void IBLPrecompute::createRenderState(Application& app) {
   SingleTimeCommandBuffer commandBuffer(app);
 
   // Environment map
-  CesiumGltf::ImageCesium envMapImg = 
-  Utilities::loadHdri(
+  CesiumGltf::ImageCesium envMapImg = Utilities::loadHdri(
       GProjectDirectory + "/Content/HDRI_Skybox/NeoclassicalInterior.hdr");
-      // Utilities::loadHdri(GProjectDirectory + "/Content/HDRI_Skybox/LuxuryRoom.hdr");
+  // Utilities::loadHdri(GProjectDirectory +
+  // "/Content/HDRI_Skybox/LuxuryRoom.hdr");
 
   ImageOptions imageOptions{};
   imageOptions.width = static_cast<uint32_t>(envMapImg.width);
   imageOptions.height = static_cast<uint32_t>(envMapImg.height);
-  imageOptions.mipCount = 1;
-  // Utilities::computeMipCount(imageOptions.width, imageOptions.height);
+  imageOptions.mipCount =
+      Utilities::computeMipCount(imageOptions.width, imageOptions.height);
   imageOptions.format = VK_FORMAT_R32G32B32A32_SFLOAT;
   imageOptions.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
                        VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
@@ -154,6 +156,8 @@ void IBLPrecompute::createRenderState(Application& app) {
   samplerOptions.mipCount = imageOptions.mipCount;
   samplerOptions.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
   samplerOptions.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  samplerOptions.minFilter = VK_FILTER_LINEAR;
+  samplerOptions.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
   this->_environmentMap.sampler = Sampler(app, samplerOptions);
 
   // TODO: create straight from image details?
@@ -168,15 +172,21 @@ void IBLPrecompute::createRenderState(Application& app) {
 
   // Create pre-filtered environment maps
   this->_preFilteredMap.reserve(5);
+  SamplerOptions mipSamplerOptions{};
+  mipSamplerOptions.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  mipSamplerOptions.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
+  mipSamplerOptions.mipCount = 1;
+
   for (uint32_t mipIndex = 1; mipIndex < 6; ++mipIndex) {
     ImageOptions mipOptions = imageOptions;
+    mipOptions.mipCount = 1;
     mipOptions.usage |= VK_IMAGE_USAGE_STORAGE_BIT;
     mipOptions.width >>= mipIndex;
     mipOptions.height >>= mipIndex;
 
     ImageResource& mipImage = this->_preFilteredMap.emplace_back();
     mipImage.image = Image(app, mipOptions);
-    mipImage.sampler = Sampler(app, samplerOptions);
+    mipImage.sampler = Sampler(app, mipSamplerOptions);
     mipImage.view = ImageView(
         app,
         mipImage.image.getImage(),
@@ -468,6 +478,10 @@ void IBLPrecompute::draw(
           nullptr);
 
       PrefilterEnvMapPushConstants prefilterEnvConstants{};
+      prefilterEnvConstants.envMapWidth =
+          static_cast<float>(this->_environmentMap.image.getOptions().width);
+      prefilterEnvConstants.envMapHeight =
+          static_cast<float>(this->_environmentMap.image.getOptions().height);
       prefilterEnvConstants.width = static_cast<float>(width);
       prefilterEnvConstants.height = static_cast<float>(height);
       prefilterEnvConstants.roughness = static_cast<float>(i) / 4.0f;
