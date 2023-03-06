@@ -65,6 +65,8 @@ public:
       const FrameContext& frame) override;
 
 private:
+  std::string _envMapName;
+  
   std::unique_ptr<CameraController> _pCameraController;
 
   GenIrradiancePass _genIrradiancePass;

@@ -91,12 +91,12 @@ void SponzaTest::createRenderState(Application& app) {
 
   SingleTimeCommandBuffer commandBuffer(app);
 
+  std::string envMapName = "LuxuryRoom";
+
   // Environment map
   CesiumGltf::ImageCesium envMapImg = Utilities::loadHdri(
-      // GProjectDirectory + "/Content/HDRI_Skybox/LuxuryRoom.hdr");
-    
-      GProjectDirectory + "/Content/HDRI_Skybox/NeoclassicalInterior.hdr");
- 
+      GEngineDirectory + "/Content/HDRI_Skybox/" + envMapName + ".hdr");
+
   ImageOptions envMapOptions{};
   envMapOptions.width = static_cast<uint32_t>(envMapImg.width);
   envMapOptions.height = static_cast<uint32_t>(envMapImg.height);
@@ -104,9 +104,9 @@ void SponzaTest::createRenderState(Application& app) {
   // Utilities::computeMipCount(envMapOptions.width, envMapOptions.height);
   envMapOptions.format = VK_FORMAT_R32G32B32A32_SFLOAT;
   envMapOptions.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                       VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-                       VK_IMAGE_USAGE_SAMPLED_BIT;
-  this->_environmentMap.image = 
+                        VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                        VK_IMAGE_USAGE_SAMPLED_BIT;
+  this->_environmentMap.image =
       Image(app, commandBuffer, envMapImg.pixelData, envMapOptions);
 
   this->_environmentMap.image.transitionLayout(
@@ -138,20 +138,20 @@ void SponzaTest::createRenderState(Application& app) {
   prefilteredMips.reserve(5);
   for (uint32_t i = 1; i < 6; ++i) {
     prefilteredMips.push_back(Utilities::loadHdri(
-        GProjectDirectory + "/PrecomputedMaps/Prefiltered" + std::to_string(i) +
-        ".hdr"));
+        GEngineDirectory + "/Content/PrecomputedMaps/" + envMapName +
+        "/Prefiltered" + std::to_string(i) + ".hdr"));
   }
 
   ImageOptions prefilteredMapOptions{};
   prefilteredMapOptions.width = static_cast<uint32_t>(prefilteredMips[0].width);
-  prefilteredMapOptions.height = static_cast<uint32_t>(prefilteredMips[0].height);
+  prefilteredMapOptions.height =
+      static_cast<uint32_t>(prefilteredMips[0].height);
   prefilteredMapOptions.mipCount = 5;
   prefilteredMapOptions.format = VK_FORMAT_R32G32B32A32_SFLOAT;
-  prefilteredMapOptions.usage = 
-      VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-      VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-      VK_IMAGE_USAGE_SAMPLED_BIT;
-  
+  prefilteredMapOptions.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
+                                VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
+                                VK_IMAGE_USAGE_SAMPLED_BIT;
+
   this->_prefilteredMap.image = Image(app, prefilteredMapOptions);
   this->_prefilteredMap.image.transitionLayout(
       commandBuffer,
@@ -189,7 +189,8 @@ void SponzaTest::createRenderState(Application& app) {
 
   // Irradiance map
   CesiumGltf::ImageCesium irrMapImg = Utilities::loadHdri(
-      GProjectDirectory + "/PrecomputedMaps/IrradianceMap.hdr");
+      GEngineDirectory + "/Content/PrecomputedMaps/" + envMapName +
+      "/IrradianceMap.hdr");
 
   ImageOptions irrMapOptions{};
   irrMapOptions.width = static_cast<uint32_t>(irrMapImg.width);
@@ -227,8 +228,8 @@ void SponzaTest::createRenderState(Application& app) {
       VK_IMAGE_ASPECT_COLOR_BIT);
 
   // BRDF LUT
-  CesiumGltf::ImageCesium brdf = Utilities::loadPng(
-      GProjectDirectory + "/PrecomputedMaps/brdf_lut.png");
+  CesiumGltf::ImageCesium brdf =
+      Utilities::loadPng(GEngineDirectory + "/Content/PrecomputedMaps/brdf_lut.png");
 
   ImageOptions brdfOptions{};
   brdfOptions.width = static_cast<uint32_t>(brdf.width);

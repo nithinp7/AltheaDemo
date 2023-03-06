@@ -134,11 +134,13 @@ void IBLPrecompute::createRenderState(Application& app) {
 
   SingleTimeCommandBuffer commandBuffer(app);
 
+  // TODO: Parameterize this string from the outside
+  // this->_envMapName = "NeoclassicalInterior";
+  this->_envMapName = "LuxuryRoom";
+
   // Environment map
   CesiumGltf::ImageCesium envMapImg = Utilities::loadHdri(
-      GProjectDirectory + "/Content/HDRI_Skybox/NeoclassicalInterior.hdr");
-  // Utilities::loadHdri(GProjectDirectory +
-  // "/Content/HDRI_Skybox/LuxuryRoom.hdr");
+      GEngineDirectory + "/Content/HDRI_Skybox/" + this->_envMapName + ".hdr");
 
   ImageOptions imageOptions{};
   imageOptions.width = static_cast<uint32_t>(envMapImg.width);
@@ -242,7 +244,7 @@ void IBLPrecompute::createRenderState(Application& app) {
 
   ComputePipelineBuilder computeIrrBuilder;
   computeIrrBuilder.setComputeShader(
-      GProjectDirectory + "/Shaders/GenIrradianceMap.comp");
+      GEngineDirectory + "/Shaders/IBL_Precompute/GenIrradianceMap.comp");
   computeIrrBuilder.layoutBuilder
       .addDescriptorSet(this->_genIrradiancePass.materialAllocator->getLayout())
       .addPushConstants<ImageDetailsPushConstants>(VK_SHADER_STAGE_COMPUTE_BIT);
@@ -283,7 +285,7 @@ void IBLPrecompute::createRenderState(Application& app) {
 
   ComputePipelineBuilder computePrefilteredEnvBuilder{};
   computePrefilteredEnvBuilder.setComputeShader(
-      GProjectDirectory + "/Shaders/PrefilterEnvMap.comp");
+      GEngineDirectory + "/Shaders/IBL_Precompute/PrefilterEnvMap.comp");
   computePrefilteredEnvBuilder.layoutBuilder
       .addDescriptorSet(
           this->_prefilterEnvMapPasses.materialAllocator->getLayout())
@@ -450,7 +452,8 @@ void IBLPrecompute::draw(
         app,
         commandBuffer,
         this->_irradianceMap.image,
-        GProjectDirectory + "/PrecomputedMaps/IrradianceMap.hdr");
+        GEngineDirectory + "/Content/PrecomputedMaps/" + this->_envMapName +
+            "/IrradianceMap.hdr");
 
     // Generate prefiltered environment map mips.
     this->_prefilterEnvMapPasses.pipeline.bindPipeline(commandBuffer);
@@ -502,8 +505,8 @@ void IBLPrecompute::draw(
           app,
           commandBuffer,
           mip.image,
-          GProjectDirectory + "/PrecomputedMaps/Prefiltered" +
-              std::to_string(i + 1) + ".hdr");
+          GEngineDirectory + "/Content/PrecomputedMaps/" + this->_envMapName +
+              "/Prefiltered" + std::to_string(i + 1) + ".hdr");
     }
 
     this->_environmentMap.image.transitionLayout(
