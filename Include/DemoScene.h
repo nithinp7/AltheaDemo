@@ -27,6 +27,7 @@ class Application;
 namespace AltheaDemo {
 namespace DemoScene {
 
+// TODO: move this into engine
 struct GlobalUniforms {
   glm::mat4 projection;
   glm::mat4 inverseProjection;
@@ -34,6 +35,7 @@ struct GlobalUniforms {
   glm::mat4 inverseView;
   glm::vec3 lightDir;
   float time;
+  float exposure;
 };
 
 class DemoScene : public IGameInstance {

@@ -244,6 +244,7 @@ void DemoScene::tick(Application& app, const FrameContext& frame) {
   globalUniforms.inverseView = glm::inverse(globalUniforms.view);
   globalUniforms.lightDir = this->_lightDir;
   globalUniforms.time = static_cast<float>(frame.currentTime);
+  globalUniforms.exposure = 0.3f;
 
   this->_pGlobalUniforms->updateUniforms(globalUniforms, frame);
 }
