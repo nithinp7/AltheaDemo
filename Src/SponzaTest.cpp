@@ -91,177 +91,8 @@ void SponzaTest::createRenderState(Application& app) {
 
   SingleTimeCommandBuffer commandBuffer(app);
 
-  std::string envMapName = "LuxuryRoom";
-
-  // Environment map
-  CesiumGltf::ImageCesium envMapImg = Utilities::loadHdri(
-      GEngineDirectory + "/Content/HDRI_Skybox/" + envMapName + ".hdr");
-
-  ImageOptions envMapOptions{};
-  envMapOptions.width = static_cast<uint32_t>(envMapImg.width);
-  envMapOptions.height = static_cast<uint32_t>(envMapImg.height);
-  envMapOptions.mipCount = 1;
-  // Utilities::computeMipCount(envMapOptions.width, envMapOptions.height);
-  envMapOptions.format = VK_FORMAT_R32G32B32A32_SFLOAT;
-  envMapOptions.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                        VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-                        VK_IMAGE_USAGE_SAMPLED_BIT;
-  this->_environmentMap.image =
-      Image(app, commandBuffer, envMapImg.pixelData, envMapOptions);
-
-  this->_environmentMap.image.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-      VK_ACCESS_SHADER_READ_BIT,
-      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-
-  SamplerOptions envSamplerOptions{};
-  envSamplerOptions.mipCount = envMapOptions.mipCount;
-  envSamplerOptions.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-  envSamplerOptions.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-  envSamplerOptions.minFilter = VK_FILTER_LINEAR;
-  envSamplerOptions.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-  this->_environmentMap.sampler = Sampler(app, envSamplerOptions);
-
-  // TODO: create straight from image details?
-  this->_environmentMap.view = ImageView(
-      app,
-      this->_environmentMap.image.getImage(),
-      envMapOptions.format,
-      envMapOptions.mipCount,
-      1,
-      VK_IMAGE_VIEW_TYPE_2D,
-      VK_IMAGE_ASPECT_COLOR_BIT);
-
-  // Prefiltered map
-  std::vector<CesiumGltf::ImageCesium> prefilteredMips;
-  prefilteredMips.reserve(5);
-  for (uint32_t i = 1; i < 6; ++i) {
-    prefilteredMips.push_back(Utilities::loadHdri(
-        GEngineDirectory + "/Content/PrecomputedMaps/" + envMapName +
-        "/Prefiltered" + std::to_string(i) + ".hdr"));
-  }
-
-  ImageOptions prefilteredMapOptions{};
-  prefilteredMapOptions.width = static_cast<uint32_t>(prefilteredMips[0].width);
-  prefilteredMapOptions.height =
-      static_cast<uint32_t>(prefilteredMips[0].height);
-  prefilteredMapOptions.mipCount = 5;
-  prefilteredMapOptions.format = VK_FORMAT_R32G32B32A32_SFLOAT;
-  prefilteredMapOptions.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                                VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-                                VK_IMAGE_USAGE_SAMPLED_BIT;
-
-  this->_prefilteredMap.image = Image(app, prefilteredMapOptions);
-  this->_prefilteredMap.image.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL,
-      VK_ACCESS_TRANSFER_WRITE_BIT,
-      VK_PIPELINE_STAGE_TRANSFER_BIT);
-
-  for (uint32_t i = 0; i < 5; ++i) {
-    this->_prefilteredMap.image
-        .uploadMip(app, commandBuffer, prefilteredMips[i].pixelData, i);
-  }
-
-  this->_prefilteredMap.image.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-      VK_ACCESS_SHADER_READ_BIT,
-      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-
-  SamplerOptions prefMapSamplerOptions{};
-  prefMapSamplerOptions.mipCount = prefilteredMapOptions.mipCount;
-  prefMapSamplerOptions.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-  prefMapSamplerOptions.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-  prefMapSamplerOptions.minFilter = VK_FILTER_LINEAR;
-  prefMapSamplerOptions.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-
-  this->_prefilteredMap.sampler = Sampler(app, prefMapSamplerOptions);
-  this->_prefilteredMap.view = ImageView(
-      app,
-      this->_prefilteredMap.image.getImage(),
-      prefilteredMapOptions.format,
-      prefilteredMapOptions.mipCount,
-      1,
-      VK_IMAGE_VIEW_TYPE_2D,
-      VK_IMAGE_ASPECT_COLOR_BIT);
-
-  // Irradiance map
-  CesiumGltf::ImageCesium irrMapImg = Utilities::loadHdri(
-      GEngineDirectory + "/Content/PrecomputedMaps/" + envMapName +
-      "/IrradianceMap.hdr");
-
-  ImageOptions irrMapOptions{};
-  irrMapOptions.width = static_cast<uint32_t>(irrMapImg.width);
-  irrMapOptions.height = static_cast<uint32_t>(irrMapImg.height);
-  // Generate mips?
-  irrMapOptions.mipCount = 1;
-  irrMapOptions.format = VK_FORMAT_R32G32B32A32_SFLOAT;
-  irrMapOptions.usage = VK_IMAGE_USAGE_TRANSFER_DST_BIT |
-                        VK_IMAGE_USAGE_TRANSFER_SRC_BIT |
-                        VK_IMAGE_USAGE_SAMPLED_BIT;
-
-  this->_irradianceMap.image =
-      Image(app, commandBuffer, irrMapImg.pixelData, irrMapOptions);
-
-  this->_irradianceMap.image.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-      VK_ACCESS_SHADER_READ_BIT,
-      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-
-  SamplerOptions irrSamplerOptions{};
-  irrSamplerOptions.mipCount = irrMapOptions.mipCount;
-  irrSamplerOptions.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  irrSamplerOptions.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  irrSamplerOptions.minFilter = VK_FILTER_LINEAR;
-
-  this->_irradianceMap.sampler = Sampler(app, irrSamplerOptions);
-  this->_irradianceMap.view = ImageView(
-      app,
-      this->_irradianceMap.image.getImage(),
-      irrMapOptions.format,
-      irrMapOptions.mipCount,
-      1,
-      VK_IMAGE_VIEW_TYPE_2D,
-      VK_IMAGE_ASPECT_COLOR_BIT);
-
-  // BRDF LUT
-  CesiumGltf::ImageCesium brdf =
-      Utilities::loadPng(GEngineDirectory + "/Content/PrecomputedMaps/brdf_lut.png");
-
-  ImageOptions brdfOptions{};
-  brdfOptions.width = static_cast<uint32_t>(brdf.width);
-  brdfOptions.height = static_cast<uint32_t>(brdf.height);
-  brdfOptions.format = VK_FORMAT_R8G8B8A8_UNORM;
-  brdfOptions.usage =
-      VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-  brdfOptions.mipCount = 1;
-
-  this->_brdfLut.image = Image(app, commandBuffer, brdf.pixelData, brdfOptions);
-
-  this->_brdfLut.image.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-      VK_ACCESS_SHADER_READ_BIT,
-      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-
-  SamplerOptions brdfSamplerOptions{};
-  brdfSamplerOptions.mipCount = brdfOptions.mipCount;
-  brdfSamplerOptions.addressModeU = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  brdfSamplerOptions.addressModeV = VK_SAMPLER_ADDRESS_MODE_REPEAT;
-  brdfSamplerOptions.minFilter = VK_FILTER_LINEAR;
-
-  this->_brdfLut.sampler = Sampler(app, brdfSamplerOptions);
-  this->_brdfLut.view = ImageView(
-      app,
-      this->_brdfLut.image.getImage(),
-      brdfOptions.format,
-      1,
-      1,
-      VK_IMAGE_VIEW_TYPE_2D,
-      VK_IMAGE_ASPECT_COLOR_BIT);
+  this->_iblResources =
+      ImageBasedLighting::createResources(app, commandBuffer, "LuxuryRoom");
 
   // TODO: Default color and depth-stencil clear values for attachments?
   VkClearValue colorClear;
@@ -284,15 +115,9 @@ void SponzaTest::createRenderState(Application& app) {
   // Global resources
   DescriptorSetLayoutBuilder globalResourceLayout;
 
+  // Add textures for IBL
+  ImageBasedLighting::buildLayout(globalResourceLayout);
   globalResourceLayout
-      // Add slot for environmentMap
-      .addTextureBinding()
-      // Add slot for prefiltered map
-      .addTextureBinding()
-      // Add slot for irradianceMap
-      .addTextureBinding()
-      // BRDF LUT
-      .addTextureBinding()
       // Global uniforms.
       .addUniformBufferBinding();
 
@@ -362,12 +187,15 @@ void SponzaTest::createRenderState(Application& app) {
       GEngineDirectory + "/Content/Models/DamagedHelmet.glb",
       *this->_pGltfMaterialAllocator);
 
-  this->_pGlobalResources->assign()
-      .bindTexture(this->_environmentMap.view, this->_environmentMap.sampler)
-      .bindTexture(this->_prefilteredMap.view, this->_prefilteredMap.sampler)
-      .bindTexture(this->_irradianceMap.view, this->_irradianceMap.sampler)
-      .bindTexture(this->_brdfLut.view, this->_brdfLut.sampler)
-      .bindTransientUniforms(*this->_pGlobalUniforms);
+  {
+    ResourcesAssignment assignment = this->_pGlobalResources->assign();
+
+    // Bind IBL resources
+    this->_iblResources.bind(assignment);
+    
+    // Bind global uniforms
+    assignment.bindTransientUniforms(*this->_pGlobalUniforms);
+  }
 }
 
 void SponzaTest::destroyRenderState(Application& app) {
@@ -377,10 +205,7 @@ void SponzaTest::destroyRenderState(Application& app) {
   this->_pGlobalResources.reset();
   this->_pGlobalUniforms.reset();
   this->_pGltfMaterialAllocator.reset();
-  this->_environmentMap = {};
-  this->_prefilteredMap = {};
-  this->_irradianceMap = {};
-  this->_brdfLut = {};
+  this->_iblResources = {};
 }
 
 void SponzaTest::tick(Application& app, const FrameContext& frame) {

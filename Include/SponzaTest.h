@@ -1,7 +1,5 @@
 #pragma once
 
-#include "ImageResource.h"
-
 #include <Althea/Allocator.h>
 #include <Althea/CameraController.h>
 #include <Althea/ComputePipeline.h>
@@ -16,6 +14,7 @@
 #include <Althea/Skybox.h>
 #include <Althea/TransientUniforms.h>
 #include <Althea/Texture.h>
+#include <Althea/ImageBasedLighting.h>
 #include <glm/glm.hpp>
 
 using namespace AltheaEngine;
@@ -69,10 +68,7 @@ private:
   std::unique_ptr<Skybox> _pSkybox;
   std::unique_ptr<Model> _pSponzaModel;
   
-  ImageResource _environmentMap;
-  ImageResource _prefilteredMap;
-  ImageResource _irradianceMap;
-  ImageResource _brdfLut;
+  AltheaEngine::IBLResources _iblResources;
 
   std::string _currentShader = "BasicGltf";
   bool _envMap = false;

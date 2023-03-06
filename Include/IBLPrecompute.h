@@ -1,7 +1,5 @@
 #pragma once
 
-#include "ImageResource.h"
-
 #include <Althea/CameraController.h>
 #include <Althea/ComputePipeline.h>
 #include <Althea/IGameInstance.h>
@@ -10,6 +8,7 @@
 #include <Althea/RenderPass.h>
 #include <Althea/Sampler.h>
 #include <Althea/TransientUniforms.h>
+#include <Althea/ImageResource.h>
 #include <glm/glm.hpp>
 
 #include <memory>
@@ -66,15 +65,15 @@ public:
 
 private:
   std::string _envMapName;
-  
+
   std::unique_ptr<CameraController> _pCameraController;
 
   GenIrradiancePass _genIrradiancePass;
   PrefilterEnvMapPasses _prefilterEnvMapPasses;
   DisplayResultPass _renderPass;
-  ImageResource _environmentMap;
-  std::vector<ImageResource> _preFilteredMap;
-  ImageResource _irradianceMap;
+  AltheaEngine::ImageResource _environmentMap;
+  std::vector<AltheaEngine::ImageResource> _preFilteredMap;
+  AltheaEngine::ImageResource _irradianceMap;
 
   bool _recomputeMaps = true;
 };
