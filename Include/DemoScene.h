@@ -11,11 +11,12 @@
 #include <Althea/PerFrameResources.h>
 #include <Althea/RenderPass.h>
 #include <Althea/Sampler.h>
-#include <Althea/Skybox.h>
 #include <Althea/TransientUniforms.h>
 #include <Althea/Texture.h>
 #include <Althea/ImageBasedLighting.h>
 #include <glm/glm.hpp>
+
+#include <vector>
 
 using namespace AltheaEngine;
 
@@ -24,7 +25,7 @@ class Application;
 } // namespace AltheaEngine
 
 namespace AltheaDemo {
-namespace SponzaTest {
+namespace DemoScene {
 
 struct GlobalUniforms {
   glm::mat4 projection;
@@ -35,10 +36,10 @@ struct GlobalUniforms {
   float time;
 };
 
-class SponzaTest : public IGameInstance {
+class DemoScene : public IGameInstance {
 public:
-  SponzaTest();
-  // virtual ~SponzaTest();
+  DemoScene();
+  // virtual ~DemoScene();
 
   void initGame(Application& app) override;
   void shutdownGame(Application& app) override;
@@ -65,13 +66,9 @@ private:
 
   std::unique_ptr<RenderPass> _pRenderPass;
 
-  std::unique_ptr<Skybox> _pSkybox;
-  std::unique_ptr<Model> _pSponzaModel;
+  std::vector<Model> _models;
   
   AltheaEngine::IBLResources _iblResources;
-
-  std::string _currentShader = "BasicGltf";
-  bool _envMap = false;
 };
-} // namespace SponzaTest
+} // namespace DemoScene
 } // namespace AltheaDemo

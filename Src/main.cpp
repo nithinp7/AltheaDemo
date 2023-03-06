@@ -1,5 +1,5 @@
 #include "IBLPrecompute.h"
-#include "SponzaTest.h"
+#include "DemoScene.h"
 
 #include <Althea/Application.h>
 
@@ -10,7 +10,7 @@ using namespace AltheaDemo;
 
 int main() {
   Application app("../..", "../../Extern/Althea");
-  app.createGame<SponzaTest::SponzaTest>();
+  app.createGame<DemoScene::DemoScene>();
   // app.createGame<IBLPrecompute::IBLPrecompute>();
 
   try {

@@ -1,4 +1,4 @@
-#include "SponzaTest.h"
+#include "DemoScene.h"
 
 #include <Althea/Application.h>
 #include <Althea/Camera.h>
@@ -9,9 +9,11 @@
 #include <Althea/ModelViewProjection.h>
 #include <Althea/Primitive.h>
 #include <Althea/SingleTimeCommandBuffer.h>
+#include <Althea/Skybox.h>
 #include <Althea/Utilities.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <vulkan/vulkan.h>
 
 #include <array>
@@ -24,11 +26,11 @@
 using namespace AltheaEngine;
 
 namespace AltheaDemo {
-namespace SponzaTest {
+namespace DemoScene {
 
-SponzaTest::SponzaTest() {}
+DemoScene::DemoScene() {}
 
-void SponzaTest::initGame(Application& app) {
+void DemoScene::initGame(Application& app) {
   const VkExtent2D& windowDims = app.getSwapChainExtent();
   this->_pCameraController = std::make_unique<CameraController>(
       app.getInputManager(),
@@ -80,11 +82,11 @@ void SponzaTest::initGame(Application& app) {
       });
 }
 
-void SponzaTest::shutdownGame(Application& app) {
+void DemoScene::shutdownGame(Application& app) {
   this->_pCameraController.reset();
 }
 
-void SponzaTest::createRenderState(Application& app) {
+void DemoScene::createRenderState(Application& app) {
   const VkExtent2D& extent = app.getSwapChainExtent();
   this->_pCameraController->getCamera().setAspectRatio(
       (float)extent.width / (float)extent.height);
@@ -178,29 +180,50 @@ void SponzaTest::createRenderState(Application& app) {
 
   std::vector<Subpass>& subpasses = this->_pRenderPass->getSubpasses();
 
-  this->_pSponzaModel = std::make_unique<Model>(
+  this->_models.emplace_back(
       app,
       commandBuffer,
-      // GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf",
-      // GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf",
-      // GEngineDirectory + "/Content/Models/AntiqueCamera.glb",
       GEngineDirectory + "/Content/Models/DamagedHelmet.glb",
       *this->_pGltfMaterialAllocator);
+  this->_models.back().setModelTransform(
+      glm::translate(glm::mat4(1.0f), glm::vec3(6.0f, 0.0f, 0.0f)));
+
+  this->_models.emplace_back(
+      app,
+      commandBuffer,
+      GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf",
+      *this->_pGltfMaterialAllocator);
+  this->_models.back().setModelTransform(glm::scale(
+      glm::translate(glm::mat4(1.0f), glm::vec3(8.0f, -1.0f, 0.0f)),
+      glm::vec3(4.0f)));
+
+  this->_models.emplace_back(
+      app,
+      commandBuffer,
+      GEngineDirectory + "/Content/Models/MetalRoughSpheres.glb",
+      *this->_pGltfMaterialAllocator);
+  this->_models.back().setModelTransform(
+      glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)));
+
+  // this->_models.emplace_back(
+  //     app,
+  //     commandBuffer,
+  //     GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf",
+  //     *this->_pGltfMaterialAllocator);
 
   {
     ResourcesAssignment assignment = this->_pGlobalResources->assign();
 
     // Bind IBL resources
     this->_iblResources.bind(assignment);
-    
+
     // Bind global uniforms
     assignment.bindTransientUniforms(*this->_pGlobalUniforms);
   }
 }
 
-void SponzaTest::destroyRenderState(Application& app) {
-  this->_pSkybox.reset();
-  this->_pSponzaModel.reset();
+void DemoScene::destroyRenderState(Application& app) {
+  this->_models.clear();
   this->_pRenderPass.reset();
   this->_pGlobalResources.reset();
   this->_pGlobalUniforms.reset();
@@ -208,7 +231,7 @@ void SponzaTest::destroyRenderState(Application& app) {
   this->_iblResources = {};
 }
 
-void SponzaTest::tick(Application& app, const FrameContext& frame) {
+void DemoScene::tick(Application& app, const FrameContext& frame) {
   this->_pCameraController->tick(frame.deltaTime);
   const Camera& camera = this->_pCameraController->getCamera();
 
@@ -225,7 +248,16 @@ void SponzaTest::tick(Application& app, const FrameContext& frame) {
   this->_pGlobalUniforms->updateUniforms(globalUniforms, frame);
 }
 
-void SponzaTest::draw(
+namespace {
+struct DrawableEnvMap {
+  void draw(const DrawContext& context) const {
+    context.bindDescriptorSets();
+    context.draw(3);
+  }
+};
+} // namespace
+
+void DemoScene::draw(
     Application& app,
     VkCommandBuffer commandBuffer,
     const FrameContext& frame) {
@@ -233,15 +265,17 @@ void SponzaTest::draw(
   VkDescriptorSet globalDescriptorSet =
       this->_pGlobalResources->getCurrentDescriptorSet(frame);
 
-  this->_pRenderPass
-      ->begin(app, commandBuffer, frame)
+  ActiveRenderPass pass = this->_pRenderPass->begin(app, commandBuffer, frame);
+  pass
       // Bind global descriptor sets
       .setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1))
       // Draw skybox
-      .draw(*this->_pSkybox)
-      .nextSubpass()
-      // Draw Sponza model
-      .draw(*this->_pSponzaModel);
+      .draw(DrawableEnvMap{})
+      .nextSubpass();
+  // Draw models
+  for (const Model& model : this->_models) {
+    pass.draw(model);
+  }
 }
-} // namespace SponzaTest
+} // namespace DemoScene
 } // namespace AltheaDemo
