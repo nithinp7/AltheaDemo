@@ -94,7 +94,7 @@ void DemoScene::createRenderState(Application& app) {
   SingleTimeCommandBuffer commandBuffer(app);
 
   this->_iblResources =
-      ImageBasedLighting::createResources(app, commandBuffer, "LuxuryRoom");
+      ImageBasedLighting::createResources(app, commandBuffer, "NeoclassicalInterior");
 
   // TODO: Default color and depth-stencil clear values for attachments?
   VkClearValue colorClear;
@@ -204,12 +204,6 @@ void DemoScene::createRenderState(Application& app) {
       *this->_pGltfMaterialAllocator);
   this->_models.back().setModelTransform(
       glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)));
-
-  // this->_models.emplace_back(
-  //     app,
-  //     commandBuffer,
-  //     GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf",
-  //     *this->_pGltfMaterialAllocator);
 
   {
     ResourcesAssignment assignment = this->_pGlobalResources->assign();
