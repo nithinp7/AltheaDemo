@@ -22,6 +22,8 @@ layout(set=0, binding=4) uniform UniformBufferObject {
   float exposure;
 } globals;
 
+layout(set=1, binding=0) uniform sampler2D sceneCaptureTex;
+
 #include <PBR/PBRMaterial.frag>
 
 void main() {
@@ -49,4 +51,10 @@ void main() {
 
   material = vec3(1.0) - exp(-material * globals.exposure);
   color = vec4(material, 1.0);
+
+  float theta = atan(normal.z, normal.x);
+  float phi = atan(normal.y, length(normal.xz));
+
+  vec2 uv = vec2((theta + PI) / (2.0 * PI), (phi + 0.5 * PI) / PI);
+  color.rgb *= texture(sceneCaptureTex, uv).rgb;
 }

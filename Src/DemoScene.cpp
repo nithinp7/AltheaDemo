@@ -34,6 +34,92 @@ struct SphereInstance {
   float roughness;
   float metallic;
 };
+
+void createRenderTarget(
+    const Application& app,
+    VkCommandBuffer commandBuffer,
+    RenderTarget& target) {
+  ImageOptions imageOptions{};
+  imageOptions.width = 100;
+  imageOptions.height = 100;
+  // TODO: generate mips?
+  imageOptions.mipCount = 1;
+
+  // TODO: Verify this works as expected
+  imageOptions.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+  imageOptions.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
+  imageOptions.usage =
+      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+
+  target.color.image = Image(app, imageOptions);
+
+  SamplerOptions samplerOptions{};
+  samplerOptions.mipCount = imageOptions.mipCount;
+  samplerOptions.magFilter = VK_FILTER_LINEAR;
+  samplerOptions.minFilter = VK_FILTER_LINEAR;
+  samplerOptions.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
+  samplerOptions.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+  samplerOptions.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
+
+  target.color.sampler = Sampler(app, samplerOptions);
+
+  target.color.view = ImageView(
+      app,
+      target.color.image.getImage(),
+      imageOptions.format,
+      imageOptions.mipCount,
+      imageOptions.layerCount,
+      VK_IMAGE_VIEW_TYPE_2D,
+      imageOptions.aspectMask);
+
+  ImageOptions depthImageOptions{};
+  depthImageOptions.width = imageOptions.width;
+  depthImageOptions.height = imageOptions.height;
+  // TODO: change mipcount? HZB?
+  depthImageOptions.mipCount = 1;
+  depthImageOptions.layerCount = 1;
+  depthImageOptions.format = app.getDepthImageFormat();
+  // TODO: stencil bit?
+  depthImageOptions.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+  depthImageOptions.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
+
+  target.depthImage = Image(app, depthImageOptions);
+  target.depthView = ImageView(
+      app,
+      target.depthImage.getImage(),
+      app.getDepthImageFormat(),
+      1,
+      1,
+      VK_IMAGE_VIEW_TYPE_2D,
+      depthImageOptions.aspectMask);
+
+  target.depthImage.transitionLayout(
+      commandBuffer,
+      VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
+      VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
+          VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
+      VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT);
+}
+
+void transitionTargetToAttachment(
+    VkCommandBuffer commandBuffer,
+    RenderTarget& target) {
+  target.color.image.transitionLayout(
+      commandBuffer,
+      VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+      VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+}
+
+void transitionTargetToTexture(
+    VkCommandBuffer commandBuffer,
+    RenderTarget& target) {
+  target.color.image.transitionLayout(
+      commandBuffer,
+      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+      VK_ACCESS_SHADER_READ_BIT,
+      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+}
 } // namespace
 
 DemoScene::Sphere::Sphere() {
@@ -239,6 +325,14 @@ void DemoScene::createRenderState(Application& app) {
         .addDescriptorSet(this->_pGltfMaterialAllocator->getLayout());
   }
 
+  DescriptorSetLayoutBuilder renderTargetResourcesLayoutBuilder{};
+  renderTargetResourcesLayoutBuilder.addTextureBinding(
+      VK_SHADER_STAGE_FRAGMENT_BIT);
+
+  this->_pRenderTargetResources = std::make_shared<PerFrameResources>(
+      app,
+      renderTargetResourcesLayoutBuilder);
+
   // IBL PROBE VISUALIZATION
   {
     SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
@@ -261,18 +355,22 @@ void DemoScene::createRenderState(Application& app) {
         // Global resources (view, projection, environment map)
         .addDescriptorSet(this->_pGlobalResources->getLayout())
 
+        // Render targets
+        .addDescriptorSet(this->_pRenderTargetResources->getLayout())
+
         // Push constants for the model matrix
         .addPushConstants<glm::mat4>();
   }
 
   this->_pRenderPass = std::make_unique<RenderPass>(
       app,
+      app.getSwapChainExtent(),
       std::move(attachments),
       std::move(subpassBuilders));
 
-  std::vector<Subpass>& subpasses = this->_pRenderPass->getSubpasses();
+  this->_createRenderTarget(app, commandBuffer);
 
-#if 0
+#if 1
   this->_models.emplace_back(
       app,
       commandBuffer,
@@ -315,16 +413,23 @@ void DemoScene::createRenderState(Application& app) {
 
     // Bind global uniforms
     assignment.bindTransientUniforms(*this->_pGlobalUniforms);
+
+    this->_pRenderTargetResources->assign().bindTexture(
+        this->_target.color.view,
+        this->_target.color.sampler);
   }
 }
 
 void DemoScene::destroyRenderState(Application& app) {
   this->_models.clear();
   this->_pRenderPass.reset();
+  this->_pSceneCaptureRenderPass.reset();
   this->_pGlobalResources.reset();
+  this->_pRenderTargetResources.reset();
   this->_pGlobalUniforms.reset();
   this->_pGltfMaterialAllocator.reset();
   this->_iblResources = {};
+  this->_target = {};
   this->_sphereVertexBuffer = {};
   this->_sphereIndexBuffer = {};
 }
@@ -347,6 +452,72 @@ void DemoScene::tick(Application& app, const FrameContext& frame) {
   this->_pGlobalUniforms->updateUniforms(globalUniforms, frame);
 }
 
+void DemoScene::_createRenderTarget(
+    const Application& app,
+    VkCommandBuffer commandBuffer) {
+  // Create render target resources
+  createRenderTarget(app, commandBuffer, this->_target);
+
+  // Create render pass
+  VkClearValue colorClear;
+  colorClear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+  VkClearValue depthClear;
+  depthClear.depthStencil = {1.0f, 0};
+
+  std::vector<Attachment> attachments = {
+      {AttachmentType::Color,
+       this->_target.color.image.getOptions().format,
+       colorClear,
+       this->_target.color.view,
+       false},
+      {AttachmentType::Depth,
+       this->_target.depthImage.getOptions().format,
+       depthClear,
+       this->_target.depthView,
+       true}};
+
+  std::vector<SubpassBuilder> subpassBuilders;
+
+  // REGULAR PASS
+  {
+    // Per-primitive material resources
+    DescriptorSetLayoutBuilder primitiveMaterialLayout;
+    Primitive::buildMaterial(primitiveMaterialLayout);
+
+    this->_pGltfMaterialAllocator =
+        std::make_unique<DescriptorSetAllocator>(app, primitiveMaterialLayout);
+
+    SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
+    subpassBuilder.colorAttachments.push_back(0);
+    subpassBuilder.depthAttachment = 1;
+
+    Primitive::buildPipeline(subpassBuilder.pipelineBuilder);
+
+    subpassBuilder
+        .pipelineBuilder
+        // Vertex shader
+        .addVertexShader(GEngineDirectory + "/Shaders/GltfPBR.vert")
+        // Fragment shader
+        .addFragmentShader(GEngineDirectory + "/Shaders/GltfPBR.frag")
+
+        // Pipeline resource layouts
+        .layoutBuilder
+        // Global resources (view, projection, environment map)
+        .addDescriptorSet(this->_pGlobalResources->getLayout())
+        // Material (per-object) resources (diffuse, normal map,
+        // metallic-roughness, etc)
+        .addDescriptorSet(this->_pGltfMaterialAllocator->getLayout());
+  }
+
+  this->_pSceneCaptureRenderPass = std::make_unique<RenderPass>(
+      app,
+      VkExtent2D{
+          this->_target.color.image.getOptions().width,
+          this->_target.color.image.getOptions().height},
+      std::move(attachments),
+      std::move(subpassBuilders));
+}
+
 namespace {
 struct DrawableEnvMap {
   void draw(const DrawContext& context) const {
@@ -361,29 +532,58 @@ void DemoScene::draw(
     VkCommandBuffer commandBuffer,
     const FrameContext& frame) {
 
-  VkDescriptorSet globalDescriptorSet =
-      this->_pGlobalResources->getCurrentDescriptorSet(frame);
+  transitionTargetToAttachment(commandBuffer, this->_target);
 
-  ActiveRenderPass pass = this->_pRenderPass->begin(app, commandBuffer, frame);
-  pass
-      // Bind global descriptor sets
-      .setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1))
-      // Draw skybox
-      .draw(DrawableEnvMap{})
-      .nextSubpass();
-  // Draw models
-  for (const Model& model : this->_models) {
-    pass.draw(model);
+  {
+    VkDescriptorSet globalDescriptorSet =
+        this->_pGlobalResources->getCurrentDescriptorSet(frame);
+
+    ActiveRenderPass pass =
+        this->_pSceneCaptureRenderPass->begin(app, commandBuffer, frame);
+    pass
+        // Bind global descriptor sets
+        .setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
+    // Draw models
+    for (const Model& model : this->_models) {
+      pass.draw(model);
+    }
   }
 
-  pass.nextSubpass();
+  transitionTargetToTexture(commandBuffer, this->_target);
 
-  glm::mat4 probeTransform(1.0f);
-  probeTransform = glm::scale(probeTransform, glm::vec3(5.0f));
-  this->_drawProbe(probeTransform, pass.getDrawContext());
+  {
+    VkDescriptorSet globalResourceAndRenderTarget[2] = {
+        this->_pGlobalResources->getCurrentDescriptorSet(frame),
+        this->_pRenderTargetResources->getCurrentDescriptorSet(frame)};
 
-  probeTransform = glm::translate(probeTransform, glm::vec3(10.0f, 0.0f, 0.0f));
-  this->_drawProbe(probeTransform, pass.getDrawContext());
+    VkDescriptorSet globalDescriptorSet =
+        this->_pGlobalResources->getCurrentDescriptorSet(frame);
+
+    ActiveRenderPass pass =
+        this->_pRenderPass->begin(app, commandBuffer, frame);
+    pass
+        // Bind global descriptor sets
+        .setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1))
+        // Draw skybox
+        .draw(DrawableEnvMap{})
+        .nextSubpass();
+    // Draw models
+    for (const Model& model : this->_models) {
+      pass.draw(model);
+    }
+
+    pass.nextSubpass();
+
+    pass.setGlobalDescriptorSets(gsl::span(globalResourceAndRenderTarget, 2));
+
+    glm::mat4 probeTransform(1.0f);
+    probeTransform = glm::scale(probeTransform, glm::vec3(5.0f));
+    this->_drawProbe(probeTransform, pass.getDrawContext());
+
+    probeTransform =
+        glm::translate(probeTransform, glm::vec3(10.0f, 0.0f, 0.0f));
+    this->_drawProbe(probeTransform, pass.getDrawContext());
+  }
 }
 
 // TODO: should just instance

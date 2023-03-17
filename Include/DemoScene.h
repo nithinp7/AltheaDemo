@@ -15,6 +15,7 @@
 #include <Althea/TransientUniforms.h>
 #include <Althea/Texture.h>
 #include <Althea/ImageBasedLighting.h>
+#include <Althea/ImageResource.h>
 #include <Althea/VertexBuffer.h>
 #include <glm/glm.hpp>
 
@@ -40,6 +41,12 @@ struct GlobalUniforms {
   float exposure;
 };
 
+struct RenderTarget {
+  ImageResource color{};
+  Image depthImage{};
+  ImageView depthView{};
+};
+
 class DemoScene : public IGameInstance {
 public:
   DemoScene();
@@ -61,7 +68,10 @@ private:
   glm::vec3 _lightDir = glm::normalize(glm::vec3(1.0f, 1.0f, 1.0f));
   bool _adjustingLight = false;
 
+  // TODO: why are these shared ptrs?
   std::shared_ptr<PerFrameResources> _pGlobalResources;
+  std::shared_ptr<PerFrameResources> _pRenderTargetResources;
+  
   std::unique_ptr<TransientUniforms<GlobalUniforms>> _pGlobalUniforms;
 
   std::unique_ptr<DescriptorSetAllocator> _pGltfMaterialAllocator;
@@ -69,10 +79,13 @@ private:
   std::unique_ptr<CameraController> _pCameraController;
 
   std::unique_ptr<RenderPass> _pRenderPass;
+  std::unique_ptr<RenderPass> _pSceneCaptureRenderPass;
 
   std::vector<Model> _models;
   
-  AltheaEngine::IBLResources _iblResources;
+  IBLResources _iblResources;
+
+  RenderTarget _target;
 
   struct Sphere {
     std::vector<glm::vec3> vertices;
@@ -85,6 +98,7 @@ private:
   VertexBuffer<glm::vec3> _sphereVertexBuffer;
   IndexBuffer _sphereIndexBuffer;
 
+  void _createRenderTarget(const Application& app, VkCommandBuffer commandBuffer);
   void _drawProbe(const glm::mat4& transform, const DrawContext& context);
 };
 } // namespace DemoScene
