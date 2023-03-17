@@ -7,6 +7,7 @@
 #include <Althea/IGameInstance.h>
 #include <Althea/Image.h>
 #include <Althea/ImageView.h>
+#include <Althea/IndexBuffer.h>
 #include <Althea/Model.h>
 #include <Althea/PerFrameResources.h>
 #include <Althea/RenderPass.h>
@@ -14,6 +15,7 @@
 #include <Althea/TransientUniforms.h>
 #include <Althea/Texture.h>
 #include <Althea/ImageBasedLighting.h>
+#include <Althea/VertexBuffer.h>
 #include <glm/glm.hpp>
 
 #include <vector>
@@ -71,6 +73,19 @@ private:
   std::vector<Model> _models;
   
   AltheaEngine::IBLResources _iblResources;
+
+  struct Sphere {
+    std::vector<glm::vec3> vertices;
+    std::vector<uint32_t> indices;
+
+    Sphere();
+  };
+
+  Sphere _sphere{};
+  VertexBuffer<glm::vec3> _sphereVertexBuffer;
+  IndexBuffer _sphereIndexBuffer;
+
+  void _drawProbe(const glm::mat4& transform, const DrawContext& context);
 };
 } // namespace DemoScene
 } // namespace AltheaDemo

@@ -26,7 +26,71 @@
 using namespace AltheaEngine;
 
 namespace AltheaDemo {
+
 namespace DemoScene {
+namespace {
+struct SphereInstance {
+  glm::vec3 baseColor;
+  float roughness;
+  float metallic;
+};
+} // namespace
+
+DemoScene::Sphere::Sphere() {
+  constexpr uint32_t resolution = 50;
+  constexpr float maxPitch = 0.499f * glm::pi<float>();
+
+  auto sphereUvIndexToVertIndex = [resolution](uint32_t i, uint32_t j) {
+    i = i % resolution;
+    return i * resolution / 2 + j;
+  };
+
+  // Verts from the cylinder mapping
+  uint32_t cylinderVertsCount = resolution * resolution / 2;
+  // Will include cylinder mapped verts and 2 cap verts
+  this->vertices.reserve(cylinderVertsCount + 2);
+  this->indices.reserve(3 * resolution * resolution);
+  for (uint32_t i = 0; i < resolution; ++i) {
+    float theta = i * 2.0f * glm::pi<float>() / resolution;
+    float cosTheta = cos(theta);
+    float sinTheta = sin(theta);
+
+    for (uint32_t j = 0; j < resolution / 2; ++j) {
+      float phi = j * 2.0f * maxPitch / (resolution / 2) - maxPitch;
+      float cosPhi = cos(phi);
+      float sinPhi = sin(phi);
+
+      this->vertices.emplace_back(
+          cosPhi * cosTheta,
+          sinPhi,
+          -cosPhi * sinTheta);
+
+      if (j < resolution / 2 - 1) {
+        this->indices.push_back(sphereUvIndexToVertIndex(i, j));
+        this->indices.push_back(sphereUvIndexToVertIndex(i + 1, j));
+        this->indices.push_back(sphereUvIndexToVertIndex(i + 1, j + 1));
+
+        this->indices.push_back(sphereUvIndexToVertIndex(i, j));
+        this->indices.push_back(sphereUvIndexToVertIndex(i + 1, j + 1));
+        this->indices.push_back(sphereUvIndexToVertIndex(i, j + 1));
+      } else {
+        this->indices.push_back(sphereUvIndexToVertIndex(i, j));
+        this->indices.push_back(sphereUvIndexToVertIndex(i + 1, j));
+        this->indices.push_back(cylinderVertsCount);
+      }
+
+      if (j == 0) {
+        this->indices.push_back(sphereUvIndexToVertIndex(i, j));
+        this->indices.push_back(cylinderVertsCount + 1);
+        this->indices.push_back(sphereUvIndexToVertIndex(i + 1, j));
+      }
+    }
+  }
+
+  // Cap vertices
+  this->vertices.emplace_back(0.0f, 1.0f, 0.0f);
+  this->vertices.emplace_back(0.0f, -1.0f, 0.0f);
+}
 
 DemoScene::DemoScene() {}
 
@@ -93,8 +157,10 @@ void DemoScene::createRenderState(Application& app) {
 
   SingleTimeCommandBuffer commandBuffer(app);
 
-  this->_iblResources =
-      ImageBasedLighting::createResources(app, commandBuffer, "NeoclassicalInterior");
+  this->_iblResources = ImageBasedLighting::createResources(
+      app,
+      commandBuffer,
+      "NeoclassicalInterior");
 
   // TODO: Default color and depth-stencil clear values for attachments?
   VkClearValue colorClear;
@@ -173,6 +239,32 @@ void DemoScene::createRenderState(Application& app) {
         .addDescriptorSet(this->_pGltfMaterialAllocator->getLayout());
   }
 
+  // IBL PROBE VISUALIZATION
+  {
+    SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
+    subpassBuilder.colorAttachments.push_back(0);
+    subpassBuilder.depthAttachment = 1;
+
+    subpassBuilder.pipelineBuilder
+        .setPrimitiveType(PrimitiveType::TRIANGLES)
+
+        .addVertexInputBinding<glm::vec3>()
+        .addVertexAttribute(VertexAttributeType::VEC3, 0)
+
+        // Vertex shader
+        .addVertexShader(GProjectDirectory + "/Shaders/Probe.vert")
+        // Fragment shader
+        .addFragmentShader(GProjectDirectory + "/Shaders/Probe.frag")
+
+        // Pipeline resource layouts
+        .layoutBuilder
+        // Global resources (view, projection, environment map)
+        .addDescriptorSet(this->_pGlobalResources->getLayout())
+
+        // Push constants for the model matrix
+        .addPushConstants<glm::mat4>();
+  }
+
   this->_pRenderPass = std::make_unique<RenderPass>(
       app,
       std::move(attachments),
@@ -180,6 +272,7 @@ void DemoScene::createRenderState(Application& app) {
 
   std::vector<Subpass>& subpasses = this->_pRenderPass->getSubpasses();
 
+#if 0
   this->_models.emplace_back(
       app,
       commandBuffer,
@@ -204,6 +297,15 @@ void DemoScene::createRenderState(Application& app) {
       *this->_pGltfMaterialAllocator);
   this->_models.back().setModelTransform(
       glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)));
+#endif
+
+  std::vector<glm::vec3> sphereVerts = this->_sphere.vertices;
+  this->_sphereVertexBuffer =
+      VertexBuffer<glm::vec3>(app, commandBuffer, std::move(sphereVerts));
+
+  std::vector<uint32_t> sphereIndices = this->_sphere.indices;
+  this->_sphereIndexBuffer =
+      IndexBuffer(app, commandBuffer, std::move(sphereIndices));
 
   {
     ResourcesAssignment assignment = this->_pGlobalResources->assign();
@@ -223,6 +325,8 @@ void DemoScene::destroyRenderState(Application& app) {
   this->_pGlobalUniforms.reset();
   this->_pGltfMaterialAllocator.reset();
   this->_iblResources = {};
+  this->_sphereVertexBuffer = {};
+  this->_sphereIndexBuffer = {};
 }
 
 void DemoScene::tick(Application& app, const FrameContext& frame) {
@@ -271,6 +375,32 @@ void DemoScene::draw(
   for (const Model& model : this->_models) {
     pass.draw(model);
   }
+
+  pass.nextSubpass();
+
+  glm::mat4 probeTransform(1.0f);
+  probeTransform = glm::scale(probeTransform, glm::vec3(5.0f));
+  this->_drawProbe(probeTransform, pass.getDrawContext());
+
+  probeTransform = glm::translate(probeTransform, glm::vec3(10.0f, 0.0f, 0.0f));
+  this->_drawProbe(probeTransform, pass.getDrawContext());
+}
+
+// TODO: should just instance
+void DemoScene::_drawProbe(
+    const glm::mat4& transform,
+    const DrawContext& context) {
+  context.bindDescriptorSets();
+  context.bindIndexBuffer(this->_sphereIndexBuffer);
+  context.bindVertexBuffer(this->_sphereVertexBuffer);
+  context.updatePushConstants(transform, 0);
+  vkCmdDrawIndexed(
+      context.getCommandBuffer(),
+      static_cast<uint32_t>(this->_sphereIndexBuffer.getIndexCount()),
+      1,
+      0,
+      0,
+      0);
 }
 } // namespace DemoScene
 } // namespace AltheaDemo
