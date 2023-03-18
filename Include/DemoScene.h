@@ -17,6 +17,7 @@
 #include <Althea/ImageBasedLighting.h>
 #include <Althea/ImageResource.h>
 #include <Althea/VertexBuffer.h>
+#include <Althea/RenderTarget.h>
 #include <glm/glm.hpp>
 
 #include <vector>
@@ -39,12 +40,6 @@ struct GlobalUniforms {
   glm::vec3 lightDir;
   float time;
   float exposure;
-};
-
-struct RenderTarget {
-  ImageResource color{};
-  Image depthImage{};
-  ImageView depthView{};
 };
 
 class DemoScene : public IGameInstance {

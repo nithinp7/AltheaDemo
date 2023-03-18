@@ -34,92 +34,6 @@ struct SphereInstance {
   float roughness;
   float metallic;
 };
-
-void createRenderTarget(
-    const Application& app,
-    VkCommandBuffer commandBuffer,
-    RenderTarget& target) {
-  ImageOptions imageOptions{};
-  imageOptions.width = 100;
-  imageOptions.height = 100;
-  // TODO: generate mips?
-  imageOptions.mipCount = 1;
-
-  // TODO: Verify this works as expected
-  imageOptions.format = VK_FORMAT_R32G32B32A32_SFLOAT;
-  imageOptions.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-  imageOptions.usage =
-      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-
-  target.color.image = Image(app, imageOptions);
-
-  SamplerOptions samplerOptions{};
-  samplerOptions.mipCount = imageOptions.mipCount;
-  samplerOptions.magFilter = VK_FILTER_LINEAR;
-  samplerOptions.minFilter = VK_FILTER_LINEAR;
-  samplerOptions.mipmapMode = VK_SAMPLER_MIPMAP_MODE_LINEAR;
-  samplerOptions.addressModeU = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-  samplerOptions.addressModeV = VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE;
-
-  target.color.sampler = Sampler(app, samplerOptions);
-
-  target.color.view = ImageView(
-      app,
-      target.color.image.getImage(),
-      imageOptions.format,
-      imageOptions.mipCount,
-      imageOptions.layerCount,
-      VK_IMAGE_VIEW_TYPE_2D,
-      imageOptions.aspectMask);
-
-  ImageOptions depthImageOptions{};
-  depthImageOptions.width = imageOptions.width;
-  depthImageOptions.height = imageOptions.height;
-  // TODO: change mipcount? HZB?
-  depthImageOptions.mipCount = 1;
-  depthImageOptions.layerCount = 1;
-  depthImageOptions.format = app.getDepthImageFormat();
-  // TODO: stencil bit?
-  depthImageOptions.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
-  depthImageOptions.usage = VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
-
-  target.depthImage = Image(app, depthImageOptions);
-  target.depthView = ImageView(
-      app,
-      target.depthImage.getImage(),
-      app.getDepthImageFormat(),
-      1,
-      1,
-      VK_IMAGE_VIEW_TYPE_2D,
-      depthImageOptions.aspectMask);
-
-  target.depthImage.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-      VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT |
-          VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT,
-      VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT);
-}
-
-void transitionTargetToAttachment(
-    VkCommandBuffer commandBuffer,
-    RenderTarget& target) {
-  target.color.image.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-      VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-}
-
-void transitionTargetToTexture(
-    VkCommandBuffer commandBuffer,
-    RenderTarget& target) {
-  target.color.image.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-      VK_ACCESS_SHADER_READ_BIT,
-      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-}
 } // namespace
 
 DemoScene::Sphere::Sphere() {
@@ -415,8 +329,8 @@ void DemoScene::createRenderState(Application& app) {
     assignment.bindTransientUniforms(*this->_pGlobalUniforms);
 
     this->_pRenderTargetResources->assign().bindTexture(
-        this->_target.color.view,
-        this->_target.color.sampler);
+        this->_target.getColorView(),
+        this->_target.getColorSampler());
   }
 }
 
@@ -456,7 +370,8 @@ void DemoScene::_createRenderTarget(
     const Application& app,
     VkCommandBuffer commandBuffer) {
   // Create render target resources
-  createRenderTarget(app, commandBuffer, this->_target);
+  VkExtent2D extent {100, 100};
+  this->_target = RenderTarget(app, commandBuffer, extent);
 
   // Create render pass
   VkClearValue colorClear;
@@ -466,14 +381,14 @@ void DemoScene::_createRenderTarget(
 
   std::vector<Attachment> attachments = {
       {AttachmentType::Color,
-       this->_target.color.image.getOptions().format,
+       this->_target.getColorImage().getOptions().format,
        colorClear,
-       this->_target.color.view,
+       this->_target.getColorView(),
        false},
       {AttachmentType::Depth,
-       this->_target.depthImage.getOptions().format,
+       this->_target.getDepthImage().getOptions().format,
        depthClear,
-       this->_target.depthView,
+       this->_target.getDepthView(),
        true}};
 
   std::vector<SubpassBuilder> subpassBuilders;
@@ -511,9 +426,7 @@ void DemoScene::_createRenderTarget(
 
   this->_pSceneCaptureRenderPass = std::make_unique<RenderPass>(
       app,
-      VkExtent2D{
-          this->_target.color.image.getOptions().width,
-          this->_target.color.image.getOptions().height},
+      extent,
       std::move(attachments),
       std::move(subpassBuilders));
 }
@@ -532,7 +445,7 @@ void DemoScene::draw(
     VkCommandBuffer commandBuffer,
     const FrameContext& frame) {
 
-  transitionTargetToAttachment(commandBuffer, this->_target);
+  this->_target.transitionToAttachment(commandBuffer);
 
   {
     VkDescriptorSet globalDescriptorSet =
@@ -549,7 +462,7 @@ void DemoScene::draw(
     }
   }
 
-  transitionTargetToTexture(commandBuffer, this->_target);
+  this->_target.transitionToTexture(commandBuffer);
 
   {
     VkDescriptorSet globalResourceAndRenderTarget[2] = {
