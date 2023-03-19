@@ -8,6 +8,7 @@
 #include <Althea/InputManager.h>
 #include <Althea/ModelViewProjection.h>
 #include <Althea/Primitive.h>
+#include <Althea/Shader.h>
 #include <Althea/SingleTimeCommandBuffer.h>
 #include <Althea/Skybox.h>
 #include <Althea/Utilities.h>
@@ -117,11 +118,45 @@ void DemoScene::initGame(Application& app) {
         input.setMouseCursorHidden(true);
       });
 
+  float probeSpeed = 0.8f;
+  input.addKeyBinding(
+      {GLFW_KEY_LEFT, GLFW_PRESS, 0},
+      [&translation = this->_probeTranslation, probeSpeed, &input]() {
+        translation.x -= probeSpeed;
+      });
+  input.addKeyBinding(
+      {GLFW_KEY_RIGHT, GLFW_PRESS, 0},
+      [&translation = this->_probeTranslation, probeSpeed, &input]() {
+        translation.x += probeSpeed;
+      });
+  input.addKeyBinding(
+      {GLFW_KEY_DOWN, GLFW_PRESS, 0},
+      [&translation = this->_probeTranslation, probeSpeed, &input]() {
+        translation.z += probeSpeed;
+      });
+  input.addKeyBinding(
+      {GLFW_KEY_UP, GLFW_PRESS, 0},
+      [&translation = this->_probeTranslation, probeSpeed, &input]() {
+        translation.z -= probeSpeed;
+      });
+
   // Recreate any stale pipelines (shader hot-reload)
   input.addKeyBinding(
       {GLFW_KEY_R, GLFW_PRESS, GLFW_MOD_CONTROL},
       [&app, that = this]() {
         for (Subpass& subpass : that->_pRenderPass->getSubpasses()) {
+          GraphicsPipeline& pipeline = subpass.getPipeline();
+          if (pipeline.recompileStaleShaders()) {
+            if (pipeline.hasShaderRecompileErrors()) {
+              std::cout << pipeline.getShaderRecompileErrors() << "\n";
+            } else {
+              pipeline.recreatePipeline(app);
+            }
+          }
+        }
+
+        for (Subpass& subpass :
+             that->_pSceneCaptureRenderPass->getSubpasses()) {
           GraphicsPipeline& pipeline = subpass.getPipeline();
           if (pipeline.recompileStaleShaders()) {
             if (pipeline.hasShaderRecompileErrors()) {
@@ -160,7 +195,7 @@ void DemoScene::createRenderState(Application& app) {
   this->_iblResources = ImageBasedLighting::createResources(
       app,
       commandBuffer,
-      "NeoclassicalInterior");
+      "LuxuryRoom");
 
   // TODO: Default color and depth-stencil clear values for attachments?
   VkClearValue colorClear;
@@ -169,12 +204,12 @@ void DemoScene::createRenderState(Application& app) {
   depthClear.depthStencil = {1.0f, 0};
 
   std::vector<Attachment> attachments = {
-      {AttachmentType::Color,
+      {ATTACHMENT_FLAG_COLOR,
        app.getSwapChainImageFormat(),
        colorClear,
        std::nullopt,
        false},
-      {AttachmentType::Depth,
+      {ATTACHMENT_FLAG_DEPTH,
        app.getDepthImageFormat(),
        depthClear,
        app.getDepthImageView(),
@@ -200,7 +235,7 @@ void DemoScene::createRenderState(Application& app) {
   {
     SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
     subpassBuilder.colorAttachments.push_back(0);
-    Skybox::buildPipeline(app, subpassBuilder.pipelineBuilder);
+    Skybox::buildPipeline(subpassBuilder.pipelineBuilder);
 
     subpassBuilder.pipelineBuilder
         .layoutBuilder
@@ -341,6 +376,10 @@ void DemoScene::destroyRenderState(Application& app) {
   this->_pGlobalResources.reset();
   this->_pRenderTargetResources.reset();
   this->_pGlobalUniforms.reset();
+
+  this->_pGlobalSceneCaptureResources.reset();
+  this->_pGlobalUniformsCubeRender.reset();
+
   this->_pGltfMaterialAllocator.reset();
   this->_iblResources = {};
   this->_target = {};
@@ -350,28 +389,92 @@ void DemoScene::destroyRenderState(Application& app) {
 
 void DemoScene::tick(Application& app, const FrameContext& frame) {
   this->_pCameraController->tick(frame.deltaTime);
-  const Camera& camera = this->_pCameraController->getCamera();
+  {
+    const Camera& camera = this->_pCameraController->getCamera();
 
-  const glm::mat4& projection = camera.getProjection();
+    GlobalUniforms globalUniforms;
+    globalUniforms.projection = camera.getProjection();
+    globalUniforms.inverseProjection = glm::inverse(globalUniforms.projection);
+    globalUniforms.view = camera.computeView();
+    globalUniforms.inverseView = glm::inverse(globalUniforms.view);
+    globalUniforms.lightDir = this->_lightDir;
+    globalUniforms.time = static_cast<float>(frame.currentTime);
+    globalUniforms.exposure = 0.3f;
 
-  GlobalUniforms globalUniforms;
-  globalUniforms.projection = camera.getProjection();
-  globalUniforms.inverseProjection = glm::inverse(globalUniforms.projection);
-  globalUniforms.view = camera.computeView();
-  globalUniforms.inverseView = glm::inverse(globalUniforms.view);
-  globalUniforms.lightDir = this->_lightDir;
-  globalUniforms.time = static_cast<float>(frame.currentTime);
-  globalUniforms.exposure = 0.3f;
+    this->_pGlobalUniforms->updateUniforms(globalUniforms, frame);
+  }
 
-  this->_pGlobalUniforms->updateUniforms(globalUniforms, frame);
+  {
+    Camera sceneCaptureCamera(90.0f, 1.0f, 0.01f, 1000.0f);
+
+    GlobalUniformsCubeRender globalUniforms;
+    globalUniforms.projection = sceneCaptureCamera.getProjection();
+    globalUniforms.inverseProjection = glm::inverse(globalUniforms.projection);
+
+    glm::mat4 view = sceneCaptureCamera.computeView();
+    glm::mat4 invView = glm::inverse(view);
+
+    // front back up down right left
+    // X+ X- Y+ Y- Z+ Z-
+    sceneCaptureCamera.setPosition(this->_probeTranslation);
+    sceneCaptureCamera.setRotation(90.0f, 0.0f);
+    globalUniforms.views[0] = sceneCaptureCamera.computeView();
+    globalUniforms.inverseViews[0] = glm::inverse(globalUniforms.views[0]);
+
+    sceneCaptureCamera.setRotation(-90.0f, 0.0f);
+    globalUniforms.views[1] = sceneCaptureCamera.computeView();
+    globalUniforms.inverseViews[1] = glm::inverse(globalUniforms.views[1]);
+
+    sceneCaptureCamera.setRotation(180.0f, 90.0f);
+    globalUniforms.views[2] = sceneCaptureCamera.computeView();
+    globalUniforms.inverseViews[2] = glm::inverse(globalUniforms.views[2]);
+
+    sceneCaptureCamera.setRotation(180.0f, -90.0f);
+    globalUniforms.views[3] = sceneCaptureCamera.computeView();
+    globalUniforms.inverseViews[3] = glm::inverse(globalUniforms.views[3]);
+
+    sceneCaptureCamera.setRotation(180.0f, 0.0f);
+    globalUniforms.views[4] = sceneCaptureCamera.computeView();
+    globalUniforms.inverseViews[4] = glm::inverse(globalUniforms.views[4]);
+
+    sceneCaptureCamera.setRotation(0.0f, 0.0f);
+    globalUniforms.views[5] = sceneCaptureCamera.computeView();
+    globalUniforms.inverseViews[5] = glm::inverse(globalUniforms.views[5]);
+
+    globalUniforms.lightDir = this->_lightDir;
+    globalUniforms.time = static_cast<float>(frame.currentTime);
+    globalUniforms.exposure = 0.3f;
+
+    this->_pGlobalUniformsCubeRender->updateUniforms(globalUniforms, frame);
+  }
 }
 
 void DemoScene::_createRenderTarget(
     const Application& app,
-    VkCommandBuffer commandBuffer) {
+    SingleTimeCommandBuffer& commandBuffer) {
   // Create render target resources
-  VkExtent2D extent {100, 100};
-  this->_target = RenderTarget(app, commandBuffer, extent);
+  VkExtent2D extent{512, 512};
+  this->_target = RenderTarget(
+      app,
+      commandBuffer,
+      extent,
+      RenderTargetType::SceneCaptureCube);
+
+  // Global resources
+  DescriptorSetLayoutBuilder globalResourceLayout;
+
+  // Add textures for IBL
+  ImageBasedLighting::buildLayout(globalResourceLayout);
+  globalResourceLayout
+      // Global uniforms.
+      .addUniformBufferBinding();
+
+  this->_pGlobalSceneCaptureResources =
+      std::make_shared<PerFrameResources>(app, globalResourceLayout);
+  this->_pGlobalUniformsCubeRender =
+      std::make_unique<TransientUniforms<GlobalUniformsCubeRender>>(
+          app,
+          commandBuffer);
 
   // Create render pass
   VkClearValue colorClear;
@@ -379,13 +482,15 @@ void DemoScene::_createRenderTarget(
   VkClearValue depthClear;
   depthClear.depthStencil = {1.0f, 0};
 
+  ShaderDefines defines = {{"CUBEMAP_MULTIVIEW", ""}, {"SKIP_TONEMAP", ""}};
+
   std::vector<Attachment> attachments = {
-      {AttachmentType::Color,
+      {ATTACHMENT_FLAG_COLOR | ATTACHMENT_FLAG_CUBEMAP,
        this->_target.getColorImage().getOptions().format,
        colorClear,
        this->_target.getColorView(),
        false},
-      {AttachmentType::Depth,
+      {ATTACHMENT_FLAG_DEPTH | ATTACHMENT_FLAG_CUBEMAP,
        this->_target.getDepthImage().getOptions().format,
        depthClear,
        this->_target.getDepthView(),
@@ -393,15 +498,24 @@ void DemoScene::_createRenderTarget(
 
   std::vector<SubpassBuilder> subpassBuilders;
 
+  // SKYBOX PASS
+  {
+    SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
+    subpassBuilder.colorAttachments.push_back(0);
+
+    subpassBuilder.pipelineBuilder
+        .addVertexShader(GEngineDirectory + "/Shaders/Skybox.vert", defines)
+        .addFragmentShader(GEngineDirectory + "/Shaders/Skybox.frag", defines)
+
+        .setCullMode(VK_CULL_MODE_FRONT_BIT)
+        .setDepthTesting(false)
+        .layoutBuilder
+        // Global resources (view, projection, skybox)
+        .addDescriptorSet(this->_pGlobalSceneCaptureResources->getLayout());
+  }
+
   // REGULAR PASS
   {
-    // Per-primitive material resources
-    DescriptorSetLayoutBuilder primitiveMaterialLayout;
-    Primitive::buildMaterial(primitiveMaterialLayout);
-
-    this->_pGltfMaterialAllocator =
-        std::make_unique<DescriptorSetAllocator>(app, primitiveMaterialLayout);
-
     SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
     subpassBuilder.colorAttachments.push_back(0);
     subpassBuilder.depthAttachment = 1;
@@ -411,14 +525,14 @@ void DemoScene::_createRenderTarget(
     subpassBuilder
         .pipelineBuilder
         // Vertex shader
-        .addVertexShader(GEngineDirectory + "/Shaders/GltfPBR.vert")
+        .addVertexShader(GEngineDirectory + "/Shaders/GltfPBR.vert", defines)
         // Fragment shader
-        .addFragmentShader(GEngineDirectory + "/Shaders/GltfPBR.frag")
+        .addFragmentShader(GEngineDirectory + "/Shaders/GltfPBR.frag", defines)
 
         // Pipeline resource layouts
         .layoutBuilder
         // Global resources (view, projection, environment map)
-        .addDescriptorSet(this->_pGlobalResources->getLayout())
+        .addDescriptorSet(this->_pGlobalSceneCaptureResources->getLayout())
         // Material (per-object) resources (diffuse, normal map,
         // metallic-roughness, etc)
         .addDescriptorSet(this->_pGltfMaterialAllocator->getLayout());
@@ -429,6 +543,11 @@ void DemoScene::_createRenderTarget(
       extent,
       std::move(attachments),
       std::move(subpassBuilders));
+
+  ResourcesAssignment assignment =
+      this->_pGlobalSceneCaptureResources->assign();
+  this->_iblResources.bind(assignment);
+  assignment.bindTransientUniforms(*this->_pGlobalUniformsCubeRender);
 }
 
 namespace {
@@ -449,13 +568,17 @@ void DemoScene::draw(
 
   {
     VkDescriptorSet globalDescriptorSet =
-        this->_pGlobalResources->getCurrentDescriptorSet(frame);
+        this->_pGlobalSceneCaptureResources->getCurrentDescriptorSet(frame);
 
     ActiveRenderPass pass =
         this->_pSceneCaptureRenderPass->begin(app, commandBuffer, frame);
     pass
         // Bind global descriptor sets
-        .setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
+        .setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1))
+
+        .draw(DrawableEnvMap{})
+        .nextSubpass();
+
     // Draw models
     for (const Model& model : this->_models) {
       pass.draw(model);
@@ -486,16 +609,16 @@ void DemoScene::draw(
     }
 
     pass.nextSubpass();
-
     pass.setGlobalDescriptorSets(gsl::span(globalResourceAndRenderTarget, 2));
 
     glm::mat4 probeTransform(1.0f);
-    probeTransform = glm::scale(probeTransform, glm::vec3(5.0f));
+    probeTransform = glm::scale(probeTransform, glm::vec3(1.0f));
+    probeTransform = glm::translate(probeTransform, this->_probeTranslation);
     this->_drawProbe(probeTransform, pass.getDrawContext());
 
-    probeTransform =
-        glm::translate(probeTransform, glm::vec3(10.0f, 0.0f, 0.0f));
-    this->_drawProbe(probeTransform, pass.getDrawContext());
+    // probeTransform =
+    //     glm::translate(probeTransform, glm::vec3(3.0f, 0.0f, 0.0f));
+    // this->_drawProbe(probeTransform, pass.getDrawContext());
   }
 }
 

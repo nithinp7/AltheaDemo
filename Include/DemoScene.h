@@ -6,18 +6,18 @@
 #include <Althea/DescriptorSet.h>
 #include <Althea/IGameInstance.h>
 #include <Althea/Image.h>
+#include <Althea/ImageBasedLighting.h>
+#include <Althea/ImageResource.h>
 #include <Althea/ImageView.h>
 #include <Althea/IndexBuffer.h>
 #include <Althea/Model.h>
 #include <Althea/PerFrameResources.h>
 #include <Althea/RenderPass.h>
-#include <Althea/Sampler.h>
-#include <Althea/TransientUniforms.h>
-#include <Althea/Texture.h>
-#include <Althea/ImageBasedLighting.h>
-#include <Althea/ImageResource.h>
-#include <Althea/VertexBuffer.h>
 #include <Althea/RenderTarget.h>
+#include <Althea/Sampler.h>
+#include <Althea/Texture.h>
+#include <Althea/TransientUniforms.h>
+#include <Althea/VertexBuffer.h>
 #include <glm/glm.hpp>
 
 #include <vector>
@@ -37,6 +37,16 @@ struct GlobalUniforms {
   glm::mat4 inverseProjection;
   glm::mat4 view;
   glm::mat4 inverseView;
+  glm::vec3 lightDir;
+  float time;
+  float exposure;
+};
+
+struct GlobalUniformsCubeRender {
+  glm::mat4 projection;
+  glm::mat4 inverseProjection;
+  glm::mat4 views[6];
+  glm::mat4 inverseViews[6];
   glm::vec3 lightDir;
   float time;
   float exposure;
@@ -66,8 +76,12 @@ private:
   // TODO: why are these shared ptrs?
   std::shared_ptr<PerFrameResources> _pGlobalResources;
   std::shared_ptr<PerFrameResources> _pRenderTargetResources;
-  
+
   std::unique_ptr<TransientUniforms<GlobalUniforms>> _pGlobalUniforms;
+
+  std::shared_ptr<PerFrameResources> _pGlobalSceneCaptureResources;
+  std::unique_ptr<TransientUniforms<GlobalUniformsCubeRender>>
+      _pGlobalUniformsCubeRender;
 
   std::unique_ptr<DescriptorSetAllocator> _pGltfMaterialAllocator;
 
@@ -77,7 +91,7 @@ private:
   std::unique_ptr<RenderPass> _pSceneCaptureRenderPass;
 
   std::vector<Model> _models;
-  
+
   IBLResources _iblResources;
 
   RenderTarget _target;
@@ -93,7 +107,11 @@ private:
   VertexBuffer<glm::vec3> _sphereVertexBuffer;
   IndexBuffer _sphereIndexBuffer;
 
-  void _createRenderTarget(const Application& app, VkCommandBuffer commandBuffer);
+  glm::vec3 _probeTranslation{};
+
+  void _createRenderTarget(
+      const Application& app,
+      SingleTimeCommandBuffer& commandBuffer);
   void _drawProbe(const glm::mat4& transform, const DrawContext& context);
 };
 } // namespace DemoScene

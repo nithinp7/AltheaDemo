@@ -2,8 +2,8 @@
 
 #define PI 3.14159265359
 
-layout(location=0) in vec3 normal;
-layout(location=1) in vec3 direction;
+layout(location=0) in vec3 inNormal;
+layout(location=1) in vec3 inDirection;
 
 layout(location=0) out vec4 color;
 
@@ -22,24 +22,27 @@ layout(set=0, binding=4) uniform UniformBufferObject {
   float exposure;
 } globals;
 
-layout(set=1, binding=0) uniform sampler2D sceneCaptureTex;
+layout(set=1, binding=0) uniform samplerCube sceneCaptureTex;
 
-#include <PBR/PBRMaterial.frag>
+#include <PBR/PBRMaterial.glsl>
 
 void main() {
+  vec3 normal = normalize(inNormal);
+  vec3 direction = normalize(inDirection);
+
   float metallic = 0.0;
-  float roughness = 0.0;
+  float roughness = 0.2;
   vec3 baseColor = vec3(1.0, 1.0, 1.0);
 
   float ambientOcclusion = 1.0;
 
-  vec3 reflectedDirection = reflect(normalize(direction), normal);
+  vec3 reflectedDirection = reflect(direction, normal);
   vec3 reflectedColor = sampleEnvMap(reflectedDirection, roughness);
   vec3 irradianceColor = sampleIrrMap(normal);
 
   vec3 material = 
       pbrMaterial(
-        normalize(direction),
+        direction,
         globals.lightDir, 
         normal, 
         baseColor.rgb, 
@@ -49,12 +52,16 @@ void main() {
         roughness, 
         ambientOcclusion);
 
-  material = vec3(1.0) - exp(-material * globals.exposure);
   color = vec4(material, 1.0);
 
-  float theta = atan(normal.z, normal.x);
-  float phi = atan(normal.y, length(normal.xz));
-
-  vec2 uv = vec2((theta + PI) / (2.0 * PI), (phi + 0.5 * PI) / PI);
-  color.rgb *= texture(sceneCaptureTex, uv).rgb;
+  // Convert to OpenGL conventions.
+  // Note: The captured cubemap is expected to intentionally have 
+  // +X and -X switched to make this work - 
+  // TODO: Look for a cleaner way...
+  reflectedDirection.x *= -1.0; 
+  color.rgb *= texture(sceneCaptureTex, reflectedDirection).rgb;
+  
+#ifndef SKIP_TONEMAP
+  color.rgb = vec3(1.0) - exp(-color.rgb * globals.exposure);
+#endif
 }
