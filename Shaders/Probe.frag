@@ -22,7 +22,12 @@ layout(set=0, binding=4) uniform UniformBufferObject {
   float exposure;
 } globals;
 
-layout(set=1, binding=0) uniform samplerCube sceneCaptureTex;
+layout(set=1, binding=0) uniform samplerCubeArray sceneCaptureTexArr;
+
+layout(push_constant) uniform PushConstants {
+  mat4 model;
+  uint sceneCaptureIndex;
+} pushConstants;
 
 #include <PBR/PBRMaterial.glsl>
 
@@ -59,7 +64,10 @@ void main() {
   // +X and -X switched to make this work - 
   // TODO: Look for a cleaner way...
   reflectedDirection.x *= -1.0; 
-  color.rgb *= texture(sceneCaptureTex, reflectedDirection).rgb;
+  color.rgb *= 
+      texture(
+        sceneCaptureTexArr, 
+        vec4(reflectedDirection, pushConstants.sceneCaptureIndex)).rgb;
   
 #ifndef SKIP_TONEMAP
   color.rgb = vec3(1.0) - exp(-color.rgb * globals.exposure);

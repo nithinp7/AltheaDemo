@@ -14,6 +14,7 @@ layout(set=0, binding=4) uniform UniformBufferObject {
 
 layout(push_constant) uniform PushConstants {
   mat4 model;
+  uint sceneCaptureIndex;
 } pushConstants;
 
 layout(location=0) out vec3 normalOut;

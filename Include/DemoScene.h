@@ -20,6 +20,7 @@
 #include <Althea/VertexBuffer.h>
 #include <glm/glm.hpp>
 
+#include <cstdint>
 #include <vector>
 
 using namespace AltheaEngine;
@@ -52,6 +53,18 @@ struct GlobalUniformsCubeRender {
   float exposure;
 };
 
+struct ProbePushConstants {
+  glm::mat4 model{};
+  uint32_t sceneCaptureIndex{};
+};
+
+struct LightProbe {
+  std::unique_ptr<PerFrameResources> pResources{};
+  std::unique_ptr<TransientUniforms<GlobalUniformsCubeRender>> pUniforms{};
+  std::unique_ptr<RenderPass> pRenderPass{};
+  glm::vec3 location{};
+};
+
 class DemoScene : public IGameInstance {
 public:
   DemoScene();
@@ -75,26 +88,22 @@ private:
 
   // TODO: why are these shared ptrs?
   std::shared_ptr<PerFrameResources> _pGlobalResources;
-  std::shared_ptr<PerFrameResources> _pRenderTargetResources;
+  std::shared_ptr<PerFrameResources> _pRenderTargetTextures;
 
   std::unique_ptr<TransientUniforms<GlobalUniforms>> _pGlobalUniforms;
-
-  std::shared_ptr<PerFrameResources> _pGlobalSceneCaptureResources;
-  std::unique_ptr<TransientUniforms<GlobalUniformsCubeRender>>
-      _pGlobalUniformsCubeRender;
 
   std::unique_ptr<DescriptorSetAllocator> _pGltfMaterialAllocator;
 
   std::unique_ptr<CameraController> _pCameraController;
 
   std::unique_ptr<RenderPass> _pRenderPass;
-  std::unique_ptr<RenderPass> _pSceneCaptureRenderPass;
+
+  RenderTargetCollection _renderTargets{};
+  std::vector<LightProbe> _probes;
 
   std::vector<Model> _models;
 
   IBLResources _iblResources;
-
-  RenderTarget _target;
 
   struct Sphere {
     std::vector<glm::vec3> vertices;
@@ -109,10 +118,14 @@ private:
 
   glm::vec3 _probeTranslation{};
 
-  void _createRenderTarget(
+  void _createProbes(
       const Application& app,
-      SingleTimeCommandBuffer& commandBuffer);
-  void _drawProbe(const glm::mat4& transform, const DrawContext& context);
+      SingleTimeCommandBuffer& commandBuffer,
+      uint32_t count);
+  void _drawProbe(
+      const glm::mat4& transform,
+      uint32_t sceneCaptureIndex,
+      const DrawContext& context);
 };
 } // namespace DemoScene
 } // namespace AltheaDemo
