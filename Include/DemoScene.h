@@ -18,6 +18,8 @@
 #include <Althea/Texture.h>
 #include <Althea/TransientUniforms.h>
 #include <Althea/VertexBuffer.h>
+#include <Althea/FrameBuffer.h>
+#include <Althea/Material.h>
 #include <glm/glm.hpp>
 
 #include <cstdint>
@@ -59,10 +61,16 @@ struct ProbePushConstants {
 };
 
 struct LightProbe {
-  std::unique_ptr<PerFrameResources> pResources{};
+  std::unique_ptr<Material> pMaterial{};
   std::unique_ptr<TransientUniforms<GlobalUniformsCubeRender>> pUniforms{};
-  std::unique_ptr<RenderPass> pRenderPass{};
+  FrameBuffer frameBuffer{};
   glm::vec3 location{};
+};
+
+struct ProbeCollection {
+  std::vector<LightProbe> probes;
+  std::unique_ptr<DescriptorSetAllocator> pMaterialAllocator{};
+  std::unique_ptr<RenderPass> pRenderPass{};
 };
 
 class DemoScene : public IGameInstance {
@@ -97,9 +105,10 @@ private:
   std::unique_ptr<CameraController> _pCameraController;
 
   std::unique_ptr<RenderPass> _pRenderPass;
+  SwapChainFrameBufferCollection _swapChainFrameBuffers;
 
   RenderTargetCollection _renderTargets{};
-  std::vector<LightProbe> _probes;
+  ProbeCollection _probeCollection{};
 
   std::vector<Model> _models;
 

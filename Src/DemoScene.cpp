@@ -155,15 +155,14 @@ void DemoScene::initGame(Application& app) {
           }
         }
 
-        for (LightProbe& probe : that->_probes) {
-          for (Subpass& subpass : probe.pRenderPass->getSubpasses()) {
-            GraphicsPipeline& pipeline = subpass.getPipeline();
-            if (pipeline.recompileStaleShaders()) {
-              if (pipeline.hasShaderRecompileErrors()) {
-                std::cout << pipeline.getShaderRecompileErrors() << "\n";
-              } else {
-                pipeline.recreatePipeline(app);
-              }
+        for (Subpass& subpass :
+             that->_probeCollection.pRenderPass->getSubpasses()) {
+          GraphicsPipeline& pipeline = subpass.getPipeline();
+          if (pipeline.recompileStaleShaders()) {
+            if (pipeline.hasShaderRecompileErrors()) {
+              std::cout << pipeline.getShaderRecompileErrors() << "\n";
+            } else {
+              pipeline.recreatePipeline(app);
             }
           }
         }
@@ -202,17 +201,20 @@ void DemoScene::createRenderState(Application& app) {
   VkClearValue depthClear;
   depthClear.depthStencil = {1.0f, 0};
 
-  std::vector<Attachment> attachments = {
+  std::vector<Attachment> attachmentDescriptions = {
       {ATTACHMENT_FLAG_COLOR,
        app.getSwapChainImageFormat(),
        colorClear,
-       std::nullopt,
+       true,
        false},
       {ATTACHMENT_FLAG_DEPTH,
        app.getDepthImageFormat(),
        depthClear,
-       app.getDepthImageView(),
+       false,
        true}};
+
+  // Non-swapchain attachment views
+  std::vector<VkImageView> attachmentViews = {app.getDepthImageView()};
 
   // Global resources
   DescriptorSetLayoutBuilder globalResourceLayout;
@@ -313,8 +315,10 @@ void DemoScene::createRenderState(Application& app) {
   this->_pRenderPass = std::make_unique<RenderPass>(
       app,
       app.getSwapChainExtent(),
-      std::move(attachments),
+      std::move(attachmentDescriptions),
       std::move(subpassBuilders));
+  this->_swapChainFrameBuffers =
+      SwapChainFrameBufferCollection(app, *this->_pRenderPass, attachmentViews);
 
   this->_createProbes(app, commandBuffer, 5);
 
@@ -379,13 +383,16 @@ void DemoScene::createRenderState(Application& app) {
 
 void DemoScene::destroyRenderState(Application& app) {
   this->_models.clear();
+
   this->_pRenderPass.reset();
+  this->_swapChainFrameBuffers = {};
+
   this->_pGlobalResources.reset();
   this->_pRenderTargetTextures.reset();
   this->_pGlobalUniforms.reset();
 
   this->_renderTargets = {};
-  this->_probes.clear();
+  this->_probeCollection = {};
 
   this->_pGltfMaterialAllocator.reset();
   this->_iblResources = {};
@@ -411,8 +418,8 @@ void DemoScene::tick(Application& app, const FrameContext& frame) {
   }
 
   glm::vec3 probeSpacing(5.0f, 0.0f, 0.0f);
-  for (size_t i = 0; i < this->_probes.size(); ++i) {
-    LightProbe& probe = this->_probes[i];
+  for (size_t i = 0; i < this->_probeCollection.probes.size(); ++i) {
+    LightProbe& probe = this->_probeCollection.probes[i];
 
     probe.location =
         this->_probeTranslation + static_cast<float>(i) * probeSpacing;
@@ -474,97 +481,112 @@ void DemoScene::_createProbes(
       RenderTargetType::SceneCaptureCube,
       count);
 
-  this->_probes.resize(count);
+  // Global resources (still per-probe)
+  DescriptorSetLayoutBuilder globalResourceLayout;
+  // Add textures for IBL
+  ImageBasedLighting::buildLayout(globalResourceLayout);
+  globalResourceLayout.addUniformBufferBinding();
+
+  this->_probeCollection.pMaterialAllocator =
+      std::make_unique<DescriptorSetAllocator>(
+          app,
+          globalResourceLayout,
+          count);
+
+  // Create render pass
+  VkClearValue colorClear;
+  colorClear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+  VkClearValue depthClear;
+  depthClear.depthStencil = {1.0f, 0};
+
+  ShaderDefines defines = {{"CUBEMAP_MULTIVIEW", ""}, {"SKIP_TONEMAP", ""}};
+
+  std::vector<Attachment> attachmentDescriptions = {
+      {ATTACHMENT_FLAG_COLOR | ATTACHMENT_FLAG_CUBEMAP,
+       this->_renderTargets.getColorImage().getOptions().format,
+       colorClear,
+       false,
+       false},
+      {ATTACHMENT_FLAG_DEPTH | ATTACHMENT_FLAG_CUBEMAP,
+       this->_renderTargets.getDepthImage().getOptions().format,
+       depthClear,
+       false,
+       true}};
+
+  std::vector<SubpassBuilder> subpassBuilders;
+
+  // SKYBOX PASS
+  {
+    SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
+    subpassBuilder.colorAttachments.push_back(0);
+
+    subpassBuilder.pipelineBuilder
+        .addVertexShader(GEngineDirectory + "/Shaders/Skybox.vert", defines)
+        .addFragmentShader(GEngineDirectory + "/Shaders/Skybox.frag", defines)
+
+        .setCullMode(VK_CULL_MODE_FRONT_BIT)
+        .setDepthTesting(false)
+        .layoutBuilder
+        // Global resources (view, projection, skybox)
+        .addDescriptorSet(
+            this->_probeCollection.pMaterialAllocator->getLayout());
+  }
+
+  // REGULAR PASS
+  {
+    SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
+    subpassBuilder.colorAttachments.push_back(0);
+    subpassBuilder.depthAttachment = 1;
+
+    Primitive::buildPipeline(subpassBuilder.pipelineBuilder);
+
+    subpassBuilder
+        .pipelineBuilder
+        // Vertex shader
+        .addVertexShader(GEngineDirectory + "/Shaders/GltfPBR.vert", defines)
+        // Fragment shader
+        .addFragmentShader(GEngineDirectory + "/Shaders/GltfPBR.frag", defines)
+
+        // Pipeline resource layouts
+        .layoutBuilder
+        // Global resources (view, projection, environment map)
+        .addDescriptorSet(
+            this->_probeCollection.pMaterialAllocator->getLayout())
+        // Material (per-object) resources (diffuse, normal map,
+        // metallic-roughness, etc)
+        .addDescriptorSet(this->_pGltfMaterialAllocator->getLayout());
+  }
+
+  this->_probeCollection.pRenderPass = std::make_unique<RenderPass>(
+      app,
+      extent,
+      std::move(attachmentDescriptions),
+      std::move(subpassBuilders));
+
+  this->_probeCollection.probes.resize(count);
+  std::vector<VkImageView> scratchViews;
+  scratchViews.resize(2);
   for (uint32_t i = 0; i < count; ++i) {
-    LightProbe& probe = this->_probes[i];
+    LightProbe& probe = this->_probeCollection.probes[i];
 
-    // Global resources
-    DescriptorSetLayoutBuilder globalResourceLayout;
-
-    // Add textures for IBL
-    ImageBasedLighting::buildLayout(globalResourceLayout);
-    globalResourceLayout
-        // Global uniforms.
-        .addUniformBufferBinding();
-
-    probe.pResources =
-        std::make_unique<PerFrameResources>(app, globalResourceLayout);
+    probe.pMaterial = std::make_unique<Material>(
+        app,
+        *this->_probeCollection.pMaterialAllocator);
     probe.pUniforms =
         std::make_unique<TransientUniforms<GlobalUniformsCubeRender>>(
             app,
             commandBuffer);
 
-    // Create render pass
-    VkClearValue colorClear;
-    colorClear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
-    VkClearValue depthClear;
-    depthClear.depthStencil = {1.0f, 0};
-
-    ShaderDefines defines = {{"CUBEMAP_MULTIVIEW", ""}, {"SKIP_TONEMAP", ""}};
-
-    std::vector<Attachment> attachments = {
-        {ATTACHMENT_FLAG_COLOR | ATTACHMENT_FLAG_CUBEMAP,
-         this->_renderTargets.getColorImage().getOptions().format,
-         colorClear,
-         this->_renderTargets.getTargetColorView(i),
-         false},
-        {ATTACHMENT_FLAG_DEPTH | ATTACHMENT_FLAG_CUBEMAP,
-         this->_renderTargets.getDepthImage().getOptions().format,
-         depthClear,
-         this->_renderTargets.getTargetDepthView(i),
-         true}};
-
-    std::vector<SubpassBuilder> subpassBuilders;
-
-    // SKYBOX PASS
-    {
-      SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
-      subpassBuilder.colorAttachments.push_back(0);
-
-      subpassBuilder.pipelineBuilder
-          .addVertexShader(GEngineDirectory + "/Shaders/Skybox.vert", defines)
-          .addFragmentShader(GEngineDirectory + "/Shaders/Skybox.frag", defines)
-
-          .setCullMode(VK_CULL_MODE_FRONT_BIT)
-          .setDepthTesting(false)
-          .layoutBuilder
-          // Global resources (view, projection, skybox)
-          .addDescriptorSet(probe.pResources->getLayout());
-    }
-
-    // REGULAR PASS
-    {
-      SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
-      subpassBuilder.colorAttachments.push_back(0);
-      subpassBuilder.depthAttachment = 1;
-
-      Primitive::buildPipeline(subpassBuilder.pipelineBuilder);
-
-      subpassBuilder
-          .pipelineBuilder
-          // Vertex shader
-          .addVertexShader(GEngineDirectory + "/Shaders/GltfPBR.vert", defines)
-          // Fragment shader
-          .addFragmentShader(
-              GEngineDirectory + "/Shaders/GltfPBR.frag",
-              defines)
-
-          // Pipeline resource layouts
-          .layoutBuilder
-          // Global resources (view, projection, environment map)
-          .addDescriptorSet(probe.pResources->getLayout())
-          // Material (per-object) resources (diffuse, normal map,
-          // metallic-roughness, etc)
-          .addDescriptorSet(this->_pGltfMaterialAllocator->getLayout());
-    }
-
-    probe.pRenderPass = std::make_unique<RenderPass>(
+    scratchViews[0] = this->_renderTargets.getTargetColorView(i);
+    scratchViews[1] = this->_renderTargets.getTargetDepthView(i);
+    // TODO: This should probably take a span instead
+    probe.frameBuffer = FrameBuffer(
         app,
+        *this->_probeCollection.pRenderPass,
         extent,
-        std::move(attachments),
-        std::move(subpassBuilders));
+        scratchViews);
 
-    ResourcesAssignment assignment = probe.pResources->assign();
+    ResourcesAssignment assignment = probe.pMaterial->assign();
     this->_iblResources.bind(assignment);
     assignment.bindTransientUniforms(*probe.pUniforms);
   }
@@ -586,11 +608,15 @@ void DemoScene::draw(
 
   this->_renderTargets.transitionToAttachment(commandBuffer);
 
-  for (LightProbe& probe : this->_probes) {
+  for (LightProbe& probe : this->_probeCollection.probes) {
     VkDescriptorSet globalDescriptorSet =
-        probe.pResources->getCurrentDescriptorSet(frame);
+        probe.pMaterial->getCurrentDescriptorSet(frame);
 
-    ActiveRenderPass pass = probe.pRenderPass->begin(app, commandBuffer, frame);
+    ActiveRenderPass pass = this->_probeCollection.pRenderPass->begin(
+        app,
+        commandBuffer,
+        frame,
+        probe.frameBuffer);
     pass
         // Bind global descriptor sets
         .setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1))
@@ -614,8 +640,11 @@ void DemoScene::draw(
     VkDescriptorSet globalDescriptorSet =
         this->_pGlobalResources->getCurrentDescriptorSet(frame);
 
-    ActiveRenderPass pass =
-        this->_pRenderPass->begin(app, commandBuffer, frame);
+    ActiveRenderPass pass = this->_pRenderPass->begin(
+        app,
+        commandBuffer,
+        frame,
+        this->_swapChainFrameBuffers.getCurrentFrameBuffer(frame));
     pass
         // Bind global descriptor sets
         .setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1))
@@ -630,8 +659,8 @@ void DemoScene::draw(
     pass.nextSubpass();
     pass.setGlobalDescriptorSets(gsl::span(globalResourceAndRenderTarget, 2));
 
-    for (uint32_t i = 0; i < this->_probes.size(); ++i) {
-      const LightProbe& probe = this->_probes[i];
+    for (uint32_t i = 0; i < this->_probeCollection.probes.size(); ++i) {
+      const LightProbe& probe = this->_probeCollection.probes[i];
       glm::mat4 probeTransform(1.0f);
       probeTransform = glm::scale(probeTransform, glm::vec3(1.0f));
       probeTransform = glm::translate(probeTransform, probe.location);
