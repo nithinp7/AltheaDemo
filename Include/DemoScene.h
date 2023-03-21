@@ -14,6 +14,7 @@
 #include <Althea/TransientUniforms.h>
 #include <Althea/Texture.h>
 #include <Althea/ImageBasedLighting.h>
+#include <Althea/FrameBuffer.h>
 #include <glm/glm.hpp>
 
 #include <vector>
@@ -67,6 +68,7 @@ private:
   std::unique_ptr<CameraController> _pCameraController;
 
   std::unique_ptr<RenderPass> _pRenderPass;
+  SwapChainFrameBufferCollection _swapChainFrameBuffers;
 
   std::vector<Model> _models;
   

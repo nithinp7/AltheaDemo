@@ -93,8 +93,10 @@ void DemoScene::createRenderState(Application& app) {
 
   SingleTimeCommandBuffer commandBuffer(app);
 
-  this->_iblResources =
-      ImageBasedLighting::createResources(app, commandBuffer, "NeoclassicalInterior");
+  this->_iblResources = ImageBasedLighting::createResources(
+      app,
+      commandBuffer,
+      "NeoclassicalInterior");
 
   // TODO: Default color and depth-stencil clear values for attachments?
   VkClearValue colorClear;
@@ -103,15 +105,15 @@ void DemoScene::createRenderState(Application& app) {
   depthClear.depthStencil = {1.0f, 0};
 
   std::vector<Attachment> attachments = {
-      {AttachmentType::Color,
+      {ATTACHMENT_FLAG_COLOR,
        app.getSwapChainImageFormat(),
        colorClear,
-       std::nullopt,
+       true,
        false},
-      {AttachmentType::Depth,
+      {ATTACHMENT_FLAG_DEPTH,
        app.getDepthImageFormat(),
        depthClear,
-       app.getDepthImageView(),
+       false,
        true}};
 
   // Global resources
@@ -134,7 +136,7 @@ void DemoScene::createRenderState(Application& app) {
   {
     SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
     subpassBuilder.colorAttachments.push_back(0);
-    Skybox::buildPipeline(app, subpassBuilder.pipelineBuilder);
+    Skybox::buildPipeline(subpassBuilder.pipelineBuilder);
 
     subpassBuilder.pipelineBuilder
         .layoutBuilder
@@ -175,8 +177,16 @@ void DemoScene::createRenderState(Application& app) {
 
   this->_pRenderPass = std::make_unique<RenderPass>(
       app,
+      app.getSwapChainExtent(),
       std::move(attachments),
       std::move(subpassBuilders));
+
+  std::vector<VkImageView> attachmentViews;
+  attachmentViews.push_back(app.getDepthImageView());
+  this->_swapChainFrameBuffers = SwapChainFrameBufferCollection(
+      app,
+      *this->_pRenderPass,
+      attachmentViews);
 
   std::vector<Subpass>& subpasses = this->_pRenderPass->getSubpasses();
 
@@ -219,6 +229,7 @@ void DemoScene::createRenderState(Application& app) {
 void DemoScene::destroyRenderState(Application& app) {
   this->_models.clear();
   this->_pRenderPass.reset();
+  this->_swapChainFrameBuffers = {};
   this->_pGlobalResources.reset();
   this->_pGlobalUniforms.reset();
   this->_pGltfMaterialAllocator.reset();
@@ -260,7 +271,11 @@ void DemoScene::draw(
   VkDescriptorSet globalDescriptorSet =
       this->_pGlobalResources->getCurrentDescriptorSet(frame);
 
-  ActiveRenderPass pass = this->_pRenderPass->begin(app, commandBuffer, frame);
+  ActiveRenderPass pass = this->_pRenderPass->begin(
+      app,
+      commandBuffer,
+      frame,
+      this->_swapChainFrameBuffers.getCurrentFrameBuffer(frame));
   pass
       // Bind global descriptor sets
       .setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1))
