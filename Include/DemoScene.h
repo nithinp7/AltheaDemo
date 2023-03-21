@@ -64,13 +64,15 @@ struct LightProbe {
   std::unique_ptr<Material> pMaterial{};
   std::unique_ptr<TransientUniforms<GlobalUniformsCubeRender>> pUniforms{};
   FrameBuffer frameBuffer{};
-  glm::vec3 location{};
+  glm::vec3 positionOffset{};
 };
 
 struct ProbeCollection {
   std::vector<LightProbe> probes;
   std::unique_ptr<DescriptorSetAllocator> pMaterialAllocator{};
   std::unique_ptr<RenderPass> pRenderPass{};
+  glm::vec3 location{};
+  bool dirty = true;
 };
 
 class DemoScene : public IGameInstance {
@@ -96,7 +98,6 @@ private:
 
   // TODO: why are these shared ptrs?
   std::shared_ptr<PerFrameResources> _pGlobalResources;
-  std::shared_ptr<PerFrameResources> _pRenderTargetTextures;
 
   std::unique_ptr<TransientUniforms<GlobalUniforms>> _pGlobalUniforms;
 
@@ -125,12 +126,9 @@ private:
   VertexBuffer<glm::vec3> _sphereVertexBuffer;
   IndexBuffer _sphereIndexBuffer;
 
-  glm::vec3 _probeTranslation{};
-
   void _createProbes(
       const Application& app,
-      SingleTimeCommandBuffer& commandBuffer,
-      uint32_t count);
+      SingleTimeCommandBuffer& commandBuffer);
   void _drawProbe(
       const glm::mat4& transform,
       uint32_t sceneCaptureIndex,

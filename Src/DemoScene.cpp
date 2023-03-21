@@ -121,24 +121,28 @@ void DemoScene::initGame(Application& app) {
   float probeSpeed = 0.8f;
   input.addKeyBinding(
       {GLFW_KEY_LEFT, GLFW_PRESS, 0},
-      [&translation = this->_probeTranslation, probeSpeed, &input]() {
+      [&translation = this->_probeCollection.location, probeSpeed, &input]() {
         translation.x -= probeSpeed;
       });
   input.addKeyBinding(
       {GLFW_KEY_RIGHT, GLFW_PRESS, 0},
-      [&translation = this->_probeTranslation, probeSpeed, &input]() {
+      [&translation = this->_probeCollection.location, probeSpeed, &input]() {
         translation.x += probeSpeed;
       });
   input.addKeyBinding(
       {GLFW_KEY_DOWN, GLFW_PRESS, 0},
-      [&translation = this->_probeTranslation, probeSpeed, &input]() {
+      [&translation = this->_probeCollection.location, probeSpeed, &input]() {
         translation.z += probeSpeed;
       });
   input.addKeyBinding(
       {GLFW_KEY_UP, GLFW_PRESS, 0},
-      [&translation = this->_probeTranslation, probeSpeed, &input]() {
+      [&translation = this->_probeCollection.location, probeSpeed, &input]() {
         translation.z -= probeSpeed;
       });
+
+  input.addKeyBinding(
+      {GLFW_KEY_P, GLFW_PRESS, 0},
+      [&dirty = this->_probeCollection.dirty]() { dirty = true; });
 
   // Recreate any stale pipelines (shader hot-reload)
   input.addKeyBinding(
@@ -223,7 +227,9 @@ void DemoScene::createRenderState(Application& app) {
   ImageBasedLighting::buildLayout(globalResourceLayout);
   globalResourceLayout
       // Global uniforms.
-      .addUniformBufferBinding();
+      .addUniformBufferBinding()
+      // Reflection probes cube map array
+      .addTextureBinding();
 
   this->_pGlobalResources =
       std::make_shared<PerFrameResources>(app, globalResourceLayout);
@@ -264,7 +270,9 @@ void DemoScene::createRenderState(Application& app) {
         // Vertex shader
         .addVertexShader(GEngineDirectory + "/Shaders/GltfPBR.vert")
         // Fragment shader
-        .addFragmentShader(GEngineDirectory + "/Shaders/GltfPBR.frag")
+        .addFragmentShader(
+            GEngineDirectory + "/Shaders/GltfPBR.frag",
+            {{"ENABLE_REFL_PROBES", ""}})
 
         // Pipeline resource layouts
         .layoutBuilder
@@ -274,14 +282,6 @@ void DemoScene::createRenderState(Application& app) {
         // metallic-roughness, etc)
         .addDescriptorSet(this->_pGltfMaterialAllocator->getLayout());
   }
-
-  DescriptorSetLayoutBuilder renderTargetResourcesLayoutBuilder{};
-  renderTargetResourcesLayoutBuilder.addTextureBinding(
-      VK_SHADER_STAGE_FRAGMENT_BIT);
-
-  this->_pRenderTargetTextures = std::make_shared<PerFrameResources>(
-      app,
-      renderTargetResourcesLayoutBuilder);
 
   // IBL PROBE VISUALIZATION
   {
@@ -305,9 +305,6 @@ void DemoScene::createRenderState(Application& app) {
         // Global resources (view, projection, environment map)
         .addDescriptorSet(this->_pGlobalResources->getLayout())
 
-        // Render targets
-        .addDescriptorSet(this->_pRenderTargetTextures->getLayout())
-
         // Push constants for the model matrix
         .addPushConstants<ProbePushConstants>();
   }
@@ -320,7 +317,7 @@ void DemoScene::createRenderState(Application& app) {
   this->_swapChainFrameBuffers =
       SwapChainFrameBufferCollection(app, *this->_pRenderPass, attachmentViews);
 
-  this->_createProbes(app, commandBuffer, 5);
+  this->_createProbes(app, commandBuffer);
 
 #if 1
   this->_models.emplace_back(
@@ -328,8 +325,9 @@ void DemoScene::createRenderState(Application& app) {
       commandBuffer,
       GEngineDirectory + "/Content/Models/DamagedHelmet.glb",
       *this->_pGltfMaterialAllocator);
-  this->_models.back().setModelTransform(
-      glm::translate(glm::mat4(1.0f), glm::vec3(6.0f, 0.0f, 0.0f)));
+  this->_models.back().setModelTransform(glm::scale(
+      glm::translate(glm::mat4(1.0f), glm::vec3(36.0f, 0.0f, 0.0f)),
+      glm::vec3(4.0f)));
 
   this->_models.emplace_back(
       app,
@@ -337,16 +335,17 @@ void DemoScene::createRenderState(Application& app) {
       GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf",
       *this->_pGltfMaterialAllocator);
   this->_models.back().setModelTransform(glm::scale(
-      glm::translate(glm::mat4(1.0f), glm::vec3(8.0f, -1.0f, 0.0f)),
-      glm::vec3(4.0f)));
+      glm::translate(glm::mat4(1.0f), glm::vec3(50.0f, -1.0f, 0.0f)),
+      glm::vec3(8.0f)));
 
   this->_models.emplace_back(
       app,
       commandBuffer,
       GEngineDirectory + "/Content/Models/MetalRoughSpheres.glb",
       *this->_pGltfMaterialAllocator);
-  this->_models.back().setModelTransform(
-      glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)));
+  this->_models.back().setModelTransform(glm::scale(
+      glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f)),
+      glm::vec3(4.0f)));
 
   this->_models.emplace_back(
       app,
@@ -375,7 +374,8 @@ void DemoScene::createRenderState(Application& app) {
     // Bind global uniforms
     assignment.bindTransientUniforms(*this->_pGlobalUniforms);
 
-    this->_pRenderTargetTextures->assign().bindTexture(
+    // Bind global reflection probe cubemap array
+    assignment.bindTexture(
         this->_renderTargets.getColorTextureArrayView(),
         this->_renderTargets.getColorSampler());
   }
@@ -388,7 +388,6 @@ void DemoScene::destroyRenderState(Application& app) {
   this->_swapChainFrameBuffers = {};
 
   this->_pGlobalResources.reset();
-  this->_pRenderTargetTextures.reset();
   this->_pGlobalUniforms.reset();
 
   this->_renderTargets = {};
@@ -402,6 +401,7 @@ void DemoScene::destroyRenderState(Application& app) {
 
 void DemoScene::tick(Application& app, const FrameContext& frame) {
   this->_pCameraController->tick(frame.deltaTime);
+  float exposure = 0.6f;
   {
     const Camera& camera = this->_pCameraController->getCamera();
 
@@ -412,17 +412,13 @@ void DemoScene::tick(Application& app, const FrameContext& frame) {
     globalUniforms.inverseView = glm::inverse(globalUniforms.view);
     globalUniforms.lightDir = this->_lightDir;
     globalUniforms.time = static_cast<float>(frame.currentTime);
-    globalUniforms.exposure = 0.3f;
+    globalUniforms.exposure = exposure;
 
     this->_pGlobalUniforms->updateUniforms(globalUniforms, frame);
   }
 
-  glm::vec3 probeSpacing(5.0f, 0.0f, 0.0f);
-  for (size_t i = 0; i < this->_probeCollection.probes.size(); ++i) {
-    LightProbe& probe = this->_probeCollection.probes[i];
-
-    probe.location =
-        this->_probeTranslation + static_cast<float>(i) * probeSpacing;
+  for (LightProbe& probe : this->_probeCollection.probes) {
+    glm::vec3 location = this->_probeCollection.location + probe.positionOffset;
 
     Camera sceneCaptureCamera(90.0f, 1.0f, 0.01f, 1000.0f);
 
@@ -435,7 +431,7 @@ void DemoScene::tick(Application& app, const FrameContext& frame) {
 
     // front back up down right left
     // X+ X- Y+ Y- Z+ Z-
-    sceneCaptureCamera.setPosition(probe.location);
+    sceneCaptureCamera.setPosition(location);
     sceneCaptureCamera.setRotation(90.0f, 0.0f);
     globalUniforms.views[0] = sceneCaptureCamera.computeView();
     globalUniforms.inverseViews[0] = glm::inverse(globalUniforms.views[0]);
@@ -462,7 +458,7 @@ void DemoScene::tick(Application& app, const FrameContext& frame) {
 
     globalUniforms.lightDir = this->_lightDir;
     globalUniforms.time = static_cast<float>(frame.currentTime);
-    globalUniforms.exposure = 0.3f;
+    globalUniforms.exposure = exposure;
 
     probe.pUniforms->updateUniforms(globalUniforms, frame);
   }
@@ -470,10 +466,15 @@ void DemoScene::tick(Application& app, const FrameContext& frame) {
 
 void DemoScene::_createProbes(
     const Application& app,
-    SingleTimeCommandBuffer& commandBuffer,
-    uint32_t count) {
+    SingleTimeCommandBuffer& commandBuffer) {
+  constexpr uint32_t probesCountX = 10;
+  constexpr uint32_t probesCountY = 4;
+  constexpr uint32_t probesCountZ = 4;
+
+  uint32_t count = probesCountX * probesCountY * probesCountZ;
+
   // Create render target resources
-  VkExtent2D extent{512, 512};
+  VkExtent2D extent{128, 128};
   this->_renderTargets = RenderTargetCollection(
       app,
       commandBuffer,
@@ -563,32 +564,42 @@ void DemoScene::_createProbes(
       std::move(attachmentDescriptions),
       std::move(subpassBuilders));
 
+  constexpr float spacing = 10.0f;
+
   this->_probeCollection.probes.resize(count);
   std::vector<VkImageView> scratchViews;
   scratchViews.resize(2);
-  for (uint32_t i = 0; i < count; ++i) {
-    LightProbe& probe = this->_probeCollection.probes[i];
+  uint32_t probeIndex = 0;
+  for (uint32_t i = 0; i < probesCountX; ++i) {
+    for (uint32_t j = 0; j < probesCountY; ++j) {
+      for (uint32_t k = 0; k < probesCountZ; ++k) {
+        LightProbe& probe = this->_probeCollection.probes[probeIndex];
+        probe.positionOffset = glm::vec3(i, j, k) * spacing;
 
-    probe.pMaterial = std::make_unique<Material>(
-        app,
-        *this->_probeCollection.pMaterialAllocator);
-    probe.pUniforms =
-        std::make_unique<TransientUniforms<GlobalUniformsCubeRender>>(
+        probe.pMaterial = std::make_unique<Material>(
             app,
-            commandBuffer);
+            *this->_probeCollection.pMaterialAllocator);
+        probe.pUniforms =
+            std::make_unique<TransientUniforms<GlobalUniformsCubeRender>>(
+                app,
+                commandBuffer);
 
-    scratchViews[0] = this->_renderTargets.getTargetColorView(i);
-    scratchViews[1] = this->_renderTargets.getTargetDepthView(i);
-    // TODO: This should probably take a span instead
-    probe.frameBuffer = FrameBuffer(
-        app,
-        *this->_probeCollection.pRenderPass,
-        extent,
-        scratchViews);
+        scratchViews[0] = this->_renderTargets.getTargetColorView(probeIndex);
+        scratchViews[1] = this->_renderTargets.getTargetDepthView(probeIndex);
+        // TODO: This should probably take a span instead
+        probe.frameBuffer = FrameBuffer(
+            app,
+            *this->_probeCollection.pRenderPass,
+            extent,
+            scratchViews);
 
-    ResourcesAssignment assignment = probe.pMaterial->assign();
-    this->_iblResources.bind(assignment);
-    assignment.bindTransientUniforms(*probe.pUniforms);
+        ResourcesAssignment assignment = probe.pMaterial->assign();
+        this->_iblResources.bind(assignment);
+        assignment.bindTransientUniforms(*probe.pUniforms);
+
+        ++probeIndex;
+      }
+    }
   }
 }
 
@@ -606,37 +617,37 @@ void DemoScene::draw(
     VkCommandBuffer commandBuffer,
     const FrameContext& frame) {
 
-  this->_renderTargets.transitionToAttachment(commandBuffer);
+  if (this->_probeCollection.dirty) {
+    this->_probeCollection.dirty = false;
 
-  for (LightProbe& probe : this->_probeCollection.probes) {
-    VkDescriptorSet globalDescriptorSet =
-        probe.pMaterial->getCurrentDescriptorSet(frame);
+    this->_renderTargets.transitionToAttachment(commandBuffer);
 
-    ActiveRenderPass pass = this->_probeCollection.pRenderPass->begin(
-        app,
-        commandBuffer,
-        frame,
-        probe.frameBuffer);
-    pass
-        // Bind global descriptor sets
-        .setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1))
+    for (LightProbe& probe : this->_probeCollection.probes) {
+      VkDescriptorSet globalDescriptorSet =
+          probe.pMaterial->getCurrentDescriptorSet(frame);
 
-        .draw(DrawableEnvMap{})
-        .nextSubpass();
+      ActiveRenderPass pass = this->_probeCollection.pRenderPass->begin(
+          app,
+          commandBuffer,
+          frame,
+          probe.frameBuffer);
+      pass
+          // Bind global descriptor sets
+          .setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1))
 
-    // Draw models
-    for (const Model& model : this->_models) {
-      pass.draw(model);
+          .draw(DrawableEnvMap{})
+          .nextSubpass();
+
+      // Draw models
+      for (const Model& model : this->_models) {
+        pass.draw(model);
+      }
     }
+
+    this->_renderTargets.transitionToTexture(commandBuffer);
   }
 
-  this->_renderTargets.transitionToTexture(commandBuffer);
-
   {
-    VkDescriptorSet globalResourceAndRenderTarget[2] = {
-        this->_pGlobalResources->getCurrentDescriptorSet(frame),
-        this->_pRenderTargetTextures->getCurrentDescriptorSet(frame)};
-
     VkDescriptorSet globalDescriptorSet =
         this->_pGlobalResources->getCurrentDescriptorSet(frame);
 
@@ -657,14 +668,16 @@ void DemoScene::draw(
     }
 
     pass.nextSubpass();
-    pass.setGlobalDescriptorSets(gsl::span(globalResourceAndRenderTarget, 2));
+    pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
 
     for (uint32_t i = 0; i < this->_probeCollection.probes.size(); ++i) {
       const LightProbe& probe = this->_probeCollection.probes[i];
       glm::mat4 probeTransform(1.0f);
       probeTransform = glm::scale(probeTransform, glm::vec3(1.0f));
-      probeTransform = glm::translate(probeTransform, probe.location);
-      this->_drawProbe(probeTransform, i, pass.getDrawContext());
+      probeTransform = glm::translate(
+          probeTransform,
+          this->_probeCollection.location + probe.positionOffset);
+      //this->_drawProbe(probeTransform, i, pass.getDrawContext());
     }
   }
 }

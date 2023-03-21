@@ -22,7 +22,7 @@ layout(set=0, binding=4) uniform UniformBufferObject {
   float exposure;
 } globals;
 
-layout(set=1, binding=0) uniform samplerCubeArray sceneCaptureTexArr;
+layout(set=0, binding=5) uniform samplerCubeArray sceneCaptureTexArr;
 
 layout(push_constant) uniform PushConstants {
   mat4 model;
