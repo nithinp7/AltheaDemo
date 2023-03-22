@@ -16,6 +16,7 @@
 #include <Althea/Sampler.h>
 #include <Althea/Texture.h>
 #include <Althea/TransientUniforms.h>
+#include <Althea/DeferredRendering.h>
 #include <glm/glm.hpp>
 
 #include <vector>
@@ -69,19 +70,14 @@ private:
   std::unique_ptr<PerFrameResources> _pGlobalResources;
   std::unique_ptr<TransientUniforms<GlobalUniforms>> _pGlobalUniforms;
   std::unique_ptr<DescriptorSetAllocator> _pGltfMaterialAllocator;
+  IBLResources _iblResources;
+  GBufferResources _gBufferResources;
 
   void _createModels(Application& app, SingleTimeCommandBuffer& commandBuffer);
   std::vector<Model> _models;
 
   void _createForwardPass(Application& app);
   std::unique_ptr<RenderPass> _pForwardPass;
-  struct GBufferResources {
-    ImageResource position{};
-    ImageResource normal{};
-    ImageResource albedo{};
-    ImageResource metallicRoughnessOcclusion{};
-  };
-  GBufferResources _gBufferResources;
   FrameBuffer _forwardFrameBuffer;
 
   void _createDeferredPass(Application& app);
@@ -90,7 +86,6 @@ private:
   std::unique_ptr<DescriptorSetAllocator> _pDeferredMaterialAllocator;
   std::unique_ptr<Material> _pDeferredMaterial;
 
-  AltheaEngine::IBLResources _iblResources;
 };
 } // namespace DemoScene
 } // namespace AltheaDemo

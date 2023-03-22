@@ -183,6 +183,7 @@ void DemoScene::_createGlobalResources(
       app,
       commandBuffer,
       "NeoclassicalInterior");
+  this->_gBufferResources = GBufferResources(app);
 
   // Per-primitive material resources
   DescriptorSetLayoutBuilder primitiveMaterialLayout;
@@ -215,96 +216,6 @@ void DemoScene::_createGlobalResources(
 }
 
 void DemoScene::_createForwardPass(Application& app) {
-  const VkExtent2D& extent = app.getSwapChainExtent();
-
-  // Create image resources for the GBuffer
-  ImageOptions imageOptions{};
-  imageOptions.width = extent.width;
-  imageOptions.height = extent.height;
-  imageOptions.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-  imageOptions.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
-  imageOptions.usage =
-      VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-
-  SamplerOptions samplerOptions{};
-
-  ImageViewOptions viewOptions{};
-  viewOptions.type = VK_IMAGE_VIEW_TYPE_2D;
-  viewOptions.format = VK_FORMAT_R16G16B16A16_SFLOAT;
-  viewOptions.aspectFlags = VK_IMAGE_ASPECT_COLOR_BIT;
-
-  this->_gBufferResources.position.image = Image(app, imageOptions);
-  this->_gBufferResources.position.sampler = Sampler(app, samplerOptions);
-  this->_gBufferResources.position.view = ImageView(
-      app,
-      this->_gBufferResources.position.image.getImage(),
-      viewOptions);
-
-  this->_gBufferResources.normal.image = Image(app, imageOptions);
-  this->_gBufferResources.normal.sampler = Sampler(app, samplerOptions);
-  this->_gBufferResources.normal.view = ImageView(
-      app,
-      this->_gBufferResources.normal.image.getImage(),
-      viewOptions);
-
-  imageOptions.format = VK_FORMAT_R8G8B8A8_UNORM;
-  viewOptions.format = VK_FORMAT_R8G8B8A8_UNORM;
-  this->_gBufferResources.albedo.image = Image(app, imageOptions);
-  this->_gBufferResources.albedo.sampler = Sampler(app, samplerOptions);
-  this->_gBufferResources.albedo.view = ImageView(
-      app,
-      this->_gBufferResources.albedo.image.getImage(),
-      viewOptions);
-
-  this->_gBufferResources.metallicRoughnessOcclusion.image =
-      Image(app, imageOptions);
-  this->_gBufferResources.metallicRoughnessOcclusion.sampler =
-      Sampler(app, samplerOptions);
-  this->_gBufferResources.metallicRoughnessOcclusion.view = ImageView(
-      app,
-      this->_gBufferResources.metallicRoughnessOcclusion.image.getImage(),
-      viewOptions);
-
-  VkClearValue colorClear;
-  colorClear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
-  VkClearValue depthClear;
-  depthClear.depthStencil = {1.0f, 0};
-
-  std::vector<Attachment> attachments = {// GBuffer Position
-                                         {ATTACHMENT_FLAG_COLOR,
-                                          VK_FORMAT_R16G16B16A16_SFLOAT,
-                                          colorClear,
-                                          false,
-                                          false},
-
-                                         // GBuffer Normal
-                                         {ATTACHMENT_FLAG_COLOR,
-                                          VK_FORMAT_R16G16B16A16_SFLOAT,
-                                          colorClear,
-                                          false,
-                                          false},
-
-                                         // GBuffer Albedo
-                                         {ATTACHMENT_FLAG_COLOR,
-                                          VK_FORMAT_R8G8B8A8_UNORM,
-                                          colorClear,
-                                          false,
-                                          false},
-
-                                         // GBuffer Metallic-Roughness-Occlusion
-                                         {ATTACHMENT_FLAG_COLOR,
-                                          VK_FORMAT_R8G8B8A8_UNORM,
-                                          colorClear,
-                                          false,
-                                          false},
-
-                                         // Depth buffer
-                                         {ATTACHMENT_FLAG_DEPTH,
-                                          app.getDepthImageFormat(),
-                                          depthClear,
-                                          false,
-                                          true}};
-
   std::vector<SubpassBuilder> subpassBuilders;
 
   // TODO: How should skybox be handled??
@@ -323,6 +234,11 @@ void DemoScene::_createForwardPass(Application& app) {
   //  FORWARD GLTF PASS
   {
     SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
+    // The GBuffer contains the following color attachments
+    // 1. Position
+    // 2. Normal
+    // 3. Albedo
+    // 4. Metallic-Roughness-Occlusion
     subpassBuilder.colorAttachments = {0, 1, 2, 3};
     subpassBuilder.depthAttachment = 4;
 
@@ -344,34 +260,25 @@ void DemoScene::_createForwardPass(Application& app) {
         .addDescriptorSet(this->_pGltfMaterialAllocator->getLayout());
   }
 
+  std::vector<Attachment> attachments =
+      this->_gBufferResources.getAttachmentDescriptions();
+  const VkExtent2D& extent = app.getSwapChainExtent();
   this->_pForwardPass = std::make_unique<RenderPass>(
       app,
       extent,
       std::move(attachments),
       std::move(subpassBuilders));
 
-  std::vector<VkImageView> attachmentViews = {
-      this->_gBufferResources.position.view,
-      this->_gBufferResources.normal.view,
-      this->_gBufferResources.albedo.view,
-      this->_gBufferResources.metallicRoughnessOcclusion.view,
-      app.getDepthImageView()};
-
-  this->_forwardFrameBuffer =
-      FrameBuffer(app, *this->_pForwardPass, extent, attachmentViews);
+  this->_forwardFrameBuffer = FrameBuffer(
+      app,
+      *this->_pForwardPass,
+      extent,
+      this->_gBufferResources.getAttachmentViews());
 }
 
 void DemoScene::_createDeferredPass(Application& app) {
   DescriptorSetLayoutBuilder layoutBuilder{};
-  layoutBuilder
-      // GBuffer Position
-      .addTextureBinding(VK_SHADER_STAGE_FRAGMENT_BIT)
-      // GBuffer Normal
-      .addTextureBinding(VK_SHADER_STAGE_FRAGMENT_BIT)
-      // GBuffer Albedo
-      .addTextureBinding(VK_SHADER_STAGE_FRAGMENT_BIT)
-      // GBuffer Metallic-Roughness-Occlusion
-      .addTextureBinding(VK_SHADER_STAGE_FRAGMENT_BIT);
+  this->_gBufferResources.buildMaterial(layoutBuilder);
 
   this->_pDeferredMaterialAllocator =
       std::make_unique<DescriptorSetAllocator>(app, layoutBuilder, 1);
@@ -379,11 +286,7 @@ void DemoScene::_createDeferredPass(Application& app) {
       std::make_unique<Material>(app, *this->_pDeferredMaterialAllocator);
 
   // Bind G-Buffer resources as textures in the deferred pass
-  this->_pDeferredMaterial->assign()
-      .bindTexture(this->_gBufferResources.position)
-      .bindTexture(this->_gBufferResources.normal)
-      .bindTexture(this->_gBufferResources.albedo)
-      .bindTexture(this->_gBufferResources.metallicRoughnessOcclusion);
+  this->_gBufferResources.bindTextures(this->_pDeferredMaterial->assign());
 
   VkClearValue colorClear;
   colorClear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
@@ -457,29 +360,7 @@ void DemoScene::draw(
     VkCommandBuffer commandBuffer,
     const FrameContext& frame) {
 
-  // TODO: Abstract deferred rendering boiler plate
-
-  // Transition GBuffer to attachment
-  this->_gBufferResources.position.image.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-      VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-  this->_gBufferResources.normal.image.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-      VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-  this->_gBufferResources.albedo.image.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-      VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
-  this->_gBufferResources.metallicRoughnessOcclusion.image.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
-      VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
-      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+  this->_gBufferResources.transitionToAttachment(commandBuffer);
 
   VkDescriptorSet globalDescriptorSet =
       this->_pGlobalResources->getCurrentDescriptorSet(frame);
@@ -491,36 +372,15 @@ void DemoScene::draw(
         commandBuffer,
         frame,
         this->_forwardFrameBuffer);
-    pass
-        // Bind global descriptor sets
-        .setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
+    // Bind global descriptor sets
+    pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
     // Draw models
     for (const Model& model : this->_models) {
       pass.draw(model);
     }
   }
 
-  // Transition GBuffer to texture
-  this->_gBufferResources.position.image.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-      VK_ACCESS_SHADER_READ_BIT,
-      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-  this->_gBufferResources.normal.image.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-      VK_ACCESS_SHADER_READ_BIT,
-      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-  this->_gBufferResources.albedo.image.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-      VK_ACCESS_SHADER_READ_BIT,
-      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-  this->_gBufferResources.metallicRoughnessOcclusion.image.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-      VK_ACCESS_SHADER_READ_BIT,
-      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+  this->_gBufferResources.transitionToTextures(commandBuffer);
 
   // Deferred pass
   {
@@ -529,9 +389,8 @@ void DemoScene::draw(
         commandBuffer,
         frame,
         this->_swapChainFrameBuffers.getCurrentFrameBuffer(frame));
-    pass
-        // Bind global descriptor sets
-        .setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
+    // Bind global descriptor sets
+    pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
 
     const DrawContext& context = pass.getDrawContext();
     context.bindDescriptorSets(*this->_pDeferredMaterial);
