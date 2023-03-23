@@ -33,6 +33,17 @@ vec3 sampleEnvMap(vec3 dir) {
   return textureLod(environmentMap, envMapUV, 0.0).rgb;
 } 
 
+// Random number generator and sample warping
+// from ShaderToy https://www.shadertoy.com/view/4tXyWN
+// TODO: Find better alternative??
+uvec2 seed;
+float rng() {
+    seed += uvec2(1);
+    uvec2 q = 1103515245U * ( (seed >> 1U) ^ (seed.yx) );
+    uint  n = 1103515245U * ( (q.x) ^ (q.y >> 3U) );
+    return float(n) * (1.0 / float(0xffffffffU));
+}
+
 #define ENABLE_SSR
 #ifdef ENABLE_SSR
 #define RAYMARCH_STEPS 32
@@ -99,7 +110,80 @@ vec3 raymarchGBuffer(vec2 currentUV, vec3 worldPos, vec3 normal, vec3 rayDir) {
 }
 #endif
 
+#define ENABLE_SSAO
+#ifdef ENABLE_SSAO 
+#define SSAO_RAY_COUNT 32
+#define SSAO_RAYMARCH_STEPS 16
+float computeSSAO(vec2 currentUV, vec3 worldPos, vec3 normal) {
+  
+  // vec4 projected = globals.projection * globals.view * vec4(rayDir, 0.0);
+  // vec2 uvStep = (projected.xy / projected.w) / 128.0;
+  float dx0 = 0.2;
+  float dx = dx0;
+
+  // currentUV += uvDir / 128.0;
+  // return vec3(0.5) + 0.5 * rayDir;
+  float ao = 0;
+
+  for (int raySample = 0; raySample < SSAO_RAY_COUNT; ++raySample) {
+    vec3 prevPos = worldPos;
+    float prevProjection = 0.0;
+
+    vec3 currentRayPos = worldPos;
+
+    vec3 rayDir = normalize(vec3(rng(), rng(), rng()) + normal);
+
+    vec3 perpRef = cross(rayDir, normal);
+    perpRef = normalize(cross(perpRef, rayDir));
+
+    for (int i = 0; i < SSAO_RAYMARCH_STEPS; ++i) {
+      // currentUV += uvStep;
+      currentRayPos += dx * rayDir;
+      vec4 projected = globals.projection * globals.view * vec4(currentRayPos, 1.0);
+      currentUV = 0.5 * projected.xy / projected.w + vec2(0.5);
+
+      if (currentUV.x < 0.0 || currentUV.x > 1.0 || currentUV.y < 0.0 || currentUV.y > 1.0) {
+        break;
+      }
+
+      // TODO: Check for invalid position
+      
+      vec3 currentPos = textureLod(gBufferPosition, currentUV, 0.0).xyz;
+      vec3 dir = currentPos - worldPos;
+      float currentProjection = dot(dir, perpRef);
+
+      float dist = length(dir);
+      dir = dir / dist;
+
+      // TODO: interpolate between last two samples
+      // Step between this and the previous sample
+      float worldStep = length(currentPos - prevPos);
+      
+
+      // float cosTheta = dot(dir, rayDir);
+      // float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
+      // if (acos(cosTheta) < 0.25) {
+
+      if (currentProjection * prevProjection < 0.0 && worldStep <= 5 * dx && i > 0) {
+        vec3 currentNormal = normalize(texture(gBufferNormal, currentUV, 0.0).xyz);
+        // if (dot(currentNormal, rayDir) < 0) {
+          ao += 1.0;
+          break;
+        // }
+      }
+
+      prevPos = currentPos;
+      prevProjection = currentProjection;
+    }
+  }
+
+  return 1.0 - ao / SSAO_RAY_COUNT;
+}
+#endif
+
 void main() {
+  seed = uvec2(gl_FragCoord.xy);
+
   vec4 position = texture(gBufferPosition, uv).rgba;
   if (position.a == 0.0) {
     // Nothing in the GBuffer, draw the environment map
@@ -126,6 +210,10 @@ void main() {
 #endif  
   
   vec3 irradianceColor = sampleIrrMap(normal);
+
+#ifdef ENABLE_SSAO
+  metallicRoughnessOcclusion.z = computeSSAO(uv, position.xyz, normal);
+#endif
 
   vec3 material = 
       pbrMaterial(
