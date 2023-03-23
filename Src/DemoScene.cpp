@@ -150,13 +150,40 @@ void DemoScene::_createModels(
     SingleTimeCommandBuffer& commandBuffer) {
 
   // Load models
+  // this->_models.emplace_back(
+  //     app,
+  //     commandBuffer,
+  //     GEngineDirectory + "/Content/Models/DamagedHelmet.glb",
+  //     *this->_pGltfMaterialAllocator);
+  // this->_models.back().setModelTransform(
+  //     glm::translate(glm::mat4(1.0f), glm::vec3(6.0f, 0.0f, 0.0f)));
+
+  // this->_models.emplace_back(
+  //     app,
+  //     commandBuffer,
+  //     GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf",
+  //     *this->_pGltfMaterialAllocator);
+  // this->_models.back().setModelTransform(glm::scale(
+  //     glm::translate(glm::mat4(1.0f), glm::vec3(8.0f, -1.0f, 0.0f)),
+  //     glm::vec3(4.0f)));
+
+  // this->_models.emplace_back(
+  //     app,
+  //     commandBuffer,
+  //     GEngineDirectory + "/Content/Models/MetalRoughSpheres.glb",
+  //     *this->_pGltfMaterialAllocator);
+  // this->_models.back().setModelTransform(
+  //     glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)));
+
+      
   this->_models.emplace_back(
       app,
       commandBuffer,
       GEngineDirectory + "/Content/Models/DamagedHelmet.glb",
       *this->_pGltfMaterialAllocator);
-  this->_models.back().setModelTransform(
-      glm::translate(glm::mat4(1.0f), glm::vec3(6.0f, 0.0f, 0.0f)));
+  this->_models.back().setModelTransform(glm::scale(
+      glm::translate(glm::mat4(1.0f), glm::vec3(36.0f, 0.0f, 0.0f)),
+      glm::vec3(4.0f)));
 
   this->_models.emplace_back(
       app,
@@ -164,16 +191,26 @@ void DemoScene::_createModels(
       GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf",
       *this->_pGltfMaterialAllocator);
   this->_models.back().setModelTransform(glm::scale(
-      glm::translate(glm::mat4(1.0f), glm::vec3(8.0f, -1.0f, 0.0f)),
-      glm::vec3(4.0f)));
+      glm::translate(glm::mat4(1.0f), glm::vec3(50.0f, -1.0f, 0.0f)),
+      glm::vec3(8.0f)));
 
   this->_models.emplace_back(
       app,
       commandBuffer,
       GEngineDirectory + "/Content/Models/MetalRoughSpheres.glb",
       *this->_pGltfMaterialAllocator);
-  this->_models.back().setModelTransform(
-      glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)));
+  this->_models.back().setModelTransform(glm::scale(
+      glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f)),
+      glm::vec3(4.0f)));
+
+  this->_models.emplace_back(
+      app,
+      commandBuffer,
+      GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf",
+      *this->_pGltfMaterialAllocator);
+  this->_models.back().setModelTransform(glm::translate(
+      glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)),
+      glm::vec3(10.0f, -1.0f, 0.0f)));
 }
 
 void DemoScene::_createGlobalResources(
