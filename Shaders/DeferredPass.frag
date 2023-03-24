@@ -204,7 +204,12 @@ void main() {
 
   // TODO: Screen-space reflections!!
 #ifdef ENABLE_SSR
-  vec3 reflectedColor = raymarchGBuffer(uv, position.xyz, normal, reflectedDirection);
+  vec3 reflectedColor;
+  // if (metallicRoughnessOcclusion.y < 0.3) {
+  reflectedColor = raymarchGBuffer(uv, position.xyz, normal, reflectedDirection);
+  // } else {
+  //   reflectedColor = sampleEnvMap(reflectedDirection, metallicRoughnessOcclusion.y);
+  // }
 #else
   vec3 reflectedColor = sampleEnvMap(reflectedDirection, metallicRoughnessOcclusion.y);
 #endif  

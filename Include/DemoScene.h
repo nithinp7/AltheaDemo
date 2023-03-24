@@ -17,6 +17,7 @@
 #include <Althea/Texture.h>
 #include <Althea/TransientUniforms.h>
 #include <Althea/DeferredRendering.h>
+#include <Althea/ScreenSpaceReflection.h>
 #include <glm/glm.hpp>
 
 #include <vector>
@@ -85,7 +86,8 @@ private:
   SwapChainFrameBufferCollection _swapChainFrameBuffers;
   std::unique_ptr<DescriptorSetAllocator> _pDeferredMaterialAllocator;
   std::unique_ptr<Material> _pDeferredMaterial;
-
+  
+  std::unique_ptr<ScreenSpaceReflection> _pSSR;
 };
 } // namespace DemoScene
 } // namespace AltheaDemo

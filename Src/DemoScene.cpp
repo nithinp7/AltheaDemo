@@ -36,6 +36,7 @@ void DemoScene::initGame(Application& app) {
       app.getInputManager(),
       90.0f,
       (float)windowDims.width / (float)windowDims.height);
+  this->_pCameraController->setMaxSpeed(15.0f);
 
   // TODO: need to unbind these at shutdown
   InputManager& input = app.getInputManager();
@@ -125,6 +126,8 @@ void DemoScene::destroyRenderState(Application& app) {
   this->_pGlobalUniforms.reset();
   this->_pGltfMaterialAllocator.reset();
   this->_iblResources = {};
+
+  this->_pSSR.reset();
 }
 
 void DemoScene::tick(Application& app, const FrameContext& frame) {
@@ -149,33 +152,6 @@ void DemoScene::_createModels(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
 
-  // Load models
-  // this->_models.emplace_back(
-  //     app,
-  //     commandBuffer,
-  //     GEngineDirectory + "/Content/Models/DamagedHelmet.glb",
-  //     *this->_pGltfMaterialAllocator);
-  // this->_models.back().setModelTransform(
-  //     glm::translate(glm::mat4(1.0f), glm::vec3(6.0f, 0.0f, 0.0f)));
-
-  // this->_models.emplace_back(
-  //     app,
-  //     commandBuffer,
-  //     GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf",
-  //     *this->_pGltfMaterialAllocator);
-  // this->_models.back().setModelTransform(glm::scale(
-  //     glm::translate(glm::mat4(1.0f), glm::vec3(8.0f, -1.0f, 0.0f)),
-  //     glm::vec3(4.0f)));
-
-  // this->_models.emplace_back(
-  //     app,
-  //     commandBuffer,
-  //     GEngineDirectory + "/Content/Models/MetalRoughSpheres.glb",
-  //     *this->_pGltfMaterialAllocator);
-  // this->_models.back().setModelTransform(
-  //     glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)));
-
-      
   this->_models.emplace_back(
       app,
       commandBuffer,
@@ -223,33 +199,61 @@ void DemoScene::_createGlobalResources(
   this->_gBufferResources = GBufferResources(app);
 
   // Per-primitive material resources
-  DescriptorSetLayoutBuilder primitiveMaterialLayout;
-  Primitive::buildMaterial(primitiveMaterialLayout);
+  {
+    DescriptorSetLayoutBuilder primitiveMaterialLayout;
+    Primitive::buildMaterial(primitiveMaterialLayout);
 
-  this->_pGltfMaterialAllocator =
-      std::make_unique<DescriptorSetAllocator>(app, primitiveMaterialLayout);
+    this->_pGltfMaterialAllocator =
+        std::make_unique<DescriptorSetAllocator>(app, primitiveMaterialLayout);
+  }
 
   // Global resources
-  DescriptorSetLayoutBuilder globalResourceLayout;
+  {
+    DescriptorSetLayoutBuilder globalResourceLayout;
 
-  // Add textures for IBL
-  ImageBasedLighting::buildLayout(globalResourceLayout);
-  globalResourceLayout
-      // Global uniforms.
-      .addUniformBufferBinding();
+    // Add textures for IBL
+    ImageBasedLighting::buildLayout(globalResourceLayout);
+    globalResourceLayout
+        // Global uniforms.
+        .addUniformBufferBinding();
 
-  this->_pGlobalResources =
-      std::make_unique<PerFrameResources>(app, globalResourceLayout);
-  this->_pGlobalUniforms =
-      std::make_unique<TransientUniforms<GlobalUniforms>>(app, commandBuffer);
+    this->_pGlobalResources =
+        std::make_unique<PerFrameResources>(app, globalResourceLayout);
+    this->_pGlobalUniforms =
+        std::make_unique<TransientUniforms<GlobalUniforms>>(app, commandBuffer);
 
-  ResourcesAssignment assignment = this->_pGlobalResources->assign();
+    ResourcesAssignment assignment = this->_pGlobalResources->assign();
 
-  // Bind IBL resources
-  this->_iblResources.bind(assignment);
+    // Bind IBL resources
+    this->_iblResources.bind(assignment);
 
-  // Bind global uniforms
-  assignment.bindTransientUniforms(*this->_pGlobalUniforms);
+    // Bind global uniforms
+    assignment.bindTransientUniforms(*this->_pGlobalUniforms);
+  }
+
+  // Deferred pass resources (GBuffer)
+  {
+    DescriptorSetLayoutBuilder deferredMaterialLayout{};
+    this->_gBufferResources.buildMaterial(deferredMaterialLayout);
+
+    this->_pDeferredMaterialAllocator =
+        std::make_unique<DescriptorSetAllocator>(
+            app,
+            deferredMaterialLayout,
+            1);
+    this->_pDeferredMaterial =
+        std::make_unique<Material>(app, *this->_pDeferredMaterialAllocator);
+
+    // Bind G-Buffer resources as textures in the deferred pass
+    this->_gBufferResources.bindTextures(this->_pDeferredMaterial->assign());
+  }
+
+  // Set up SSR resources
+  this->_pSSR = std::make_unique<ScreenSpaceReflection>(
+      app,
+      commandBuffer,
+      this->_pGlobalResources->getLayout(),
+      this->_gBufferResources);
 }
 
 void DemoScene::_createForwardPass(Application& app) {
@@ -314,17 +318,6 @@ void DemoScene::_createForwardPass(Application& app) {
 }
 
 void DemoScene::_createDeferredPass(Application& app) {
-  DescriptorSetLayoutBuilder layoutBuilder{};
-  this->_gBufferResources.buildMaterial(layoutBuilder);
-
-  this->_pDeferredMaterialAllocator =
-      std::make_unique<DescriptorSetAllocator>(app, layoutBuilder, 1);
-  this->_pDeferredMaterial =
-      std::make_unique<Material>(app, *this->_pDeferredMaterialAllocator);
-
-  // Bind G-Buffer resources as textures in the deferred pass
-  this->_gBufferResources.bindTextures(this->_pDeferredMaterial->assign());
-
   VkClearValue colorClear;
   colorClear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
   VkClearValue depthClear;
@@ -418,6 +411,13 @@ void DemoScene::draw(
   }
 
   this->_gBufferResources.transitionToTextures(commandBuffer);
+
+  // Reflection buffer and convolution
+  {
+    this->_pSSR
+        ->captureReflection(app, commandBuffer, globalDescriptorSet, frame);
+    this->_pSSR->convolveReflectionBuffer(app, commandBuffer, frame);
+  }
 
   // Deferred pass
   {
