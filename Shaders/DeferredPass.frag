@@ -23,6 +23,9 @@ layout(set=1, binding=1) uniform sampler2D gBufferNormal;
 layout(set=1, binding=2) uniform sampler2D gBufferAlbedo;
 layout(set=1, binding=3) uniform sampler2D gBufferMetallicRoughnessOcclusion;
 
+// Prefiltered reflection buffer
+layout(set=1, binding=4) uniform sampler2D reflectionBuffer;
+
 #include <PBR/PBRMaterial.glsl>
 
 vec3 sampleEnvMap(vec3 dir) {
@@ -31,6 +34,10 @@ vec3 sampleEnvMap(vec3 dir) {
   vec2 envMapUV = vec2(0.5 * yaw, pitch) / PI + 0.5;
 
   return textureLod(environmentMap, envMapUV, 0.0).rgb;
+} 
+
+vec4 sampleReflection(float roughness) {
+  return textureLod(reflectionBuffer, uv, 4.0 * roughness).rgba;
 } 
 
 // Random number generator and sample warping
@@ -43,72 +50,6 @@ float rng() {
     uint  n = 1103515245U * ( (q.x) ^ (q.y >> 3U) );
     return float(n) * (1.0 / float(0xffffffffU));
 }
-
-#define ENABLE_SSR
-#ifdef ENABLE_SSR
-#define RAYMARCH_STEPS 32
-vec3 raymarchGBuffer(vec2 currentUV, vec3 worldPos, vec3 normal, vec3 rayDir) {
-  vec3 perpRef = cross(rayDir, normal);
-  perpRef = normalize(cross(perpRef, rayDir));
-
-  // vec4 projected = globals.projection * globals.view * vec4(rayDir, 0.0);
-  // vec2 uvStep = (projected.xy / projected.w) / 128.0;
-  float dx0 = 0.25;
-  float dx = dx0;
-
-  // currentUV += uvDir / 128.0;
-  // return vec3(0.5) + 0.5 * rayDir;
-
-  vec3 prevPos = worldPos;
-  float prevProjection = 0.0;
-
-  vec3 currentRayPos = worldPos;
-
-  for (int i = 0; i < RAYMARCH_STEPS; ++i) {
-    // currentUV += uvStep;
-    currentRayPos += dx * rayDir;
-    vec4 projected = globals.projection * globals.view * vec4(currentRayPos, 1.0);
-    currentUV = 0.5 * projected.xy / projected.w + vec2(0.5);
-
-    if (currentUV.x < 0.0 || currentUV.x > 1.0 || currentUV.y < 0.0 || currentUV.y > 1.0) {
-      continue;
-    }
-
-    // TODO: Check for invalid position
-    
-    vec3 currentPos = textureLod(gBufferPosition, currentUV, 0.0).xyz;
-    vec3 dir = currentPos - worldPos;
-    float currentProjection = dot(dir, perpRef);
-
-    float dist = length(dir);
-    dir = dir / dist;
-
-    dx = 5.0 * (1.0 + dx0 - 1.0 / (1.0 + dist));
-
-    // TODO: interpolate between last two samples
-    // Step between this and the previous sample
-    float worldStep = length(currentPos - prevPos);
-    
-
-    // float cosTheta = dot(dir, rayDir);
-    // float sinTheta = sqrt(1.0 - cosTheta * cosTheta);
-    // if (acos(cosTheta) < 0.25) {
-
-    if (currentProjection * prevProjection < 0.0 && worldStep <= 5 * dx && i > 0) {
-      vec3 currentNormal = normalize(texture(gBufferNormal, currentUV, 0.0).xyz);
-      if (dot(currentNormal, rayDir) < 0) {
-        return texture(gBufferAlbedo, currentUV, 0.0).rgb;
-          //  return vec3(float(i) / RAYMARCH_STEPS, 0.0, 0.0);
-      }
-    }
-
-    prevPos = currentPos;
-    prevProjection = currentProjection;
-  }
-
-  return sampleEnvMap(rayDir);
-}
-#endif
 
 #define ENABLE_SSAO
 #ifdef ENABLE_SSAO 
@@ -201,19 +142,10 @@ void main() {
       texture(gBufferMetallicRoughnessOcclusion, uv).rgb;
 
   vec3 reflectedDirection = reflect(normalize(direction), normal);
+  vec4 reflectedColor = sampleReflection(0.2);//metallicRoughnessOcclusion.y);
+  // reflectedColor = reflectedColor / reflectedColor.a;
+  reflectedColor.rgb = mix(baseColor, reflectedColor.rgb, reflectedColor.a);
 
-  // TODO: Screen-space reflections!!
-#ifdef ENABLE_SSR
-  vec3 reflectedColor;
-  // if (metallicRoughnessOcclusion.y < 0.3) {
-  reflectedColor = raymarchGBuffer(uv, position.xyz, normal, reflectedDirection);
-  // } else {
-  //   reflectedColor = sampleEnvMap(reflectedDirection, metallicRoughnessOcclusion.y);
-  // }
-#else
-  vec3 reflectedColor = sampleEnvMap(reflectedDirection, metallicRoughnessOcclusion.y);
-#endif  
-  
   vec3 irradianceColor = sampleIrrMap(normal);
 
 #ifdef ENABLE_SSAO
@@ -226,7 +158,7 @@ void main() {
         globals.lightDir, 
         normal, 
         baseColor.rgb, 
-        reflectedColor, 
+        reflectedColor.rgb, 
         irradianceColor,
         metallicRoughnessOcclusion.x, 
         metallicRoughnessOcclusion.y, 

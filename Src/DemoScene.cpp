@@ -83,13 +83,15 @@ void DemoScene::initGame(Application& app) {
 
   input.addMousePositionCallback(
       [&adjustingLight = this->_adjustingLight,
-       &lightDir = this->_lightDir](double x, double y, bool cursorHidden) {
+       &lightDir = this->_lightDir,
+       &exposure = this->_exposure](double x, double y, bool cursorHidden) {
         if (adjustingLight) {
           // TODO: consider current camera forward direction.
-          float theta = glm::pi<float>() * static_cast<float>(x);
-          float height = static_cast<float>(y) + 1.0f;
+          // float theta = glm::pi<float>() * static_cast<float>(x);
+          // float height = static_cast<float>(y) + 1.0f;
 
-          lightDir = glm::normalize(glm::vec3(cos(theta), height, sin(theta)));
+          // lightDir = glm::normalize(glm::vec3(cos(theta), height, sin(theta)));
+          exposure = static_cast<float>(y);
         }
       });
 }
@@ -143,7 +145,7 @@ void DemoScene::tick(Application& app, const FrameContext& frame) {
   globalUniforms.inverseView = glm::inverse(globalUniforms.view);
   globalUniforms.lightDir = this->_lightDir;
   globalUniforms.time = static_cast<float>(frame.currentTime);
-  globalUniforms.exposure = 0.3f;
+  globalUniforms.exposure = this->_exposure;
 
   this->_pGlobalUniforms->updateUniforms(globalUniforms, frame);
 }
@@ -231,10 +233,19 @@ void DemoScene::_createGlobalResources(
     assignment.bindTransientUniforms(*this->_pGlobalUniforms);
   }
 
+  // Set up SSR resources
+  this->_pSSR = std::make_unique<ScreenSpaceReflection>(
+      app,
+      commandBuffer,
+      this->_pGlobalResources->getLayout(),
+      this->_gBufferResources);
+
   // Deferred pass resources (GBuffer)
   {
     DescriptorSetLayoutBuilder deferredMaterialLayout{};
     this->_gBufferResources.buildMaterial(deferredMaterialLayout);
+    // Roughness-filtered reflection buffer
+    deferredMaterialLayout.addTextureBinding();
 
     this->_pDeferredMaterialAllocator =
         std::make_unique<DescriptorSetAllocator>(
@@ -245,15 +256,10 @@ void DemoScene::_createGlobalResources(
         std::make_unique<Material>(app, *this->_pDeferredMaterialAllocator);
 
     // Bind G-Buffer resources as textures in the deferred pass
-    this->_gBufferResources.bindTextures(this->_pDeferredMaterial->assign());
+    ResourcesAssignment& assignment = this->_pDeferredMaterial->assign();
+    this->_gBufferResources.bindTextures(assignment);
+    this->_pSSR->bindTexture(assignment);
   }
-
-  // Set up SSR resources
-  this->_pSSR = std::make_unique<ScreenSpaceReflection>(
-      app,
-      commandBuffer,
-      this->_pGlobalResources->getLayout(),
-      this->_gBufferResources);
 }
 
 void DemoScene::_createForwardPass(Application& app) {

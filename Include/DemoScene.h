@@ -86,8 +86,9 @@ private:
   SwapChainFrameBufferCollection _swapChainFrameBuffers;
   std::unique_ptr<DescriptorSetAllocator> _pDeferredMaterialAllocator;
   std::unique_ptr<Material> _pDeferredMaterial;
-  
+
   std::unique_ptr<ScreenSpaceReflection> _pSSR;
+  float _exposure = 0.3f;
 };
 } // namespace DemoScene
 } // namespace AltheaDemo
