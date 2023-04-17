@@ -90,7 +90,8 @@ void DemoScene::initGame(Application& app) {
           // float theta = glm::pi<float>() * static_cast<float>(x);
           // float height = static_cast<float>(y) + 1.0f;
 
-          // lightDir = glm::normalize(glm::vec3(cos(theta), height, sin(theta)));
+          // lightDir = glm::normalize(glm::vec3(cos(theta), height,
+          // sin(theta)));
           exposure = static_cast<float>(y);
         }
       });
@@ -154,41 +155,41 @@ void DemoScene::_createModels(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
 
-  this->_models.emplace_back(
-      app,
-      commandBuffer,
-      GEngineDirectory + "/Content/Models/DamagedHelmet.glb",
-      *this->_pGltfMaterialAllocator);
-  this->_models.back().setModelTransform(glm::scale(
-      glm::translate(glm::mat4(1.0f), glm::vec3(36.0f, 0.0f, 0.0f)),
-      glm::vec3(4.0f)));
+  // this->_models.emplace_back(
+  //     app,
+  //     commandBuffer,
+  //     GEngineDirectory + "/Content/Models/DamagedHelmet.glb",
+  //     *this->_pGltfMaterialAllocator);
+  // this->_models.back().setModelTransform(glm::scale(
+  //     glm::translate(glm::mat4(1.0f), glm::vec3(36.0f, 0.0f, 0.0f)),
+  //     glm::vec3(4.0f)));
 
-  this->_models.emplace_back(
-      app,
-      commandBuffer,
-      GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf",
-      *this->_pGltfMaterialAllocator);
-  this->_models.back().setModelTransform(glm::scale(
-      glm::translate(glm::mat4(1.0f), glm::vec3(50.0f, -1.0f, 0.0f)),
-      glm::vec3(8.0f)));
+  // this->_models.emplace_back(
+  //     app,
+  //     commandBuffer,
+  //     GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf",
+  //     *this->_pGltfMaterialAllocator);
+  // this->_models.back().setModelTransform(glm::scale(
+  //     glm::translate(glm::mat4(1.0f), glm::vec3(50.0f, -1.0f, 0.0f)),
+  //     glm::vec3(8.0f)));
 
-  this->_models.emplace_back(
-      app,
-      commandBuffer,
-      GEngineDirectory + "/Content/Models/MetalRoughSpheres.glb",
-      *this->_pGltfMaterialAllocator);
-  this->_models.back().setModelTransform(glm::scale(
-      glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f)),
-      glm::vec3(4.0f)));
+  // this->_models.emplace_back(
+  //     app,
+  //     commandBuffer,
+  //     GEngineDirectory + "/Content/Models/MetalRoughSpheres.glb",
+  //     *this->_pGltfMaterialAllocator);
+  // this->_models.back().setModelTransform(glm::scale(
+  //     glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f)),
+  //     glm::vec3(4.0f)));
 
-  this->_models.emplace_back(
-      app,
-      commandBuffer,
-      GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf",
-      *this->_pGltfMaterialAllocator);
-  this->_models.back().setModelTransform(glm::translate(
-      glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)),
-      glm::vec3(10.0f, -1.0f, 0.0f)));
+  // this->_models.emplace_back(
+  //     app,
+  //     commandBuffer,
+  //     GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf",
+  //     *this->_pGltfMaterialAllocator);
+  // this->_models.back().setModelTransform(glm::translate(
+  //     glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)),
+  //     glm::vec3(10.0f, -1.0f, 0.0f)));
 }
 
 void DemoScene::_createGlobalResources(
@@ -294,6 +295,31 @@ void DemoScene::_createForwardPass(Application& app) {
         .addDescriptorSet(this->_pGltfMaterialAllocator->getLayout());
   }
 
+  // Forward SDF pass
+  {
+    SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
+    // The GBuffer contains the following color attachments
+    // 1. Position
+    // 2. Normal
+    // 3. Albedo
+    // 4. Metallic-Roughness-Occlusion
+    subpassBuilder.colorAttachments = {0, 1, 2, 3};
+    subpassBuilder.depthAttachment = 4;
+
+    subpassBuilder
+        .pipelineBuilder
+        // Vertex shader
+        .addVertexShader(GProjectDirectory + "/Shaders/SDF.vert")
+        // Fragment shader
+        .addFragmentShader(GProjectDirectory + "/Shaders/SDF.frag")
+        .setCullMode(VK_CULL_MODE_NONE)
+
+        // Pipeline resource layouts
+        .layoutBuilder
+        // Global resources (view, projection, environment map)
+        .addDescriptorSet(this->_pGlobalResources->getLayout());
+  }
+
   std::vector<Attachment> attachments =
       this->_gBufferResources.getAttachmentDescriptions();
   const VkExtent2D& extent = app.getSwapChainExtent();
@@ -385,10 +411,14 @@ void DemoScene::draw(
         this->_forwardFrameBuffer);
     // Bind global descriptor sets
     pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
-    // Draw models
+    
+    // Draw glTF models
     for (const Model& model : this->_models) {
       pass.draw(model);
     }
+
+    // Draw SDFs
+    pass.nextSubpass().draw(DrawableEnvMap{});
   }
 
   this->_gBufferResources.transitionToTextures(commandBuffer);
