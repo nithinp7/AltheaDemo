@@ -265,19 +265,6 @@ void DemoScene::_createGlobalResources(
 void DemoScene::_createForwardPass(Application& app) {
   std::vector<SubpassBuilder> subpassBuilders;
 
-  // TODO: How should skybox be handled??
-  // SKYBOX PASS
-  // {
-  //   SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
-  //   subpassBuilder.colorAttachments.push_back(0);
-  //   Skybox::buildPipeline(subpassBuilder.pipelineBuilder);
-
-  //   subpassBuilder.pipelineBuilder
-  //       .layoutBuilder
-  //       // Global resources (view, projection, skybox)
-  //       .addDescriptorSet(this->_pGlobalResources->getLayout());
-  // }
-
   //  FORWARD GLTF PASS
   {
     SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
@@ -294,9 +281,9 @@ void DemoScene::_createForwardPass(Application& app) {
     subpassBuilder
         .pipelineBuilder
         // Vertex shader
-        .addVertexShader(GProjectDirectory + "/Shaders/ForwardPass.vert")
+        .addVertexShader(GEngineDirectory + "/Shaders/GltfForward.vert")
         // Fragment shader
-        .addFragmentShader(GProjectDirectory + "/Shaders/ForwardPass.frag")
+        .addFragmentShader(GEngineDirectory + "/Shaders/GltfForward.frag")
 
         // Pipeline resource layouts
         .layoutBuilder
@@ -338,18 +325,6 @@ void DemoScene::_createDeferredPass(Application& app) {
 
   std::vector<SubpassBuilder> subpassBuilders;
 
-  // // SKYBOX PASS
-  // {
-  //   SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
-  //   subpassBuilder.colorAttachments.push_back(0);
-  //   Skybox::buildPipeline(subpassBuilder.pipelineBuilder);
-
-  //   subpassBuilder.pipelineBuilder
-  //       .layoutBuilder
-  //       // Global resources (view, projection, skybox)
-  //       .addDescriptorSet(this->_pGlobalResources->getLayout());
-  // }
-
   // DEFERRED PBR PASS
   {
     SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
@@ -359,9 +334,9 @@ void DemoScene::_createDeferredPass(Application& app) {
         .setDepthTesting(false)
 
         // Vertex shader
-        .addVertexShader(GProjectDirectory + "/Shaders/DeferredPass.vert")
+        .addVertexShader(GEngineDirectory + "/Shaders/DeferredPass.vert")
         // Fragment shader
-        .addFragmentShader(GProjectDirectory + "/Shaders/DeferredPass.frag")
+        .addFragmentShader(GEngineDirectory + "/Shaders/DeferredPass.frag")
 
         // Pipeline resource layouts
         .layoutBuilder
