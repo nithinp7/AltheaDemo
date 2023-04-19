@@ -351,7 +351,7 @@ void DemoScene::_createDeferredPass(Application& app) {
 
   std::vector<SubpassBuilder> subpassBuilders;
 
-  // DEFERRED PBR PASS
+  // SDF PASS
   {
     SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
     subpassBuilder.colorAttachments.push_back(0);
@@ -362,7 +362,7 @@ void DemoScene::_createDeferredPass(Application& app) {
         // Vertex shader
         .addVertexShader(GEngineDirectory + "/Shaders/DeferredPass.vert")
         // Fragment shader
-        .addFragmentShader(GEngineDirectory + "/Shaders/DeferredPass.frag")
+        .addFragmentShader(GProjectDirectory + "/Shaders/SDF.frag")
 
         // Pipeline resource layouts
         .layoutBuilder
@@ -418,7 +418,7 @@ void DemoScene::draw(
     }
 
     // Draw SDFs
-    pass.nextSubpass().draw(DrawableEnvMap{});
+    pass.nextSubpass();//.draw(DrawableEnvMap{});
   }
 
   this->_gBufferResources.transitionToTextures(commandBuffer);
