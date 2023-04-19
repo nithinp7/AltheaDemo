@@ -36,7 +36,7 @@ void DemoScene::initGame(Application& app) {
       app.getInputManager(),
       90.0f,
       (float)windowDims.width / (float)windowDims.height);
-  this->_pCameraController->setMaxSpeed(15.0f);
+  this->_pCameraController->setMaxSpeed(35.0f);
 
   // TODO: need to unbind these at shutdown
   InputManager& input = app.getInputManager();
