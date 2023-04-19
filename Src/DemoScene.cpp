@@ -309,9 +309,9 @@ void DemoScene::_createForwardPass(Application& app) {
     subpassBuilder
         .pipelineBuilder
         // Vertex shader
-        .addVertexShader(GProjectDirectory + "/Shaders/SDF.vert")
+        .addVertexShader(GProjectDirectory + "/Shaders/ForwardSDF.vert")
         // Fragment shader
-        .addFragmentShader(GProjectDirectory + "/Shaders/SDF.frag")
+        .addFragmentShader(GProjectDirectory + "/Shaders/ForwardSDF.frag")
         .setCullMode(VK_CULL_MODE_NONE)
 
         // Pipeline resource layouts
