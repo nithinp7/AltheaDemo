@@ -36,6 +36,7 @@ void DemoScene::initGame(Application& app) {
       app.getInputManager(),
       90.0f,
       (float)windowDims.width / (float)windowDims.height);
+  this->_pCameraController->setMaxSpeed(15.0f);
 
   // TODO: need to unbind these at shutdown
   InputManager& input = app.getInputManager();
@@ -57,7 +58,18 @@ void DemoScene::initGame(Application& app) {
   input.addKeyBinding(
       {GLFW_KEY_R, GLFW_PRESS, GLFW_MOD_CONTROL},
       [&app, that = this]() {
-        for (Subpass& subpass : that->_pRenderPass->getSubpasses()) {
+        for (Subpass& subpass : that->_pForwardPass->getSubpasses()) {
+          GraphicsPipeline& pipeline = subpass.getPipeline();
+          if (pipeline.recompileStaleShaders()) {
+            if (pipeline.hasShaderRecompileErrors()) {
+              std::cout << pipeline.getShaderRecompileErrors() << "\n";
+            } else {
+              pipeline.recreatePipeline(app);
+            }
+          }
+        }
+
+        for (Subpass& subpass : that->_pDeferredPass->getSubpasses()) {
           GraphicsPipeline& pipeline = subpass.getPipeline();
           if (pipeline.recompileStaleShaders()) {
             if (pipeline.hasShaderRecompileErrors()) {
@@ -71,13 +83,15 @@ void DemoScene::initGame(Application& app) {
 
   input.addMousePositionCallback(
       [&adjustingLight = this->_adjustingLight,
-       &lightDir = this->_lightDir](double x, double y, bool cursorHidden) {
+       &lightDir = this->_lightDir,
+       &exposure = this->_exposure](double x, double y, bool cursorHidden) {
         if (adjustingLight) {
           // TODO: consider current camera forward direction.
-          float theta = glm::pi<float>() * static_cast<float>(x);
-          float height = static_cast<float>(y) + 1.0f;
+          // float theta = glm::pi<float>() * static_cast<float>(x);
+          // float height = static_cast<float>(y) + 1.0f;
 
-          lightDir = glm::normalize(glm::vec3(cos(theta), height, sin(theta)));
+          // lightDir = glm::normalize(glm::vec3(cos(theta), height, sin(theta)));
+          exposure = static_cast<float>(y);
         }
       });
 }
@@ -92,137 +106,30 @@ void DemoScene::createRenderState(Application& app) {
       (float)extent.width / (float)extent.height);
 
   SingleTimeCommandBuffer commandBuffer(app);
-
-  this->_iblResources =
-      ImageBasedLighting::createResources(app, commandBuffer, "NeoclassicalInterior");
-
-  // TODO: Default color and depth-stencil clear values for attachments?
-  VkClearValue colorClear;
-  colorClear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
-  VkClearValue depthClear;
-  depthClear.depthStencil = {1.0f, 0};
-
-  std::vector<Attachment> attachments = {
-      {AttachmentType::Color,
-       app.getSwapChainImageFormat(),
-       colorClear,
-       std::nullopt,
-       false},
-      {AttachmentType::Depth,
-       app.getDepthImageFormat(),
-       depthClear,
-       app.getDepthImageView(),
-       true}};
-
-  // Global resources
-  DescriptorSetLayoutBuilder globalResourceLayout;
-
-  // Add textures for IBL
-  ImageBasedLighting::buildLayout(globalResourceLayout);
-  globalResourceLayout
-      // Global uniforms.
-      .addUniformBufferBinding();
-
-  this->_pGlobalResources =
-      std::make_shared<PerFrameResources>(app, globalResourceLayout);
-  this->_pGlobalUniforms =
-      std::make_unique<TransientUniforms<GlobalUniforms>>(app, commandBuffer);
-
-  std::vector<SubpassBuilder> subpassBuilders;
-
-  // SKYBOX PASS
-  {
-    SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
-    subpassBuilder.colorAttachments.push_back(0);
-    Skybox::buildPipeline(app, subpassBuilder.pipelineBuilder);
-
-    subpassBuilder.pipelineBuilder
-        .layoutBuilder
-        // Global resources (view, projection, skybox)
-        .addDescriptorSet(this->_pGlobalResources->getLayout());
-  }
-
-  // REGULAR PASS
-  {
-    // Per-primitive material resources
-    DescriptorSetLayoutBuilder primitiveMaterialLayout;
-    Primitive::buildMaterial(primitiveMaterialLayout);
-
-    this->_pGltfMaterialAllocator =
-        std::make_unique<DescriptorSetAllocator>(app, primitiveMaterialLayout);
-
-    SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
-    subpassBuilder.colorAttachments.push_back(0);
-    subpassBuilder.depthAttachment = 1;
-
-    Primitive::buildPipeline(subpassBuilder.pipelineBuilder);
-
-    subpassBuilder
-        .pipelineBuilder
-        // Vertex shader
-        .addVertexShader(GEngineDirectory + "/Shaders/GltfPBR.vert")
-        // Fragment shader
-        .addFragmentShader(GEngineDirectory + "/Shaders/GltfPBR.frag")
-
-        // Pipeline resource layouts
-        .layoutBuilder
-        // Global resources (view, projection, environment map)
-        .addDescriptorSet(this->_pGlobalResources->getLayout())
-        // Material (per-object) resources (diffuse, normal map,
-        // metallic-roughness, etc)
-        .addDescriptorSet(this->_pGltfMaterialAllocator->getLayout());
-  }
-
-  this->_pRenderPass = std::make_unique<RenderPass>(
-      app,
-      std::move(attachments),
-      std::move(subpassBuilders));
-
-  std::vector<Subpass>& subpasses = this->_pRenderPass->getSubpasses();
-
-  this->_models.emplace_back(
-      app,
-      commandBuffer,
-      GEngineDirectory + "/Content/Models/DamagedHelmet.glb",
-      *this->_pGltfMaterialAllocator);
-  this->_models.back().setModelTransform(
-      glm::translate(glm::mat4(1.0f), glm::vec3(6.0f, 0.0f, 0.0f)));
-
-  this->_models.emplace_back(
-      app,
-      commandBuffer,
-      GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf",
-      *this->_pGltfMaterialAllocator);
-  this->_models.back().setModelTransform(glm::scale(
-      glm::translate(glm::mat4(1.0f), glm::vec3(8.0f, -1.0f, 0.0f)),
-      glm::vec3(4.0f)));
-
-  this->_models.emplace_back(
-      app,
-      commandBuffer,
-      GEngineDirectory + "/Content/Models/MetalRoughSpheres.glb",
-      *this->_pGltfMaterialAllocator);
-  this->_models.back().setModelTransform(
-      glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, 0.0f)));
-
-  {
-    ResourcesAssignment assignment = this->_pGlobalResources->assign();
-
-    // Bind IBL resources
-    this->_iblResources.bind(assignment);
-
-    // Bind global uniforms
-    assignment.bindTransientUniforms(*this->_pGlobalUniforms);
-  }
+  this->_createGlobalResources(app, commandBuffer);
+  this->_createModels(app, commandBuffer);
+  this->_createForwardPass(app);
+  this->_createDeferredPass(app);
 }
 
 void DemoScene::destroyRenderState(Application& app) {
   this->_models.clear();
-  this->_pRenderPass.reset();
+
+  this->_pForwardPass.reset();
+  this->_gBufferResources = {};
+  this->_forwardFrameBuffer = {};
+
+  this->_pDeferredPass.reset();
+  this->_swapChainFrameBuffers = {};
+  this->_pDeferredMaterial.reset();
+  this->_pDeferredMaterialAllocator.reset();
+
   this->_pGlobalResources.reset();
   this->_pGlobalUniforms.reset();
   this->_pGltfMaterialAllocator.reset();
   this->_iblResources = {};
+
+  this->_pSSR.reset();
 }
 
 void DemoScene::tick(Application& app, const FrameContext& frame) {
@@ -238,9 +145,241 @@ void DemoScene::tick(Application& app, const FrameContext& frame) {
   globalUniforms.inverseView = glm::inverse(globalUniforms.view);
   globalUniforms.lightDir = this->_lightDir;
   globalUniforms.time = static_cast<float>(frame.currentTime);
-  globalUniforms.exposure = 0.3f;
+  globalUniforms.exposure = this->_exposure;
 
   this->_pGlobalUniforms->updateUniforms(globalUniforms, frame);
+}
+
+void DemoScene::_createModels(
+    Application& app,
+    SingleTimeCommandBuffer& commandBuffer) {
+
+  this->_models.emplace_back(
+      app,
+      commandBuffer,
+      GEngineDirectory + "/Content/Models/DamagedHelmet.glb",
+      *this->_pGltfMaterialAllocator);
+  this->_models.back().setModelTransform(glm::scale(
+      glm::translate(glm::mat4(1.0f), glm::vec3(36.0f, 0.0f, 0.0f)),
+      glm::vec3(4.0f)));
+
+  this->_models.emplace_back(
+      app,
+      commandBuffer,
+      GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf",
+      *this->_pGltfMaterialAllocator);
+  this->_models.back().setModelTransform(glm::scale(
+      glm::translate(glm::mat4(1.0f), glm::vec3(50.0f, -1.0f, 0.0f)),
+      glm::vec3(8.0f)));
+
+  this->_models.emplace_back(
+      app,
+      commandBuffer,
+      GEngineDirectory + "/Content/Models/MetalRoughSpheres.glb",
+      *this->_pGltfMaterialAllocator);
+  this->_models.back().setModelTransform(glm::scale(
+      glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f)),
+      glm::vec3(4.0f)));
+
+  this->_models.emplace_back(
+      app,
+      commandBuffer,
+      GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf",
+      *this->_pGltfMaterialAllocator);
+  this->_models.back().setModelTransform(glm::translate(
+      glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)),
+      glm::vec3(10.0f, -1.0f, 0.0f)));
+}
+
+void DemoScene::_createGlobalResources(
+    Application& app,
+    SingleTimeCommandBuffer& commandBuffer) {
+  this->_iblResources = ImageBasedLighting::createResources(
+      app,
+      commandBuffer,
+      "NeoclassicalInterior");
+  this->_gBufferResources = GBufferResources(app);
+
+  // Per-primitive material resources
+  {
+    DescriptorSetLayoutBuilder primitiveMaterialLayout;
+    Primitive::buildMaterial(primitiveMaterialLayout);
+
+    this->_pGltfMaterialAllocator =
+        std::make_unique<DescriptorSetAllocator>(app, primitiveMaterialLayout);
+  }
+
+  // Global resources
+  {
+    DescriptorSetLayoutBuilder globalResourceLayout;
+
+    // Add textures for IBL
+    ImageBasedLighting::buildLayout(globalResourceLayout);
+    globalResourceLayout
+        // Global uniforms.
+        .addUniformBufferBinding();
+
+    this->_pGlobalResources =
+        std::make_unique<PerFrameResources>(app, globalResourceLayout);
+    this->_pGlobalUniforms =
+        std::make_unique<TransientUniforms<GlobalUniforms>>(app, commandBuffer);
+
+    ResourcesAssignment assignment = this->_pGlobalResources->assign();
+
+    // Bind IBL resources
+    this->_iblResources.bind(assignment);
+
+    // Bind global uniforms
+    assignment.bindTransientUniforms(*this->_pGlobalUniforms);
+  }
+
+  // Set up SSR resources
+  this->_pSSR = std::make_unique<ScreenSpaceReflection>(
+      app,
+      commandBuffer,
+      this->_pGlobalResources->getLayout(),
+      this->_gBufferResources);
+
+  // Deferred pass resources (GBuffer)
+  {
+    DescriptorSetLayoutBuilder deferredMaterialLayout{};
+    this->_gBufferResources.buildMaterial(deferredMaterialLayout);
+    // Roughness-filtered reflection buffer
+    deferredMaterialLayout.addTextureBinding();
+
+    this->_pDeferredMaterialAllocator =
+        std::make_unique<DescriptorSetAllocator>(
+            app,
+            deferredMaterialLayout,
+            1);
+    this->_pDeferredMaterial =
+        std::make_unique<Material>(app, *this->_pDeferredMaterialAllocator);
+
+    // Bind G-Buffer resources as textures in the deferred pass
+    ResourcesAssignment& assignment = this->_pDeferredMaterial->assign();
+    this->_gBufferResources.bindTextures(assignment);
+    this->_pSSR->bindTexture(assignment);
+  }
+}
+
+void DemoScene::_createForwardPass(Application& app) {
+  std::vector<SubpassBuilder> subpassBuilders;
+
+  // TODO: How should skybox be handled??
+  // SKYBOX PASS
+  // {
+  //   SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
+  //   subpassBuilder.colorAttachments.push_back(0);
+  //   Skybox::buildPipeline(subpassBuilder.pipelineBuilder);
+
+  //   subpassBuilder.pipelineBuilder
+  //       .layoutBuilder
+  //       // Global resources (view, projection, skybox)
+  //       .addDescriptorSet(this->_pGlobalResources->getLayout());
+  // }
+
+  //  FORWARD GLTF PASS
+  {
+    SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
+    // The GBuffer contains the following color attachments
+    // 1. Position
+    // 2. Normal
+    // 3. Albedo
+    // 4. Metallic-Roughness-Occlusion
+    subpassBuilder.colorAttachments = {0, 1, 2, 3};
+    subpassBuilder.depthAttachment = 4;
+
+    Primitive::buildPipeline(subpassBuilder.pipelineBuilder);
+
+    subpassBuilder
+        .pipelineBuilder
+        // Vertex shader
+        .addVertexShader(GProjectDirectory + "/Shaders/ForwardPass.vert")
+        // Fragment shader
+        .addFragmentShader(GProjectDirectory + "/Shaders/ForwardPass.frag")
+
+        // Pipeline resource layouts
+        .layoutBuilder
+        // Global resources (view, projection, environment map)
+        .addDescriptorSet(this->_pGlobalResources->getLayout())
+        // Material (per-object) resources (diffuse, normal map,
+        // metallic-roughness, etc)
+        .addDescriptorSet(this->_pGltfMaterialAllocator->getLayout());
+  }
+
+  std::vector<Attachment> attachments =
+      this->_gBufferResources.getAttachmentDescriptions();
+  const VkExtent2D& extent = app.getSwapChainExtent();
+  this->_pForwardPass = std::make_unique<RenderPass>(
+      app,
+      extent,
+      std::move(attachments),
+      std::move(subpassBuilders));
+
+  this->_forwardFrameBuffer = FrameBuffer(
+      app,
+      *this->_pForwardPass,
+      extent,
+      this->_gBufferResources.getAttachmentViews());
+}
+
+void DemoScene::_createDeferredPass(Application& app) {
+  VkClearValue colorClear;
+  colorClear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+  VkClearValue depthClear;
+  depthClear.depthStencil = {1.0f, 0};
+
+  std::vector<Attachment> attachments = {
+      {ATTACHMENT_FLAG_COLOR,
+       app.getSwapChainImageFormat(),
+       colorClear,
+       true,
+       false}};
+
+  std::vector<SubpassBuilder> subpassBuilders;
+
+  // // SKYBOX PASS
+  // {
+  //   SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
+  //   subpassBuilder.colorAttachments.push_back(0);
+  //   Skybox::buildPipeline(subpassBuilder.pipelineBuilder);
+
+  //   subpassBuilder.pipelineBuilder
+  //       .layoutBuilder
+  //       // Global resources (view, projection, skybox)
+  //       .addDescriptorSet(this->_pGlobalResources->getLayout());
+  // }
+
+  // DEFERRED PBR PASS
+  {
+    SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
+    subpassBuilder.colorAttachments.push_back(0);
+
+    subpassBuilder.pipelineBuilder.setCullMode(VK_CULL_MODE_FRONT_BIT)
+        .setDepthTesting(false)
+
+        // Vertex shader
+        .addVertexShader(GProjectDirectory + "/Shaders/DeferredPass.vert")
+        // Fragment shader
+        .addFragmentShader(GProjectDirectory + "/Shaders/DeferredPass.frag")
+
+        // Pipeline resource layouts
+        .layoutBuilder
+        // Global resources (view, projection, environment map)
+        .addDescriptorSet(this->_pGlobalResources->getLayout())
+        // GBuffer material (position, normal, albedo,
+        // metallic-roughness-occlusion)
+        .addDescriptorSet(this->_pDeferredMaterialAllocator->getLayout());
+  }
+
+  this->_pDeferredPass = std::make_unique<RenderPass>(
+      app,
+      app.getSwapChainExtent(),
+      std::move(attachments),
+      std::move(subpassBuilders));
+
+  this->_swapChainFrameBuffers =
+      SwapChainFrameBufferCollection(app, *this->_pDeferredPass, {});
 }
 
 namespace {
@@ -257,19 +396,48 @@ void DemoScene::draw(
     VkCommandBuffer commandBuffer,
     const FrameContext& frame) {
 
+  this->_gBufferResources.transitionToAttachment(commandBuffer);
+
   VkDescriptorSet globalDescriptorSet =
       this->_pGlobalResources->getCurrentDescriptorSet(frame);
 
-  ActiveRenderPass pass = this->_pRenderPass->begin(app, commandBuffer, frame);
-  pass
-      // Bind global descriptor sets
-      .setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1))
-      // Draw skybox
-      .draw(DrawableEnvMap{})
-      .nextSubpass();
-  // Draw models
-  for (const Model& model : this->_models) {
-    pass.draw(model);
+  // Forward pass
+  {
+    ActiveRenderPass pass = this->_pForwardPass->begin(
+        app,
+        commandBuffer,
+        frame,
+        this->_forwardFrameBuffer);
+    // Bind global descriptor sets
+    pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
+    // Draw models
+    for (const Model& model : this->_models) {
+      pass.draw(model);
+    }
+  }
+
+  this->_gBufferResources.transitionToTextures(commandBuffer);
+
+  // Reflection buffer and convolution
+  {
+    this->_pSSR
+        ->captureReflection(app, commandBuffer, globalDescriptorSet, frame);
+    this->_pSSR->convolveReflectionBuffer(app, commandBuffer, frame);
+  }
+
+  // Deferred pass
+  {
+    ActiveRenderPass pass = this->_pDeferredPass->begin(
+        app,
+        commandBuffer,
+        frame,
+        this->_swapChainFrameBuffers.getCurrentFrameBuffer(frame));
+    // Bind global descriptor sets
+    pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
+
+    const DrawContext& context = pass.getDrawContext();
+    context.bindDescriptorSets(*this->_pDeferredMaterial);
+    context.draw(3);
   }
 }
 } // namespace DemoScene

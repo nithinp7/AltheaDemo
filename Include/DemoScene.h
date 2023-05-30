@@ -4,16 +4,20 @@
 #include <Althea/CameraController.h>
 #include <Althea/ComputePipeline.h>
 #include <Althea/DescriptorSet.h>
+#include <Althea/FrameBuffer.h>
 #include <Althea/IGameInstance.h>
 #include <Althea/Image.h>
+#include <Althea/ImageBasedLighting.h>
+#include <Althea/ImageResource.h>
 #include <Althea/ImageView.h>
 #include <Althea/Model.h>
 #include <Althea/PerFrameResources.h>
 #include <Althea/RenderPass.h>
 #include <Althea/Sampler.h>
-#include <Althea/TransientUniforms.h>
 #include <Althea/Texture.h>
-#include <Althea/ImageBasedLighting.h>
+#include <Althea/TransientUniforms.h>
+#include <Althea/DeferredRendering.h>
+#include <Althea/ScreenSpaceReflection.h>
 #include <glm/glm.hpp>
 
 #include <vector>
@@ -59,18 +63,32 @@ private:
   glm::vec3 _lightDir = glm::normalize(glm::vec3(1.0f, 1.0f, 1.0f));
   bool _adjustingLight = false;
 
-  std::shared_ptr<PerFrameResources> _pGlobalResources;
-  std::unique_ptr<TransientUniforms<GlobalUniforms>> _pGlobalUniforms;
-
-  std::unique_ptr<DescriptorSetAllocator> _pGltfMaterialAllocator;
-
   std::unique_ptr<CameraController> _pCameraController;
 
-  std::unique_ptr<RenderPass> _pRenderPass;
+  void _createGlobalResources(
+      Application& app,
+      SingleTimeCommandBuffer& commandBuffer);
+  std::unique_ptr<PerFrameResources> _pGlobalResources;
+  std::unique_ptr<TransientUniforms<GlobalUniforms>> _pGlobalUniforms;
+  std::unique_ptr<DescriptorSetAllocator> _pGltfMaterialAllocator;
+  IBLResources _iblResources;
+  GBufferResources _gBufferResources;
 
+  void _createModels(Application& app, SingleTimeCommandBuffer& commandBuffer);
   std::vector<Model> _models;
-  
-  AltheaEngine::IBLResources _iblResources;
+
+  void _createForwardPass(Application& app);
+  std::unique_ptr<RenderPass> _pForwardPass;
+  FrameBuffer _forwardFrameBuffer;
+
+  void _createDeferredPass(Application& app);
+  std::unique_ptr<RenderPass> _pDeferredPass;
+  SwapChainFrameBufferCollection _swapChainFrameBuffers;
+  std::unique_ptr<DescriptorSetAllocator> _pDeferredMaterialAllocator;
+  std::unique_ptr<Material> _pDeferredMaterial;
+
+  std::unique_ptr<ScreenSpaceReflection> _pSSR;
+  float _exposure = 0.3f;
 };
 } // namespace DemoScene
 } // namespace AltheaDemo
