@@ -3,8 +3,9 @@
 
 #define PI 3.14159265359
 
-layout(location=0) in vec3 direction;
-layout(location=1) in vec2 uv;
+layout(location=0) in vec3 cameraPosition;
+layout(location=1) in vec3 direction;
+layout(location=2) in vec2 uv;
 
 layout(location=0) out vec4 outColor;
 
@@ -27,6 +28,8 @@ layout(set=1, binding=3) uniform sampler2D gBufferMetallicRoughnessOcclusion;
 layout(set=1, binding=4) uniform sampler2D reflectionBuffer;
 
 #include <PBR/PBRMaterial.glsl>
+
+#include "Volumetrics.glsl"
 
 vec3 sampleEnvMap(vec3 dir) {
   float yaw = atan(dir.z, dir.x);
@@ -126,9 +129,13 @@ void main() {
   seed = uvec2(gl_FragCoord.xy);
 
   vec4 position = texture(gBufferPosition, uv).rgba;
+  vec3 dir = normalize(direction);
+  vec4 volumeColor = raymarchVolume(cameraPosition, position, dir); 
+
   if (position.a == 0.0) {
     // Nothing in the GBuffer, draw the environment map
-    vec3 envMapSample = sampleEnvMap(direction);
+    vec3 envMapSample = sampleEnvMap(dir);
+    envMapSample = mix(envMapSample, volumeColor.rgb, volumeColor.a);
 #ifndef SKIP_TONEMAP
     envMapSample = vec3(1.0) - exp(-envMapSample * globals.exposure);
 #endif
@@ -141,8 +148,8 @@ void main() {
   vec3 metallicRoughnessOcclusion = 
       texture(gBufferMetallicRoughnessOcclusion, uv).rgb;
 
-  vec3 reflectedDirection = reflect(normalize(direction), normal);
-  vec4 reflectedColor = sampleReflection(0.2);//metallicRoughnessOcclusion.y);
+  vec3 reflectedDirection = reflect(dir, normal);
+  vec4 reflectedColor = sampleReflection(metallicRoughnessOcclusion.y);
   // reflectedColor = reflectedColor / reflectedColor.a;
   reflectedColor.rgb = mix(baseColor, reflectedColor.rgb, reflectedColor.a);
 
@@ -154,7 +161,7 @@ void main() {
 
   vec3 material = 
       pbrMaterial(
-        normalize(direction),
+        dir,
         globals.lightDir, 
         normal, 
         baseColor.rgb, 
@@ -163,6 +170,8 @@ void main() {
         metallicRoughnessOcclusion.x, 
         metallicRoughnessOcclusion.y, 
         metallicRoughnessOcclusion.z);
+
+  material.rgb = mix(material.rgb, volumeColor.rgb, volumeColor.a);
 
 #ifndef SKIP_TONEMAP
   material = vec3(1.0) - exp(-material * globals.exposure);

@@ -265,19 +265,6 @@ void DemoScene::_createGlobalResources(
 void DemoScene::_createForwardPass(Application& app) {
   std::vector<SubpassBuilder> subpassBuilders;
 
-  // TODO: How should skybox be handled??
-  // SKYBOX PASS
-  // {
-  //   SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
-  //   subpassBuilder.colorAttachments.push_back(0);
-  //   Skybox::buildPipeline(subpassBuilder.pipelineBuilder);
-
-  //   subpassBuilder.pipelineBuilder
-  //       .layoutBuilder
-  //       // Global resources (view, projection, skybox)
-  //       .addDescriptorSet(this->_pGlobalResources->getLayout());
-  // }
-
   //  FORWARD GLTF PASS
   {
     SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
@@ -337,18 +324,6 @@ void DemoScene::_createDeferredPass(Application& app) {
        false}};
 
   std::vector<SubpassBuilder> subpassBuilders;
-
-  // // SKYBOX PASS
-  // {
-  //   SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
-  //   subpassBuilder.colorAttachments.push_back(0);
-  //   Skybox::buildPipeline(subpassBuilder.pipelineBuilder);
-
-  //   subpassBuilder.pipelineBuilder
-  //       .layoutBuilder
-  //       // Global resources (view, projection, skybox)
-  //       .addDescriptorSet(this->_pGlobalResources->getLayout());
-  // }
 
   // DEFERRED PBR PASS
   {
