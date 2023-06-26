@@ -42,15 +42,15 @@ void DemoScene::initGame(Application& app) {
   InputManager& input = app.getInputManager();
   input.addKeyBinding(
       {GLFW_KEY_L, GLFW_PRESS, 0},
-      [&adjustingLight = this->_adjustingLight, &input]() {
-        adjustingLight = true;
+      [&adjustingExposure = this->_adjustingExposure, &input]() {
+        adjustingExposure = true;
         input.setMouseCursorHidden(false);
       });
 
   input.addKeyBinding(
       {GLFW_KEY_L, GLFW_RELEASE, 0},
-      [&adjustingLight = this->_adjustingLight, &input]() {
-        adjustingLight = false;
+      [&adjustingExposure = this->_adjustingExposure, &input]() {
+        adjustingExposure = false;
         input.setMouseCursorHidden(true);
       });
 
@@ -82,15 +82,9 @@ void DemoScene::initGame(Application& app) {
       });
 
   input.addMousePositionCallback(
-      [&adjustingLight = this->_adjustingLight,
-       &lightDir = this->_lightDir,
+      [&adjustingExposure = this->_adjustingExposure,
        &exposure = this->_exposure](double x, double y, bool cursorHidden) {
-        if (adjustingLight) {
-          // TODO: consider current camera forward direction.
-          // float theta = glm::pi<float>() * static_cast<float>(x);
-          // float height = static_cast<float>(y) + 1.0f;
-
-          // lightDir = glm::normalize(glm::vec3(cos(theta), height, sin(theta)));
+        if (adjustingExposure) {
           exposure = static_cast<float>(y);
         }
       });
@@ -126,6 +120,7 @@ void DemoScene::destroyRenderState(Application& app) {
 
   this->_pGlobalResources.reset();
   this->_pGlobalUniforms.reset();
+  this->_pointLights = {};
   this->_pGltfMaterialAllocator.reset();
   this->_iblResources = {};
 
@@ -143,7 +138,7 @@ void DemoScene::tick(Application& app, const FrameContext& frame) {
   globalUniforms.inverseProjection = glm::inverse(globalUniforms.projection);
   globalUniforms.view = camera.computeView();
   globalUniforms.inverseView = glm::inverse(globalUniforms.view);
-  globalUniforms.lightDir = this->_lightDir;
+  globalUniforms.lightCount = static_cast<int>(this->_pointLights.getCount());
   globalUniforms.time = static_cast<float>(frame.currentTime);
   globalUniforms.exposure = this->_exposure;
 
@@ -217,12 +212,33 @@ void DemoScene::_createGlobalResources(
     ImageBasedLighting::buildLayout(globalResourceLayout);
     globalResourceLayout
         // Global uniforms.
-        .addUniformBufferBinding();
+        .addUniformBufferBinding()
+        // Point light buffer.
+        .addStorageBufferBinding(VK_SHADER_STAGE_FRAGMENT_BIT);
 
     this->_pGlobalResources =
         std::make_unique<PerFrameResources>(app, globalResourceLayout);
     this->_pGlobalUniforms =
         std::make_unique<TransientUniforms<GlobalUniforms>>(app, commandBuffer);
+
+    this->_pointLights = PointLightCollection(app, commandBuffer, 25);
+    for (uint32_t i = 0; i < 5; ++i) {
+      for (uint32_t j = 0; j < 5; ++j) {
+        PointLight light;
+        float t = static_cast<float>(i * 5 + j);
+        
+        light.position = 40.0f * glm::vec3(
+                                     static_cast<float>(i),
+                                     -0.1f,
+                                     (static_cast<float>(j) - 2.5f) * 0.5f);
+        light.emmision = 1000.0f * glm::vec3(
+                                      cos(t) + 1.0f,
+                                      sin(t + 1.0f) + 1.0f,
+                                      sin(t) + 1.0f);
+
+        this->_pointLights.setLight(i * 5 + j, light);
+      }
+    }
 
     ResourcesAssignment assignment = this->_pGlobalResources->assign();
 
@@ -231,6 +247,10 @@ void DemoScene::_createGlobalResources(
 
     // Bind global uniforms
     assignment.bindTransientUniforms(*this->_pGlobalUniforms);
+    assignment.bindStorageBuffer(
+        this->_pointLights.getAllocation(),
+        this->_pointLights.getByteSize(),
+        true);
   }
 
   // Set up SSR resources
@@ -264,19 +284,6 @@ void DemoScene::_createGlobalResources(
 
 void DemoScene::_createForwardPass(Application& app) {
   std::vector<SubpassBuilder> subpassBuilders;
-
-  // TODO: How should skybox be handled??
-  // SKYBOX PASS
-  // {
-  //   SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
-  //   subpassBuilder.colorAttachments.push_back(0);
-  //   Skybox::buildPipeline(subpassBuilder.pipelineBuilder);
-
-  //   subpassBuilder.pipelineBuilder
-  //       .layoutBuilder
-  //       // Global resources (view, projection, skybox)
-  //       .addDescriptorSet(this->_pGlobalResources->getLayout());
-  // }
 
   //  FORWARD GLTF PASS
   {
@@ -338,18 +345,6 @@ void DemoScene::_createDeferredPass(Application& app) {
 
   std::vector<SubpassBuilder> subpassBuilders;
 
-  // // SKYBOX PASS
-  // {
-  //   SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
-  //   subpassBuilder.colorAttachments.push_back(0);
-  //   Skybox::buildPipeline(subpassBuilder.pipelineBuilder);
-
-  //   subpassBuilder.pipelineBuilder
-  //       .layoutBuilder
-  //       // Global resources (view, projection, skybox)
-  //       .addDescriptorSet(this->_pGlobalResources->getLayout());
-  // }
-
   // DEFERRED PBR PASS
   {
     SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
@@ -396,6 +391,7 @@ void DemoScene::draw(
     VkCommandBuffer commandBuffer,
     const FrameContext& frame) {
 
+  this->_pointLights.updateResource(frame);
   this->_gBufferResources.transitionToAttachment(commandBuffer);
 
   VkDescriptorSet globalDescriptorSet =
