@@ -58,6 +58,17 @@ void DemoScene::initGame(Application& app) {
   input.addKeyBinding(
       {GLFW_KEY_R, GLFW_PRESS, GLFW_MOD_CONTROL},
       [&app, that = this]() {
+        for (Subpass& subpass : that->_pShadowPass->getSubpasses()) {
+          GraphicsPipeline& pipeline = subpass.getPipeline();
+          if (pipeline.recompileStaleShaders()) {
+            if (pipeline.hasShaderRecompileErrors()) {
+              std::cout << pipeline.getShaderRecompileErrors() << "\n";
+            } else {
+              pipeline.recreatePipeline(app);
+            }
+          }
+        }
+
         for (Subpass& subpass : that->_pForwardPass->getSubpasses()) {
           GraphicsPipeline& pipeline = subpass.getPipeline();
           if (pipeline.recompileStaleShaders()) {
@@ -164,7 +175,11 @@ void DemoScene::tick(Application& app, const FrameContext& frame) {
 
     // front back up down right left
     // X+ X- Y+ Y- Z+ Z-
-    sceneCaptureCamera.setPosition(light.position);
+    glm::vec3 pos = light.position;
+    pos.x += 2.5f * cos(frame.currentTime);
+    pos.z += 1.5f * sin(frame.currentTime);
+
+    sceneCaptureCamera.setPosition(pos);
     sceneCaptureCamera.setRotation(90.0f, 0.0f);
     shadowMapInfo.views[0] = sceneCaptureCamera.computeView();
     shadowMapInfo.inverseViews[0] = glm::inverse(shadowMapInfo.views[0]);
@@ -281,8 +296,8 @@ void DemoScene::_createGlobalResources(
                                      static_cast<float>(i),
                                      -0.1f,
                                      (static_cast<float>(j) - 1.5f) * 0.5f);
-        light.emmision =
-            1000.0f *
+        light.emission =
+            1000.0f * // / static_cast<float>(i + 1) *
             glm::vec3(cos(t) + 1.0f, sin(t + 1.0f) + 1.0f, sin(t) + 1.0f);
 
         this->_pointLights.setLight(i * 3 + j, light);
@@ -361,6 +376,7 @@ void DemoScene::_createShadowPass(Application& app) {
         .pipelineBuilder
         // Vertex shader
         .addVertexShader(GEngineDirectory + "/Shaders/ShadowMap.vert")
+        .addFragmentShader(GEngineDirectory + "/Shaders/ShadowMap.frag")
         // TODO: Still need fragment shader for opacity masking?
 
         // Pipeline resource layouts
@@ -387,7 +403,7 @@ void DemoScene::_createShadowPass(Application& app) {
       false}};
 
   // TODO: Get this from the point lights object
-  VkExtent2D extent{100, 100};
+  const VkExtent2D& extent = this->_pointLights.getShadowMapExtent();
   this->_pShadowPass = std::make_unique<RenderPass>(
       app,
       extent,
