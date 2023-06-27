@@ -102,12 +102,18 @@ void DemoScene::createRenderState(Application& app) {
   SingleTimeCommandBuffer commandBuffer(app);
   this->_createGlobalResources(app, commandBuffer);
   this->_createModels(app, commandBuffer);
+  this->_createShadowPass(app);
   this->_createForwardPass(app);
   this->_createDeferredPass(app);
 }
 
 void DemoScene::destroyRenderState(Application& app) {
   this->_models.clear();
+
+  this->_pShadowPass.reset();
+  this->_shadowFrameBuffers.clear();
+  this->_shadowResources.clear();
+  this->_shadowUniforms.clear();
 
   this->_pForwardPass.reset();
   this->_gBufferResources = {};
@@ -143,6 +149,48 @@ void DemoScene::tick(Application& app, const FrameContext& frame) {
   globalUniforms.exposure = this->_exposure;
 
   this->_pGlobalUniforms->updateUniforms(globalUniforms, frame);
+
+  for (uint32_t i = 0; i < this->_pointLights.getCount(); ++i) {
+    const PointLight& light = this->_pointLights.getLight(i);
+
+    Camera sceneCaptureCamera(90.0f, 1.0f, 0.01f, 1000.0f);
+
+    ShadowMapUniforms shadowMapInfo{};
+    shadowMapInfo.projection = sceneCaptureCamera.getProjection();
+    shadowMapInfo.inverseProjection = glm::inverse(shadowMapInfo.projection);
+
+    glm::mat4 view = sceneCaptureCamera.computeView();
+    glm::mat4 invView = glm::inverse(view);
+
+    // front back up down right left
+    // X+ X- Y+ Y- Z+ Z-
+    sceneCaptureCamera.setPosition(light.position);
+    sceneCaptureCamera.setRotation(90.0f, 0.0f);
+    shadowMapInfo.views[0] = sceneCaptureCamera.computeView();
+    shadowMapInfo.inverseViews[0] = glm::inverse(shadowMapInfo.views[0]);
+
+    sceneCaptureCamera.setRotation(-90.0f, 0.0f);
+    shadowMapInfo.views[1] = sceneCaptureCamera.computeView();
+    shadowMapInfo.inverseViews[1] = glm::inverse(shadowMapInfo.views[1]);
+
+    sceneCaptureCamera.setRotation(180.0f, 90.0f);
+    shadowMapInfo.views[2] = sceneCaptureCamera.computeView();
+    shadowMapInfo.inverseViews[2] = glm::inverse(shadowMapInfo.views[2]);
+
+    sceneCaptureCamera.setRotation(180.0f, -90.0f);
+    shadowMapInfo.views[3] = sceneCaptureCamera.computeView();
+    shadowMapInfo.inverseViews[3] = glm::inverse(shadowMapInfo.views[3]);
+
+    sceneCaptureCamera.setRotation(180.0f, 0.0f);
+    shadowMapInfo.views[4] = sceneCaptureCamera.computeView();
+    shadowMapInfo.inverseViews[4] = glm::inverse(shadowMapInfo.views[4]);
+
+    sceneCaptureCamera.setRotation(0.0f, 0.0f);
+    shadowMapInfo.views[5] = sceneCaptureCamera.computeView();
+    shadowMapInfo.inverseViews[5] = glm::inverse(shadowMapInfo.views[5]);
+
+    this->_shadowUniforms[i].updateUniforms(shadowMapInfo, frame);
+  }
 }
 
 void DemoScene::_createModels(
@@ -214,29 +262,30 @@ void DemoScene::_createGlobalResources(
         // Global uniforms.
         .addUniformBufferBinding()
         // Point light buffer.
-        .addStorageBufferBinding(VK_SHADER_STAGE_FRAGMENT_BIT);
+        .addStorageBufferBinding(VK_SHADER_STAGE_FRAGMENT_BIT)
+        // Shadow map texture.
+        .addTextureBinding();
 
     this->_pGlobalResources =
         std::make_unique<PerFrameResources>(app, globalResourceLayout);
     this->_pGlobalUniforms =
         std::make_unique<TransientUniforms<GlobalUniforms>>(app, commandBuffer);
 
-    this->_pointLights = PointLightCollection(app, commandBuffer, 25);
-    for (uint32_t i = 0; i < 5; ++i) {
-      for (uint32_t j = 0; j < 5; ++j) {
+    this->_pointLights = PointLightCollection(app, commandBuffer, 9, true);
+    for (uint32_t i = 0; i < 3; ++i) {
+      for (uint32_t j = 0; j < 3; ++j) {
         PointLight light;
-        float t = static_cast<float>(i * 5 + j);
-        
+        float t = static_cast<float>(i * 3 + j);
+
         light.position = 40.0f * glm::vec3(
                                      static_cast<float>(i),
                                      -0.1f,
-                                     (static_cast<float>(j) - 2.5f) * 0.5f);
-        light.emmision = 1000.0f * glm::vec3(
-                                      cos(t) + 1.0f,
-                                      sin(t + 1.0f) + 1.0f,
-                                      sin(t) + 1.0f);
+                                     (static_cast<float>(j) - 1.5f) * 0.5f);
+        light.emmision =
+            1000.0f *
+            glm::vec3(cos(t) + 1.0f, sin(t + 1.0f) + 1.0f, sin(t) + 1.0f);
 
-        this->_pointLights.setLight(i * 5 + j, light);
+        this->_pointLights.setLight(i * 3 + j, light);
       }
     }
 
@@ -251,6 +300,20 @@ void DemoScene::_createGlobalResources(
         this->_pointLights.getAllocation(),
         this->_pointLights.getByteSize(),
         true);
+    assignment.bindTexture(
+        this->_pointLights.getShadowMapArrayView(),
+        this->_pointLights.getShadowMapSampler());
+
+    // Shadow map resources
+    DescriptorSetLayoutBuilder shadowLayoutBuilder{};
+    shadowLayoutBuilder.addUniformBufferBinding(VK_SHADER_STAGE_VERTEX_BIT);
+
+    for (uint32_t i = 0; i < this->_pointLights.getCount(); ++i) {
+      this->_shadowResources.emplace_back(app, shadowLayoutBuilder);
+      this->_shadowUniforms.emplace_back(app, commandBuffer);
+      this->_shadowResources.back().assign().bindTransientUniforms(
+          this->_shadowUniforms.back());
+    }
   }
 
   // Set up SSR resources
@@ -282,6 +345,65 @@ void DemoScene::_createGlobalResources(
   }
 }
 
+void DemoScene::_createShadowPass(Application& app) {
+  std::vector<SubpassBuilder> subpassBuilders;
+
+  //  GLTF SUBPASS
+  {
+    SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
+
+    // Only interested in writing to a depth buffer
+    subpassBuilder.depthAttachment = 0;
+
+    Primitive::buildPipeline(subpassBuilder.pipelineBuilder);
+
+    subpassBuilder
+        .pipelineBuilder
+        // Vertex shader
+        .addVertexShader(GEngineDirectory + "/Shaders/ShadowMap.vert")
+        // TODO: Still need fragment shader for opacity masking?
+
+        // Pipeline resource layouts
+        .layoutBuilder
+        // Shadow pass resources
+        // TODO: Verify that this works, all the shadow resources should have
+        // the same layout, but I don't know how layout-matching is checked / enforced
+        // in Vulkan.
+        .addDescriptorSet(this->_shadowResources[0].getLayout())
+        // Material (per-object) resources (diffuse, normal map,
+        // metallic-roughness, etc)
+        .addDescriptorSet(this->_pGltfMaterialAllocator->getLayout());
+  }
+
+  VkClearValue depthClear;
+  depthClear.depthStencil = {1.0f, 0};
+
+  // TODO: Create shadow-map utilities in Althea
+  std::vector<Attachment> attachments = {Attachment{
+      ATTACHMENT_FLAG_CUBEMAP | ATTACHMENT_FLAG_DEPTH,
+      app.getDepthImageFormat(),
+      depthClear,
+      false,
+      false}};
+
+  // TODO: Get this from the point lights object
+  VkExtent2D extent{100, 100};
+  this->_pShadowPass = std::make_unique<RenderPass>(
+      app,
+      extent,
+      std::move(attachments),
+      std::move(subpassBuilders));
+
+  this->_shadowFrameBuffers.resize(this->_pointLights.getCount());
+  for (size_t i = 0; i < this->_pointLights.getCount(); ++i) {
+    this->_shadowFrameBuffers[i] = FrameBuffer(
+        app,
+        *this->_pShadowPass,
+        extent,
+        {this->_pointLights.getShadowMapTargetView(i)});
+  }
+}
+
 void DemoScene::_createForwardPass(Application& app) {
   std::vector<SubpassBuilder> subpassBuilders;
 
@@ -301,9 +423,9 @@ void DemoScene::_createForwardPass(Application& app) {
     subpassBuilder
         .pipelineBuilder
         // Vertex shader
-        .addVertexShader(GProjectDirectory + "/Shaders/ForwardPass.vert")
+        .addVertexShader(GEngineDirectory + "/Shaders/GltfForward.vert")
         // Fragment shader
-        .addFragmentShader(GProjectDirectory + "/Shaders/ForwardPass.frag")
+        .addFragmentShader(GEngineDirectory + "/Shaders/GltfForward.frag")
 
         // Pipeline resource layouts
         .layoutBuilder
@@ -396,6 +518,28 @@ void DemoScene::draw(
 
   VkDescriptorSet globalDescriptorSet =
       this->_pGlobalResources->getCurrentDescriptorSet(frame);
+
+  // Shadow passes
+  this->_pointLights.transitionToAttachment(commandBuffer);
+  for (uint32_t i = 0; i < this->_pointLights.getCount(); ++i) {
+    const PointLight& light = this->_pointLights.getLight(i);
+
+    ActiveRenderPass pass = this->_pShadowPass->begin(
+        app,
+        commandBuffer,
+        frame,
+        this->_shadowFrameBuffers[i]);
+
+    VkDescriptorSet shadowDescriptorSet =
+        this->_shadowResources[i].getCurrentDescriptorSet(frame);
+    pass.setGlobalDescriptorSets(gsl::span(&shadowDescriptorSet, 1));
+
+    // Draw models
+    for (const Model& model : this->_models) {
+      pass.draw(model);
+    }
+  }
+  this->_pointLights.transitionToTexture(commandBuffer);
 
   // Forward pass
   {
