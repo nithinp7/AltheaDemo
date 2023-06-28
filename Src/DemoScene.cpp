@@ -140,6 +140,7 @@ void DemoScene::destroyRenderState(Application& app) {
   this->_pointLights = {};
   this->_pGltfMaterialAllocator.reset();
   this->_iblResources = {};
+  this->_sphere = {};
 
   this->_pSSR.reset();
 }
@@ -162,7 +163,17 @@ void DemoScene::tick(Application& app, const FrameContext& frame) {
   this->_pGlobalUniforms->updateUniforms(globalUniforms, frame);
 
   for (uint32_t i = 0; i < this->_pointLights.getCount(); ++i) {
-    const PointLight& light = this->_pointLights.getLight(i);
+    PointLight light = this->_pointLights.getLight(i);
+    
+    light.position = 40.0f * glm::vec3(
+                                  static_cast<float>(i / 3),
+                                  -0.1f,
+                                  (static_cast<float>(i % 3) - 1.5f) * 0.5f);
+
+    light.position.x += 5.5f * cos(1.5f * frame.currentTime + i);
+    light.position.z += 5.5f * sin(1.5 * frame.currentTime + i);
+
+    this->_pointLights.setLight(i, light);
 
     Camera sceneCaptureCamera(90.0f, 1.0f, 0.01f, 1000.0f);
 
@@ -175,11 +186,7 @@ void DemoScene::tick(Application& app, const FrameContext& frame) {
 
     // front back up down right left
     // X+ X- Y+ Y- Z+ Z-
-    glm::vec3 pos = light.position;
-    pos.x += 2.5f * cos(frame.currentTime);
-    pos.z += 1.5f * sin(frame.currentTime);
-
-    sceneCaptureCamera.setPosition(pos);
+    sceneCaptureCamera.setPosition(light.position);
     sceneCaptureCamera.setRotation(90.0f, 0.0f);
     shadowMapInfo.views[0] = sceneCaptureCamera.computeView();
     shadowMapInfo.inverseViews[0] = glm::inverse(shadowMapInfo.views[0]);
@@ -206,6 +213,8 @@ void DemoScene::tick(Application& app, const FrameContext& frame) {
 
     this->_shadowUniforms[i].updateUniforms(shadowMapInfo, frame);
   }
+
+  this->_pointLights.updateResource(frame);
 }
 
 void DemoScene::_createModels(
@@ -277,7 +286,8 @@ void DemoScene::_createGlobalResources(
         // Global uniforms.
         .addUniformBufferBinding()
         // Point light buffer.
-        .addStorageBufferBinding(VK_SHADER_STAGE_FRAGMENT_BIT)
+        .addStorageBufferBinding(
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
         // Shadow map texture.
         .addTextureBinding();
 
@@ -358,6 +368,9 @@ void DemoScene::_createGlobalResources(
     this->_gBufferResources.bindTextures(assignment);
     this->_pSSR->bindTexture(assignment);
   }
+
+  // Create sphere VB (for rendering point lights)
+  this->_sphere = Sphere(app, commandBuffer);
 }
 
 void DemoScene::_createShadowPass(Application& app) {
@@ -383,8 +396,8 @@ void DemoScene::_createShadowPass(Application& app) {
         .layoutBuilder
         // Shadow pass resources
         // TODO: Verify that this works, all the shadow resources should have
-        // the same layout, but I don't know how layout-matching is checked / enforced
-        // in Vulkan.
+        // the same layout, but I don't know how layout-matching is checked /
+        // enforced in Vulkan.
         .addDescriptorSet(this->_shadowResources[0].getLayout())
         // Material (per-object) resources (diffuse, normal map,
         // metallic-roughness, etc)
@@ -400,7 +413,8 @@ void DemoScene::_createShadowPass(Application& app) {
       app.getDepthImageFormat(),
       depthClear,
       false,
-      false}};
+      false,
+      true}};
 
   // TODO: Get this from the point lights object
   const VkExtent2D& extent = this->_pointLights.getShadowMapExtent();
@@ -475,11 +489,21 @@ void DemoScene::_createDeferredPass(Application& app) {
   depthClear.depthStencil = {1.0f, 0};
 
   std::vector<Attachment> attachments = {
-      {ATTACHMENT_FLAG_COLOR,
+      Attachment{ATTACHMENT_FLAG_COLOR,
        app.getSwapChainImageFormat(),
        colorClear,
        true,
-       false}};
+       false,
+       true},
+
+      // Depth buffer
+      Attachment{
+          ATTACHMENT_FLAG_DEPTH,
+          app.getDepthImageFormat(),
+          depthClear,
+          false,
+          true,
+          true}};
 
   std::vector<SubpassBuilder> subpassBuilders;
 
@@ -505,14 +529,43 @@ void DemoScene::_createDeferredPass(Application& app) {
         .addDescriptorSet(this->_pDeferredMaterialAllocator->getLayout());
   }
 
+  // SHOW POINT LIGHTS (kinda hacky)
+  // TODO: Really light objects should be rendered in the forward
+  // pass as well and an emissive channel should be added to the
+  // G-Buffer
+  {
+    SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
+    subpassBuilder.colorAttachments.push_back(0);
+    subpassBuilder.depthAttachment = 1;
+
+    subpassBuilder.pipelineBuilder
+        // TODO: This is a hack to workaround incorrect winding of sphere
+        // triangle indices - fix that instead of disabling backface culling
+        .setCullMode(VK_CULL_MODE_NONE)
+        .addVertexInputBinding<glm::vec3>(VK_VERTEX_INPUT_RATE_VERTEX)
+        .addVertexAttribute(VertexAttributeType::VEC3, 0)
+
+        // Vertex shader
+        .addVertexShader(GProjectDirectory + "/Shaders/LightMesh.vert")
+        // Fragment shader
+        .addFragmentShader(GProjectDirectory + "/Shaders/LightMesh.frag")
+
+        // Pipeline resource layouts
+        .layoutBuilder
+        // Global resources (view, projection, environment ma)
+        .addDescriptorSet(this->_pGlobalResources->getLayout());
+  }
+
   this->_pDeferredPass = std::make_unique<RenderPass>(
       app,
       app.getSwapChainExtent(),
       std::move(attachments),
       std::move(subpassBuilders));
 
-  this->_swapChainFrameBuffers =
-      SwapChainFrameBufferCollection(app, *this->_pDeferredPass, {});
+  this->_swapChainFrameBuffers = SwapChainFrameBufferCollection(
+      app,
+      *this->_pDeferredPass,
+      {app.getDepthImageView()});
 }
 
 namespace {
@@ -591,9 +644,28 @@ void DemoScene::draw(
     // Bind global descriptor sets
     pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
 
-    const DrawContext& context = pass.getDrawContext();
-    context.bindDescriptorSets(*this->_pDeferredMaterial);
-    context.draw(3);
+    {
+      const DrawContext& context = pass.getDrawContext();
+      context.bindDescriptorSets(*this->_pDeferredMaterial);
+      context.draw(3);
+    }
+
+    pass.nextSubpass();
+    pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
+
+    {
+      const DrawContext& context = pass.getDrawContext();
+      context.bindDescriptorSets();
+      context.bindVertexBuffer(this->_sphere.vertexBuffer);
+      context.bindIndexBuffer(this->_sphere.indexBuffer);
+      vkCmdDrawIndexed(
+          commandBuffer,
+          this->_sphere.indexBuffer.getIndexCount(),
+          this->_pointLights.getCount(),
+          0,
+          0,
+          0);
+    }
   }
 }
 } // namespace DemoScene
