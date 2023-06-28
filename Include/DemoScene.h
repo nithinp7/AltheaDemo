@@ -1,8 +1,5 @@
 #pragma once
 
-// TODO: Move this into Althea
-#include "Sphere.h"
-
 #include <Althea/Allocator.h>
 #include <Althea/CameraController.h>
 #include <Althea/ComputePipeline.h>
@@ -77,7 +74,6 @@ private:
   std::unique_ptr<DescriptorSetAllocator> _pGltfMaterialAllocator;
   IBLResources _iblResources;
   GBufferResources _gBufferResources;
-  Sphere _sphere{};
 
   void _createModels(Application& app, SingleTimeCommandBuffer& commandBuffer);
   std::vector<Model> _models;

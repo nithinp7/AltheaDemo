@@ -140,7 +140,6 @@ void DemoScene::destroyRenderState(Application& app) {
   this->_pointLights = {};
   this->_pGltfMaterialAllocator.reset();
   this->_iblResources = {};
-  this->_sphere = {};
 
   this->_pSSR.reset();
 }
@@ -164,11 +163,11 @@ void DemoScene::tick(Application& app, const FrameContext& frame) {
 
   for (uint32_t i = 0; i < this->_pointLights.getCount(); ++i) {
     PointLight light = this->_pointLights.getLight(i);
-    
+
     light.position = 40.0f * glm::vec3(
-                                  static_cast<float>(i / 3),
-                                  -0.1f,
-                                  (static_cast<float>(i % 3) - 1.5f) * 0.5f);
+                                 static_cast<float>(i / 3),
+                                 -0.1f,
+                                 (static_cast<float>(i % 3) - 1.5f) * 0.5f);
 
     light.position.x += 5.5f * cos(1.5f * frame.currentTime + i);
     light.position.z += 5.5f * sin(1.5 * frame.currentTime + i);
@@ -368,9 +367,6 @@ void DemoScene::_createGlobalResources(
     this->_gBufferResources.bindTextures(assignment);
     this->_pSSR->bindTexture(assignment);
   }
-
-  // Create sphere VB (for rendering point lights)
-  this->_sphere = Sphere(app, commandBuffer);
 }
 
 void DemoScene::_createShadowPass(Application& app) {
@@ -489,12 +485,13 @@ void DemoScene::_createDeferredPass(Application& app) {
   depthClear.depthStencil = {1.0f, 0};
 
   std::vector<Attachment> attachments = {
-      Attachment{ATTACHMENT_FLAG_COLOR,
-       app.getSwapChainImageFormat(),
-       colorClear,
-       true,
-       false,
-       true},
+      Attachment{
+          ATTACHMENT_FLAG_COLOR,
+          app.getSwapChainImageFormat(),
+          colorClear,
+          true,
+          false,
+          true},
 
       // Depth buffer
       Attachment{
@@ -533,28 +530,11 @@ void DemoScene::_createDeferredPass(Application& app) {
   // TODO: Really light objects should be rendered in the forward
   // pass as well and an emissive channel should be added to the
   // G-Buffer
-  {
-    SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
-    subpassBuilder.colorAttachments.push_back(0);
-    subpassBuilder.depthAttachment = 1;
-
-    subpassBuilder.pipelineBuilder
-        // TODO: This is a hack to workaround incorrect winding of sphere
-        // triangle indices - fix that instead of disabling backface culling
-        .setCullMode(VK_CULL_MODE_NONE)
-        .addVertexInputBinding<glm::vec3>(VK_VERTEX_INPUT_RATE_VERTEX)
-        .addVertexAttribute(VertexAttributeType::VEC3, 0)
-
-        // Vertex shader
-        .addVertexShader(GProjectDirectory + "/Shaders/LightMesh.vert")
-        // Fragment shader
-        .addFragmentShader(GProjectDirectory + "/Shaders/LightMesh.frag")
-
-        // Pipeline resource layouts
-        .layoutBuilder
-        // Global resources (view, projection, environment ma)
-        .addDescriptorSet(this->_pGlobalResources->getLayout());
-  }
+  this->_pointLights.setupPointLightMeshSubpass(
+      subpassBuilders.emplace_back(),
+      0,
+      1,
+      this->_pGlobalResources->getLayout());
 
   this->_pDeferredPass = std::make_unique<RenderPass>(
       app,
@@ -652,20 +632,7 @@ void DemoScene::draw(
 
     pass.nextSubpass();
     pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
-
-    {
-      const DrawContext& context = pass.getDrawContext();
-      context.bindDescriptorSets();
-      context.bindVertexBuffer(this->_sphere.vertexBuffer);
-      context.bindIndexBuffer(this->_sphere.indexBuffer);
-      vkCmdDrawIndexed(
-          commandBuffer,
-          this->_sphere.indexBuffer.getIndexCount(),
-          this->_pointLights.getCount(),
-          0,
-          0,
-          0);
-    }
+    pass.draw(this->_pointLights);
   }
 }
 } // namespace DemoScene
