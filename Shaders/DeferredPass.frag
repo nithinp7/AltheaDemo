@@ -17,6 +17,12 @@ layout(set=0, binding=3) uniform sampler2D brdfLut;
 #define GLOBAL_UNIFORMS_BINDING 4
 #include <GlobalUniforms.glsl>
 
+#define POINT_LIGHTS_SET 0
+#define POINT_LIGHTS_BINDING 5
+#include <PointLights.glsl>
+
+layout(set=0, binding=6) uniform samplerCubeArray shadowMapArray;
+
 // GBuffer textures
 layout(set=1, binding=0) uniform sampler2D gBufferPosition;
 layout(set=1, binding=1) uniform sampler2D gBufferNormal;
@@ -142,7 +148,8 @@ void main() {
       texture(gBufferMetallicRoughnessOcclusion, uv).rgb;
 
   vec3 reflectedDirection = reflect(normalize(direction), normal);
-  vec4 reflectedColor = sampleReflection(0.2);//metallicRoughnessOcclusion.y);
+  // vec4 reflectedColor = sampleReflection(0.2);//metallicRoughnessOcclusion.y);
+  vec4 reflectedColor = sampleReflection(metallicRoughnessOcclusion.y);
   // reflectedColor = reflectedColor / reflectedColor.a;
   reflectedColor.rgb = mix(baseColor, reflectedColor.rgb, reflectedColor.a);
 
@@ -154,8 +161,8 @@ void main() {
 
   vec3 material = 
       pbrMaterial(
+        position.xyz,
         normalize(direction),
-        globals.lightDir, 
         normal, 
         baseColor.rgb, 
         reflectedColor.rgb, 

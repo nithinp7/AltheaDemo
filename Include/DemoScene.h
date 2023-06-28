@@ -3,6 +3,7 @@
 #include <Althea/Allocator.h>
 #include <Althea/CameraController.h>
 #include <Althea/ComputePipeline.h>
+#include <Althea/DeferredRendering.h>
 #include <Althea/DescriptorSet.h>
 #include <Althea/FrameBuffer.h>
 #include <Althea/IGameInstance.h>
@@ -12,12 +13,12 @@
 #include <Althea/ImageView.h>
 #include <Althea/Model.h>
 #include <Althea/PerFrameResources.h>
+#include <Althea/PointLight.h>
 #include <Althea/RenderPass.h>
 #include <Althea/Sampler.h>
+#include <Althea/ScreenSpaceReflection.h>
 #include <Althea/Texture.h>
 #include <Althea/TransientUniforms.h>
-#include <Althea/DeferredRendering.h>
-#include <Althea/ScreenSpaceReflection.h>
 #include <glm/glm.hpp>
 
 #include <vector>
@@ -37,7 +38,7 @@ struct GlobalUniforms {
   glm::mat4 inverseProjection;
   glm::mat4 view;
   glm::mat4 inverseView;
-  glm::vec3 lightDir;
+  int lightCount;
   float time;
   float exposure;
 };
@@ -60,8 +61,7 @@ public:
       const FrameContext& frame) override;
 
 private:
-  glm::vec3 _lightDir = glm::normalize(glm::vec3(1.0f, 1.0f, 1.0f));
-  bool _adjustingLight = false;
+  bool _adjustingExposure = false;
 
   std::unique_ptr<CameraController> _pCameraController;
 
@@ -70,6 +70,7 @@ private:
       SingleTimeCommandBuffer& commandBuffer);
   std::unique_ptr<PerFrameResources> _pGlobalResources;
   std::unique_ptr<TransientUniforms<GlobalUniforms>> _pGlobalUniforms;
+  PointLightCollection _pointLights;
   std::unique_ptr<DescriptorSetAllocator> _pGltfMaterialAllocator;
   IBLResources _iblResources;
   GBufferResources _gBufferResources;
