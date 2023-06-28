@@ -78,19 +78,6 @@ private:
   void _createModels(Application& app, SingleTimeCommandBuffer& commandBuffer);
   std::vector<Model> _models;
 
-  void _createShadowPass(Application& app);
-  std::unique_ptr<RenderPass> _pShadowPass;
-  std::vector<FrameBuffer> _shadowFrameBuffers;
-  
-  struct ShadowMapUniforms {
-    glm::mat4 projection;
-    glm::mat4 inverseProjection;
-    glm::mat4 views[6];
-    glm::mat4 inverseViews[6];
-  };
-  std::vector<PerFrameResources> _shadowResources;
-  std::vector<TransientUniforms<ShadowMapUniforms>> _shadowUniforms;
-
   void _createForwardPass(Application& app);
   std::unique_ptr<RenderPass> _pForwardPass;
   FrameBuffer _forwardFrameBuffer;
