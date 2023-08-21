@@ -14,6 +14,7 @@
 #include <Althea/Model.h>
 #include <Althea/PerFrameResources.h>
 #include <Althea/PointLight.h>
+#include <Althea/RayTracingPipeline.h>
 #include <Althea/RenderPass.h>
 #include <Althea/Sampler.h>
 #include <Althea/ScreenSpaceReflection.h>
@@ -82,6 +83,12 @@ private:
   std::unique_ptr<RenderPass> _pForwardPass;
   FrameBuffer _forwardFrameBuffer;
 
+  void _createRayTracingPass(Application& app, SingleTimeCommandBuffer& commandBuffer);
+  std::unique_ptr<RayTracingPipeline> _pRayTracingPipeline;
+  // TODO: Move these to Althea
+  VkAccelerationStructureKHR _accelerationStructure;
+  BufferAllocation _accelerationStructureBuffer;
+  
   void _createDeferredPass(Application& app);
   std::unique_ptr<RenderPass> _pDeferredPass;
   SwapChainFrameBufferCollection _swapChainFrameBuffers;

@@ -1,20 +1,22 @@
 #include "RayTracingDemo.h"
 
 #include <Althea/Application.h>
+#include <Althea/BufferUtilities.h>
 #include <Althea/Camera.h>
 #include <Althea/Cubemap.h>
 #include <Althea/DescriptorSet.h>
 #include <Althea/GraphicsPipeline.h>
+#include <Althea/IndexBuffer.h>
 #include <Althea/InputManager.h>
 #include <Althea/ModelViewProjection.h>
 #include <Althea/Primitive.h>
 #include <Althea/SingleTimeCommandBuffer.h>
 #include <Althea/Skybox.h>
 #include <Althea/Utilities.h>
+#include <Althea/VertexBuffer.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
-
 #include <vulkan/vulkan.h>
 
 #include <array>
@@ -116,6 +118,7 @@ void RayTracingDemo::createRenderState(Application& app) {
   this->_createGlobalResources(app, commandBuffer);
   this->_createModels(app, commandBuffer);
   this->_createForwardPass(app);
+  this->_createRayTracingPass(app, commandBuffer);
   this->_createDeferredPass(app);
 }
 
@@ -322,59 +325,6 @@ void RayTracingDemo::_createGlobalResources(
 }
 
 void RayTracingDemo::_createForwardPass(Application& app) {
-  const Primitive& prim = this->_models[0].getPrimitives()[0];
-  const std::vector<Vertex>& vertices = prim.getVertices();
-  const std::vector<uint32_t>& indices = prim.getIndices();
-  const AABB& aabb = prim.getAABB();
-  
-  // VkAccelerationStructureBuildGeometryInfoKHR;
-  VkAccelerationStructureCreateInfoKHR accelerationStructureInfo{};
-  accelerationStructureInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
-  accelerationStructureInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
-  
-  VkAccelerationStructureGeometryKHR geometry{};
-  geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
-
-  geometry.geometry.aabbs.sType = 
-    VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_AABBS_DATA_KHR;
-  geometry.geometry.aabbs.data.hostAddress = &aabb;
-  geometry.geometry.aabbs.stride = sizeof(AABB);
-  
-  // geometry.geometry.aabbs.
-
-  geometry.geometry.triangles.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
-  geometry.geometry.triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
-  geometry.geometry.triangles.vertexData.hostAddress = vertices.data();
-  geometry.geometry.triangles.vertexStride = sizeof(Vertex);
-  geometry.geometry.triangles.indexType = VK_INDEX_TYPE_UINT32;
-  geometry.geometry.triangles.indexData.hostAddress = indices.data();
-  
-  // vkBuildAccelerationStructuresKHR(app.getDevice)
-
-  // geometry.geometry.aabbs.data.
-  VkAccelerationStructureBuildGeometryInfoKHR buildInfo{};
-  buildInfo.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR;
-  buildInfo.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
-  buildInfo.pGeometries = &geometry;
-  
-  // TODO: Use this??
-  VkDeferredOperationKHR deferredOperation{};
-  if (app.vkCreateDeferredOperationKHR(app.getDevice(), nullptr, &deferredOperation) != VK_SUCCESS) {
-    throw std::runtime_error("Failed vkCreateDeferredOperationKHR");
-  }
-
-  VkAccelerationStructureBuildRangeInfoKHR buildRange{};
-  buildRange.firstVertex = 0;
-  buildRange.primitiveCount = 1;
-  buildRange.primitiveOffset = 0;
-  buildRange.transformOffset = 0;
-
-  VkAccelerationStructureBuildRangeInfoKHR* pBuildRange = &buildRange;
-  VkAccelerationStructureBuildRangeInfoKHR** ppBuildRange = &pBuildRange;
-  
-  // TODO: Where the hell does the result go??
-  app.vkBuildAccelerationStructuresKHR(app.getDevice(), deferredOperation, 1, &buildInfo, ppBuildRange);
-  
   std::vector<SubpassBuilder> subpassBuilders;
 
   //  FORWARD GLTF PASS
@@ -420,6 +370,186 @@ void RayTracingDemo::_createForwardPass(Application& app) {
       *this->_pForwardPass,
       extent,
       this->_gBufferResources.getAttachmentViews());
+}
+
+void RayTracingDemo::_createRayTracingPass(
+    Application& app,
+    SingleTimeCommandBuffer& commandBuffer) {
+  uint32_t primCount = 0;
+  for (const Model& model : this->_models) {
+    primCount += static_cast<uint32_t>(model.getPrimitivesCount());
+  }
+
+  std::vector<AABB> aabbs;
+  aabbs.reserve(primCount);
+  for (const Model& model : this->_models) {
+    for (const Primitive& prim : model.getPrimitives()) {
+      aabbs.push_back(prim.getAABB());
+    }
+  }
+
+  // Upload AABBs for all primitives
+  VmaAllocationCreateInfo aabbBufferAllocationInfo{};
+  aabbBufferAllocationInfo.flags =
+      VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+  aabbBufferAllocationInfo.usage = VMA_MEMORY_USAGE_AUTO;
+
+  BufferAllocation aabbBuffer = BufferUtilities::createBuffer(
+      app,
+      commandBuffer,
+      sizeof(AABB),
+      VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
+      aabbBufferAllocationInfo);
+
+  {
+    void* data = aabbBuffer.mapMemory();
+    memcpy(data, aabbs.data(), aabbs.size() * sizeof(AABB));
+    aabbBuffer.unmapMemory();
+  }
+
+  VkBufferDeviceAddressInfo aabbBufferAddrInfo{
+      VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
+  aabbBufferAddrInfo.buffer = aabbBuffer.getBuffer();
+  VkDeviceAddress aabbBufferDevAddr =
+      vkGetBufferDeviceAddress(app.getDevice(), &aabbBufferAddrInfo);
+
+  std::vector<VkAccelerationStructureGeometryKHR> geometries;
+  geometries.reserve(primCount);
+
+  std::vector<VkAccelerationStructureBuildRangeInfoKHR> buildRanges;
+  buildRanges.reserve(primCount);
+
+  uint32_t primIndex = 0;
+  uint32_t maxPrimCount = 0;
+  for (const Model& model : this->_models) {
+    for (const Primitive& prim : model.getPrimitives()) {
+      const VertexBuffer<Vertex>& vertexBuffer = prim.getVertexBuffer();
+      VkBufferDeviceAddressInfo vertexBufferAddrInfo{
+          VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
+      vertexBufferAddrInfo.buffer = vertexBuffer.getAllocation().getBuffer();
+      VkDeviceAddress vertexBufferDevAddr =
+          vkGetBufferDeviceAddress(app.getDevice(), &vertexBufferAddrInfo);
+
+      const IndexBuffer& indexBuffer = prim.getIndexBuffer();
+      VkBufferDeviceAddressInfo indexBufferAddrInfo{
+          VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
+      indexBufferAddrInfo.buffer = indexBuffer.getAllocation().getBuffer();
+      VkDeviceAddress indexBufferDevAddr =
+          vkGetBufferDeviceAddress(app.getDevice(), &indexBufferAddrInfo);
+
+      VkAccelerationStructureGeometryKHR& geometry = geometries.emplace_back();
+      geometry.sType = VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_KHR;
+      geometry.geometry.aabbs.sType =
+          VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_AABBS_DATA_KHR;
+      geometry.geometry.aabbs.data.deviceAddress =
+          aabbBufferDevAddr + primIndex * sizeof(AABB);
+      geometry.geometry.aabbs.stride = sizeof(AABB);
+
+      geometry.geometry.triangles.sType =
+          VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_GEOMETRY_TRIANGLES_DATA_KHR;
+      geometry.geometry.triangles.vertexFormat = VK_FORMAT_R32G32B32_SFLOAT;
+      geometry.geometry.triangles.vertexData.deviceAddress =
+          vertexBufferDevAddr;
+      geometry.geometry.triangles.vertexStride = sizeof(Vertex);
+      geometry.geometry.triangles.maxVertex =
+          static_cast<uint32_t>(vertexBuffer.getVertexCount() - 1);
+      geometry.geometry.triangles.indexType = VK_INDEX_TYPE_UINT32;
+      geometry.geometry.triangles.indexData.deviceAddress = indexBufferDevAddr;
+      // geometry.geometry.triangles.transformData.
+
+      VkAccelerationStructureBuildRangeInfoKHR& buildRange =
+          buildRanges.emplace_back();
+      buildRange.firstVertex = 0;
+      buildRange.primitiveCount = indexBuffer.getIndexCount() / 3;
+      buildRange.primitiveOffset = 0;
+      buildRange.transformOffset = 0;
+
+      if (buildRange.primitiveCount > maxPrimCount) {
+        maxPrimCount = buildRange.primitiveCount;
+      }
+
+      ++primIndex;
+    }
+  }
+
+  VkAccelerationStructureBuildGeometryInfoKHR buildInfo{
+      VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR};
+  buildInfo.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+  buildInfo.pGeometries = geometries.data();
+  buildInfo.geometryCount = primCount;
+  // buildInfo.scratchData =
+  // buildInfo.scratchData.deviceAddress
+  // buildInfo.scratchData
+
+  VkAccelerationStructureBuildSizesInfoKHR buildSizes{
+      VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR};
+  app.vkGetAccelerationStructureBuildSizesKHR(
+      app.getDevice(),
+      VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
+      &buildInfo,
+      &maxPrimCount,
+      &buildSizes);
+
+  // Create backing buffer and scratch buffer for acceleration structures
+  VmaAllocationCreateInfo accelStrAllocInfo{};
+  accelStrAllocInfo.usage = VMA_MEMORY_USAGE_AUTO_PREFER_DEVICE;
+
+  this->_accelerationStructureBuffer = BufferUtilities::createBuffer(
+      app,
+      commandBuffer,
+      buildSizes.accelerationStructureSize,
+      VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_STORAGE_BIT_KHR,
+      accelStrAllocInfo);
+  BufferAllocation scratchBuffer = BufferUtilities::createBuffer(
+      app,
+      commandBuffer,
+      buildSizes.buildScratchSize,
+      VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
+          VK_BUFFER_USAGE_STORAGE_BUFFER_BIT,
+      accelStrAllocInfo);
+
+  VkBufferDeviceAddressInfo scratchBufferAddrInfo{
+      VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
+  scratchBufferAddrInfo.buffer = scratchBuffer.getBuffer();
+  VkDeviceAddress scratchBufferDevAddr =
+      vkGetBufferDeviceAddress(app.getDevice(), &scratchBufferAddrInfo);
+
+  buildInfo.scratchData.deviceAddress = scratchBufferDevAddr;
+
+  VkAccelerationStructureCreateInfoKHR accelerationStructureInfo{};
+  accelerationStructureInfo.sType =
+      VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_CREATE_INFO_KHR;
+  accelerationStructureInfo.type =
+      VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
+  accelerationStructureInfo.buffer =
+      this->_accelerationStructureBuffer.getBuffer();
+  accelerationStructureInfo.offset = 0;
+  accelerationStructureInfo.size = buildSizes.accelerationStructureSize;
+
+  if (app.vkCreateAccelerationStructureKHR(
+          app.getDevice(),
+          &accelerationStructureInfo,
+          nullptr,
+          &this->_accelerationStructure) != VK_SUCCESS) {
+    throw std::runtime_error("Failed to create acceleration structure!");
+  }
+
+  buildInfo.dstAccelerationStructure = this->_accelerationStructure;
+
+  VkAccelerationStructureBuildRangeInfoKHR* pBuildRange = buildRanges.data();
+  VkAccelerationStructureBuildRangeInfoKHR** ppBuildRange = &pBuildRange;
+
+  app.vkCmdBuildAccelerationStructuresKHR(
+      commandBuffer,
+      1,
+      &buildInfo,
+      ppBuildRange);
+
+  // Add task to delete scratch buffer
+  commandBuffer.addPostCompletionTask(
+      [scratchBuffer = new BufferAllocation(std::move(scratchBuffer))]() {
+        delete scratchBuffer;
+      });
 }
 
 void RayTracingDemo::_createDeferredPass(Application& app) {
