@@ -382,9 +382,30 @@ void RayTracingDemo::_createRayTracingPass(
 
   std::vector<AABB> aabbs;
   aabbs.reserve(primCount);
+  std::vector<VkTransformMatrixKHR> transforms;
+  transforms.reserve(primCount);
   for (const Model& model : this->_models) {
     for (const Primitive& prim : model.getPrimitives()) {
       aabbs.push_back(prim.getAABB());
+
+      const glm::mat4& primTransform = prim.getRelativeTransform();
+
+      VkTransformMatrixKHR& transform = transforms.emplace_back();
+      transform.matrix[0][0] = primTransform[0][0];
+      transform.matrix[1][0] = primTransform[0][1];
+      transform.matrix[2][0] = primTransform[0][2];
+
+      transform.matrix[0][1] = primTransform[1][0];
+      transform.matrix[1][1] = primTransform[1][1];
+      transform.matrix[2][1] = primTransform[1][2];
+
+      transform.matrix[0][2] = primTransform[2][0];
+      transform.matrix[1][2] = primTransform[2][1];
+      transform.matrix[2][2] = primTransform[2][2];
+
+      transform.matrix[0][3] = primTransform[3][0];
+      transform.matrix[1][3] = primTransform[3][1];
+      transform.matrix[2][3] = primTransform[3][2];
     }
   }
 
@@ -397,13 +418,14 @@ void RayTracingDemo::_createRayTracingPass(
   BufferAllocation aabbBuffer = BufferUtilities::createBuffer(
       app,
       commandBuffer,
-      sizeof(AABB),
-      VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR,
+      sizeof(AABB) * primCount,
+      VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
+        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
       aabbBufferAllocationInfo);
 
   {
     void* data = aabbBuffer.mapMemory();
-    memcpy(data, aabbs.data(), aabbs.size() * sizeof(AABB));
+    memcpy(data, aabbs.data(), primCount * sizeof(AABB));
     aabbBuffer.unmapMemory();
   }
 
@@ -413,11 +435,40 @@ void RayTracingDemo::_createRayTracingPass(
   VkDeviceAddress aabbBufferDevAddr =
       vkGetBufferDeviceAddress(app.getDevice(), &aabbBufferAddrInfo);
 
+  // Upload transforms for all primitives
+  VmaAllocationCreateInfo transformBufferAllocInfo{};
+  transformBufferAllocInfo.flags =
+      VMA_ALLOCATION_CREATE_HOST_ACCESS_SEQUENTIAL_WRITE_BIT;
+  transformBufferAllocInfo.usage = VMA_MEMORY_USAGE_AUTO;
+
+  BufferAllocation transformBuffer = BufferUtilities::createBuffer(
+      app,
+      commandBuffer,
+      sizeof(VkTransformMatrixKHR) * primCount,
+      VK_BUFFER_USAGE_ACCELERATION_STRUCTURE_BUILD_INPUT_READ_ONLY_BIT_KHR |
+        VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT,
+      transformBufferAllocInfo);
+
+  {
+    void* data = transformBuffer.mapMemory();
+    memcpy(data, transforms.data(), primCount * sizeof(VkTransformMatrixKHR));
+    transformBuffer.unmapMemory();
+  }
+
+  VkBufferDeviceAddressInfo transformBufferAddrInfo{
+      VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
+  transformBufferAddrInfo.buffer = transformBuffer.getBuffer();
+  VkDeviceAddress transformBufferDevAddr =
+      vkGetBufferDeviceAddress(app.getDevice(), &transformBufferAddrInfo);
+
   std::vector<VkAccelerationStructureGeometryKHR> geometries;
   geometries.reserve(primCount);
 
   std::vector<VkAccelerationStructureBuildRangeInfoKHR> buildRanges;
   buildRanges.reserve(primCount);
+
+  std::vector<uint32_t> triCounts;
+  triCounts.reserve(primCount);
 
   uint32_t primIndex = 0;
   uint32_t maxPrimCount = 0;
@@ -455,7 +506,9 @@ void RayTracingDemo::_createRayTracingPass(
           static_cast<uint32_t>(vertexBuffer.getVertexCount() - 1);
       geometry.geometry.triangles.indexType = VK_INDEX_TYPE_UINT32;
       geometry.geometry.triangles.indexData.deviceAddress = indexBufferDevAddr;
-      // geometry.geometry.triangles.transformData.
+      
+      geometry.geometry.triangles.transformData.deviceAddress = 
+          transformBufferDevAddr + primIndex * sizeof(VkTransformMatrixKHR);
 
       VkAccelerationStructureBuildRangeInfoKHR& buildRange =
           buildRanges.emplace_back();
@@ -464,9 +517,7 @@ void RayTracingDemo::_createRayTracingPass(
       buildRange.primitiveOffset = 0;
       buildRange.transformOffset = 0;
 
-      if (buildRange.primitiveCount > maxPrimCount) {
-        maxPrimCount = buildRange.primitiveCount;
-      }
+      triCounts.push_back(buildRange.primitiveCount);
 
       ++primIndex;
     }
@@ -475,11 +526,9 @@ void RayTracingDemo::_createRayTracingPass(
   VkAccelerationStructureBuildGeometryInfoKHR buildInfo{
       VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_GEOMETRY_INFO_KHR};
   buildInfo.mode = VK_BUILD_ACCELERATION_STRUCTURE_MODE_BUILD_KHR;
+  buildInfo.type = VK_ACCELERATION_STRUCTURE_TYPE_BOTTOM_LEVEL_KHR;
   buildInfo.pGeometries = geometries.data();
   buildInfo.geometryCount = primCount;
-  // buildInfo.scratchData =
-  // buildInfo.scratchData.deviceAddress
-  // buildInfo.scratchData
 
   VkAccelerationStructureBuildSizesInfoKHR buildSizes{
       VK_STRUCTURE_TYPE_ACCELERATION_STRUCTURE_BUILD_SIZES_INFO_KHR};
@@ -487,7 +536,7 @@ void RayTracingDemo::_createRayTracingPass(
       app.getDevice(),
       VK_ACCELERATION_STRUCTURE_BUILD_TYPE_DEVICE_KHR,
       &buildInfo,
-      &maxPrimCount,
+      triCounts.data(),
       &buildSizes);
 
   // Create backing buffer and scratch buffer for acceleration structures
@@ -545,10 +594,14 @@ void RayTracingDemo::_createRayTracingPass(
       &buildInfo,
       ppBuildRange);
 
-  // Add task to delete scratch buffer
+  // Add task to delete all temp buffers once the commands have completed
   commandBuffer.addPostCompletionTask(
-      [scratchBuffer = new BufferAllocation(std::move(scratchBuffer))]() {
-        delete scratchBuffer;
+      [pAabbBuffer = new BufferAllocation(std::move(aabbBuffer)),
+       pTransformBuffer = new BufferAllocation(std::move(transformBuffer)),
+       pScratchBuffer = new BufferAllocation(std::move(scratchBuffer))]() {
+        delete pAabbBuffer;
+        delete pTransformBuffer;
+        delete pScratchBuffer;
       });
 }
 
