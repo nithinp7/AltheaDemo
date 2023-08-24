@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Althea/Allocator.h>
+#include <Althea/AccelerationStructure.h>
 #include <Althea/CameraController.h>
 #include <Althea/ComputePipeline.h>
 #include <Althea/DeferredRendering.h>
@@ -85,9 +86,7 @@ private:
 
   void _createRayTracingPass(Application& app, SingleTimeCommandBuffer& commandBuffer);
   std::unique_ptr<RayTracingPipeline> _pRayTracingPipeline;
-  // TODO: Move these to Althea
-  VkAccelerationStructureKHR _accelerationStructure;
-  BufferAllocation _accelerationStructureBuffer;
+  AccelerationStructure _accelerationStructure;
   
   void _createDeferredPass(Application& app);
   std::unique_ptr<RenderPass> _pDeferredPass;
