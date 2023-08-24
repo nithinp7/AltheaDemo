@@ -135,6 +135,10 @@ void RayTracingDemo::destroyRenderState(Application& app) {
   this->_pDeferredMaterialAllocator.reset();
 
   this->_accelerationStructure = {};
+  this->_rayTracingTarget = {};
+  this->_pRayTracingMaterial.reset();
+  this->_pRayTracingMaterialAllocator.reset();
+  this->_pRayTracingPipeline.reset();
 
   this->_pGlobalResources.reset();
   this->_pGlobalUniforms.reset();
@@ -324,6 +328,37 @@ void RayTracingDemo::_createGlobalResources(
     this->_gBufferResources.bindTextures(assignment);
     this->_pSSR->bindTexture(assignment);
   }
+
+  // Ray tracing resources
+  {
+    //DescriptorSetLayoutBuilder rayTracingMaterialLayout{};
+    // TODO: Use ray queries in deferred pass instead
+    ImageOptions imageOptions{};
+    imageOptions.width = 1080;
+    imageOptions.height = 960;
+    imageOptions.usage =
+        VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+
+    this->_rayTracingTarget.image = Image(app, imageOptions);
+    this->_rayTracingTarget.view =
+        ImageView(app, this->_rayTracingTarget.image, {});
+    this->_rayTracingTarget.sampler = Sampler(app, {});
+
+    // Material layout
+    DescriptorSetLayoutBuilder builder{};
+    builder.addStorageImageBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
+    // builder.addUniformBufferBinding TODO: rayParams??
+
+    this->_pRayTracingMaterialAllocator =
+        std::make_unique<DescriptorSetAllocator>(app, builder, 1);
+    this->_pRayTracingMaterial =
+        std::make_unique<Material>(app, *this->_pRayTracingMaterialAllocator);
+
+    this->_pRayTracingMaterial->assign()
+        .bindStorageImage(this->_rayTracingTarget.view, this->_rayTracingTarget.sampler);
+
+    // TODO: SBT (Shader Binding Table)
+  }
 }
 
 void RayTracingDemo::_createForwardPass(Application& app) {
@@ -377,7 +412,22 @@ void RayTracingDemo::_createForwardPass(Application& app) {
 void RayTracingDemo::_createRayTracingPass(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
-  this->_accelerationStructure = AccelerationStructure(app, commandBuffer, this->_models);
+  this->_accelerationStructure =
+      AccelerationStructure(app, commandBuffer, this->_models);
+
+  RayTracingPipelineBuilder builder{};
+  builder.setAnyHitShader(GEngineDirectory + "/Shaders/RayTracing/AnyHit.glsl");
+  builder.setClosestHitShader(
+      GEngineDirectory + "/Shaders/RayTracing/ClosestHit.glsl");
+  builder.setIntersectionShader(
+      GEngineDirectory + "/Shaders/RayTracing/Intersection.glsl");
+  builder.setMissShader(GEngineDirectory + "/Shaders/RayTracing/Miss.glsl");
+  builder.setRayGenShader(GEngineDirectory + "/Shaders/RayTracing/RayGen.glsl");
+
+  builder.layoutBuilder.addDescriptorSet(this->_pGlobalResources->getLayout());
+
+  this->_pRayTracingPipeline =
+      std::make_unique<RayTracingPipeline>(app, std::move(builder));
 }
 
 void RayTracingDemo::_createDeferredPass(Application& app) {

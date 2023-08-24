@@ -85,7 +85,10 @@ private:
   FrameBuffer _forwardFrameBuffer;
 
   void _createRayTracingPass(Application& app, SingleTimeCommandBuffer& commandBuffer);
+  std::unique_ptr<DescriptorSetAllocator> _pRayTracingMaterialAllocator;
+  std::unique_ptr<Material> _pRayTracingMaterial;
   std::unique_ptr<RayTracingPipeline> _pRayTracingPipeline;
+  ImageResource _rayTracingTarget;
   AccelerationStructure _accelerationStructure;
   
   void _createDeferredPass(Application& app);
