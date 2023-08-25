@@ -135,6 +135,7 @@ void RayTracingDemo::destroyRenderState(Application& app) {
   this->_pDeferredMaterialAllocator.reset();
 
   this->_accelerationStructure = {};
+  this->_shaderBindingTable = {};
   this->_rayTracingTarget = {};
   this->_pRayTracingMaterial.reset();
   this->_pRayTracingMaterialAllocator.reset();
@@ -328,37 +329,6 @@ void RayTracingDemo::_createGlobalResources(
     this->_gBufferResources.bindTextures(assignment);
     this->_pSSR->bindTexture(assignment);
   }
-
-  // Ray tracing resources
-  {
-    //DescriptorSetLayoutBuilder rayTracingMaterialLayout{};
-    // TODO: Use ray queries in deferred pass instead
-    ImageOptions imageOptions{};
-    imageOptions.width = 1080;
-    imageOptions.height = 960;
-    imageOptions.usage =
-        VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-
-    this->_rayTracingTarget.image = Image(app, imageOptions);
-    this->_rayTracingTarget.view =
-        ImageView(app, this->_rayTracingTarget.image, {});
-    this->_rayTracingTarget.sampler = Sampler(app, {});
-
-    // Material layout
-    DescriptorSetLayoutBuilder builder{};
-    builder.addStorageImageBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
-    // builder.addUniformBufferBinding TODO: rayParams??
-
-    this->_pRayTracingMaterialAllocator =
-        std::make_unique<DescriptorSetAllocator>(app, builder, 1);
-    this->_pRayTracingMaterial =
-        std::make_unique<Material>(app, *this->_pRayTracingMaterialAllocator);
-
-    this->_pRayTracingMaterial->assign()
-        .bindStorageImage(this->_rayTracingTarget.view, this->_rayTracingTarget.sampler);
-
-    // TODO: SBT (Shader Binding Table)
-  }
 }
 
 void RayTracingDemo::_createForwardPass(Application& app) {
@@ -412,8 +382,49 @@ void RayTracingDemo::_createForwardPass(Application& app) {
 void RayTracingDemo::_createRayTracingPass(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
+  SBTUniforms sbt{};
+  sbt.sbtOffset = 0;
+  sbt.sbtStride = 1; //??
+  sbt.missIndex = 2;
+
+  this->_shaderBindingTable = UniformBuffer<SBTUniforms>(app, commandBuffer, sbt);
+
   this->_accelerationStructure =
       AccelerationStructure(app, commandBuffer, this->_models);
+
+  // TODO: Synchronize more efficiently
+  vkDeviceWaitIdle(app.getDevice());
+
+  //DescriptorSetLayoutBuilder rayTracingMaterialLayout{};
+  // TODO: Use ray queries in deferred pass instead
+  ImageOptions imageOptions{};
+  imageOptions.width = 1080;
+  imageOptions.height = 960;
+  imageOptions.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+
+  this->_rayTracingTarget.image = Image(app, imageOptions);
+  this->_rayTracingTarget.view =
+      ImageView(app, this->_rayTracingTarget.image, {});
+  this->_rayTracingTarget.sampler = Sampler(app, {});
+
+  // Material layout
+  DescriptorSetLayoutBuilder matBuilder{};
+  matBuilder.addAccelerationStructureBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
+  matBuilder.addUniformBufferBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
+  matBuilder.addStorageImageBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
+  // builder.addUniformBufferBinding TODO: rayParams??
+
+  this->_pRayTracingMaterialAllocator =
+      std::make_unique<DescriptorSetAllocator>(app, matBuilder, 1);
+  this->_pRayTracingMaterial =
+      std::make_unique<Material>(app, *this->_pRayTracingMaterialAllocator);
+
+  this->_pRayTracingMaterial->assign()
+      .bindAccelerationStructure(this->_accelerationStructure.getTLAS())
+      .bindConstantUniforms(this->_shaderBindingTable)
+      .bindStorageImage(
+          this->_rayTracingTarget.view,
+          this->_rayTracingTarget.sampler);
 
   RayTracingPipelineBuilder builder{};
   builder.setAnyHitShader(GEngineDirectory + "/Shaders/RayTracing/AnyHit.glsl");

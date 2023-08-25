@@ -21,6 +21,7 @@
 #include <Althea/ScreenSpaceReflection.h>
 #include <Althea/Texture.h>
 #include <Althea/TransientUniforms.h>
+#include <Althea/UniformBuffer.h>
 #include <glm/glm.hpp>
 
 #include <vector>
@@ -43,6 +44,14 @@ struct GlobalUniforms {
   int lightCount;
   float time;
   float exposure;
+};
+
+struct SBTUniforms {
+  uint32_t sbtOffset;
+  uint32_t padding1;
+  uint32_t sbtStride;
+  uint32_t padding2;
+  uint32_t missIndex;
 };
 
 class RayTracingDemo : public IGameInstance {
@@ -90,6 +99,8 @@ private:
   std::unique_ptr<RayTracingPipeline> _pRayTracingPipeline;
   ImageResource _rayTracingTarget;
   AccelerationStructure _accelerationStructure;
+  UniformBuffer<SBTUniforms> _shaderBindingTable;
+
   
   void _createDeferredPass(Application& app);
   std::unique_ptr<RenderPass> _pDeferredPass;
