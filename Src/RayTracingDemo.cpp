@@ -387,7 +387,8 @@ void RayTracingDemo::_createRayTracingPass(
   sbt.sbtStride = 1; //??
   sbt.missIndex = 2;
 
-  this->_shaderBindingTable = UniformBuffer<SBTUniforms>(app, commandBuffer, sbt);
+  this->_shaderBindingTable =
+      UniformBuffer<SBTUniforms>(app, commandBuffer, sbt);
 
   this->_accelerationStructure =
       AccelerationStructure(app, commandBuffer, this->_models);
@@ -411,8 +412,8 @@ void RayTracingDemo::_createRayTracingPass(
   DescriptorSetLayoutBuilder matBuilder{};
   matBuilder.addAccelerationStructureBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
   matBuilder.addUniformBufferBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
+  matBuilder.addUniformBufferBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
   matBuilder.addStorageImageBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
-  // builder.addUniformBufferBinding TODO: rayParams??
 
   this->_pRayTracingMaterialAllocator =
       std::make_unique<DescriptorSetAllocator>(app, matBuilder, 1);
@@ -422,6 +423,7 @@ void RayTracingDemo::_createRayTracingPass(
   this->_pRayTracingMaterial->assign()
       .bindAccelerationStructure(this->_accelerationStructure.getTLAS())
       .bindConstantUniforms(this->_shaderBindingTable)
+      .bindTransientUniforms(*this->_pGlobalUniforms)
       .bindStorageImage(
           this->_rayTracingTarget.view,
           this->_rayTracingTarget.sampler);
@@ -435,7 +437,8 @@ void RayTracingDemo::_createRayTracingPass(
   builder.setMissShader(GEngineDirectory + "/Shaders/RayTracing/Miss.glsl");
   builder.setRayGenShader(GEngineDirectory + "/Shaders/RayTracing/RayGen.glsl");
 
-  builder.layoutBuilder.addDescriptorSet(this->_pGlobalResources->getLayout());
+  builder.layoutBuilder.addDescriptorSet(
+      this->_pRayTracingMaterialAllocator->getLayout());
 
   this->_pRayTracingPipeline =
       std::make_unique<RayTracingPipeline>(app, std::move(builder));
