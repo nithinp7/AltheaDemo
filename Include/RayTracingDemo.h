@@ -99,14 +99,19 @@ private:
   std::unique_ptr<RayTracingPipeline> _pRayTracingPipeline;
   ImageResource _rayTracingTarget;
   AccelerationStructure _accelerationStructure;
-  UniformBuffer<SBTUniforms> _shaderBindingTable;
+  BufferAllocation _shaderBindingTable;
   // TODO: Writing to attachment in RT pass
   std::unique_ptr<DescriptorSetAllocator> _pDisplayPassMaterialAllocator;
   std::unique_ptr<Material> _pDisplayPassMaterial;
   std::unique_ptr<RenderPass> _pDisplayPass;
   SwapChainFrameBufferCollection _displayPassSwapChainFrameBuffers;
+  // TODO: Where should this live??
+  VkStridedDeviceAddressRegionKHR _rgenRegion{};
+  VkStridedDeviceAddressRegionKHR _missRegion{};
+  VkStridedDeviceAddressRegionKHR _hitRegion{};
+  VkStridedDeviceAddressRegionKHR _callRegion{};
 
-  
+
   void _createDeferredPass(Application& app);
   std::unique_ptr<RenderPass> _pDeferredPass;
   SwapChainFrameBufferCollection _swapChainFrameBuffers;
