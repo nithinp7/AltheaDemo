@@ -140,6 +140,10 @@ void RayTracingDemo::destroyRenderState(Application& app) {
   this->_pRayTracingMaterial.reset();
   this->_pRayTracingMaterialAllocator.reset();
   this->_pRayTracingPipeline.reset();
+  this->_pDisplayPassMaterial.reset();
+  this->_pDisplayPassMaterialAllocator.reset();
+  this->_pDisplayPass.reset();
+  this->_displayPassSwapChainFrameBuffers = {};
 
   this->_pGlobalResources.reset();
   this->_pGlobalUniforms.reset();
@@ -442,6 +446,64 @@ void RayTracingDemo::_createRayTracingPass(
 
   this->_pRayTracingPipeline =
       std::make_unique<RayTracingPipeline>(app, std::move(builder));
+
+  // Display Pass
+  DescriptorSetLayoutBuilder displayPassMatLayout{};
+  displayPassMatLayout.addTextureBinding();
+
+  this->_pDisplayPassMaterialAllocator =
+      std::make_unique<DescriptorSetAllocator>(app, displayPassMatLayout, 1);
+  this->_pDisplayPassMaterial =
+      std::make_unique<Material>(app, *this->_pDisplayPassMaterialAllocator);
+
+  this->_pDisplayPassMaterial->assign().bindTexture(this->_rayTracingTarget);
+
+  VkClearValue colorClear;
+  colorClear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+  VkClearValue depthClear;
+  depthClear.depthStencil = {1.0f, 0};
+
+  std::vector<Attachment> attachments = {
+      Attachment{
+          ATTACHMENT_FLAG_COLOR,
+          app.getSwapChainImageFormat(),
+          colorClear,
+          true,
+          false,
+          true},
+  };
+
+  std::vector<SubpassBuilder> subpassBuilders;
+
+  // DISPLAY PASS
+  {
+    SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
+    subpassBuilder.colorAttachments.push_back(0);
+
+    subpassBuilder.pipelineBuilder.setCullMode(VK_CULL_MODE_FRONT_BIT)
+        .setDepthTesting(false)
+
+        // Vertex shader
+        .addVertexShader(GEngineDirectory + "/Shaders/Misc/FullScreenQuad.vert")
+        // Fragment shader
+        .addFragmentShader(
+            GEngineDirectory + "/Shaders/Misc/FullScreenTexture.frag")
+
+        // Pipeline resource layouts
+        .layoutBuilder
+        // Global resources (view, projection, environment map)
+        .addDescriptorSet(this->_pGlobalResources->getLayout())
+        .addDescriptorSet(this->_pDisplayPassMaterialAllocator->getLayout());
+  }
+
+  this->_pDisplayPass = std::make_unique<RenderPass>(
+      app,
+      app.getSwapChainExtent(),
+      std::move(attachments),
+      std::move(subpassBuilders));
+
+  this->_displayPassSwapChainFrameBuffers =
+      SwapChainFrameBufferCollection(app, *this->_pDisplayPass, {});
 }
 
 void RayTracingDemo::_createDeferredPass(Application& app) {

@@ -100,6 +100,11 @@ private:
   ImageResource _rayTracingTarget;
   AccelerationStructure _accelerationStructure;
   UniformBuffer<SBTUniforms> _shaderBindingTable;
+  // TODO: Writing to attachment in RT pass
+  std::unique_ptr<DescriptorSetAllocator> _pDisplayPassMaterialAllocator;
+  std::unique_ptr<Material> _pDisplayPassMaterial;
+  std::unique_ptr<RenderPass> _pDisplayPass;
+  SwapChainFrameBufferCollection _displayPassSwapChainFrameBuffers;
 
   
   void _createDeferredPass(Application& app);
