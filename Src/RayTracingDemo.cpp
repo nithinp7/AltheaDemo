@@ -219,14 +219,14 @@ void RayTracingDemo::_createModels(
       glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f)),
       glm::vec3(4.0f)));
 
-  this->_models.emplace_back(
+  /*this->_models.emplace_back(
       app,
       commandBuffer,
       GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf",
       *this->_pGltfMaterialAllocator);
   this->_models.back().setModelTransform(glm::translate(
       glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)),
-      glm::vec3(10.0f, -1.0f, 0.0f)));
+      glm::vec3(10.0f, -1.0f, 0.0f)));*/
 }
 
 void RayTracingDemo::_createGlobalResources(
@@ -439,6 +439,10 @@ void RayTracingDemo::_createRayTracingPass(
   this->_pRayTracingPipeline =
       std::make_unique<RayTracingPipeline>(app, std::move(builder));
 
+  // Create Shader Binding Table
+  this->_shaderBindingTable =
+      ShaderBindingTable(app, commandBuffer, *this->_pRayTracingPipeline);
+
   // Display Pass
   DescriptorSetLayoutBuilder displayPassMatLayout{};
   displayPassMatLayout.addTextureBinding();
@@ -496,105 +500,6 @@ void RayTracingDemo::_createRayTracingPass(
 
   this->_displayPassSwapChainFrameBuffers =
       SwapChainFrameBufferCollection(app, *this->_pDisplayPass, {});
-
-  // Create shader binding table
-  // TODO: Move to Althea
-  {
-
-    uint32_t baseAlignment =
-        app.getRayTracingProperties().shaderGroupBaseAlignment;
-    uint32_t handleAlignment =
-        app.getRayTracingProperties().shaderGroupHandleAlignment;
-    uint32_t handleSize = app.getRayTracingProperties().shaderGroupHandleSize;
-
-    uint32_t handleSizeAligned = alignUp(handleSize, handleAlignment);
-
-    this->_rgenRegion.stride = alignUp(handleSizeAligned, baseAlignment);
-    this->_rgenRegion.size = this->_rgenRegion.stride;
-
-    uint32_t missCount = 1;
-    this->_missRegion.stride = handleSizeAligned;
-    this->_missRegion.size =
-        alignUp(missCount * handleSizeAligned, baseAlignment);
-
-    uint32_t hitCount = 1;
-    this->_hitRegion.stride = handleSizeAligned;
-    this->_hitRegion.size =
-        alignUp(hitCount * handleSizeAligned, baseAlignment);
-
-    // Only have one raygen count, so total handle count is:
-    uint32_t handleCount = 1 + missCount + hitCount;
-    uint32_t dataSize = handleCount * handleSize;
-
-    std::vector<uint8_t> handles(dataSize);
-    if (Application::vkGetRayTracingShaderGroupHandlesKHR(
-            app.getDevice(),
-            *this->_pRayTracingPipeline,
-            0,
-            handleCount,
-            dataSize,
-            handles.data()) != VK_SUCCESS) {
-      throw std::runtime_error(
-          "Failed to get ray tracing shader group handles!");
-    }
-
-    // TODO: What is the call region??
-
-    VkDeviceSize sbtSize = this->_rgenRegion.size + this->_hitRegion.size +
-                           this->_missRegion.size + this->_callRegion.size;
-
-    VmaAllocationCreateInfo sbtAllocInfo{};
-    sbtAllocInfo.usage = VMA_MEMORY_USAGE_AUTO;
-    sbtAllocInfo.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT;
-
-    this->_shaderBindingTable = BufferUtilities::createBuffer(
-        app,
-        commandBuffer,
-        sbtSize,
-        VK_BUFFER_USAGE_TRANSFER_SRC_BIT |
-            VK_BUFFER_USAGE_SHADER_DEVICE_ADDRESS_BIT |
-            VK_BUFFER_USAGE_SHADER_BINDING_TABLE_BIT_KHR,
-        sbtAllocInfo);
-    {
-      void* pMapped = this->_shaderBindingTable.mapMemory();
-      uint8_t* pData = reinterpret_cast<uint8_t*>(pMapped);
-
-      uint32_t handleIdx = 0;
-      auto getHandle = [&]() {
-        return handles.data() + (handleIdx++) * handleSize;
-      };
-
-      // Copy raygen handle
-      memcpy(pData, getHandle(), handleSize);
-      pData += this->_rgenRegion.size;
-
-      // Copy miss handles
-      for (uint32_t i = 0; i < missCount; ++i) {
-        memcpy(pData, getHandle(), handleSize);
-        pData += this->_missRegion.stride;
-      }
-
-      // Copy hit handles
-      pData = reinterpret_cast<uint8_t*>(pMapped) + this->_rgenRegion.size +
-              this->_missRegion.size;
-      for (uint32_t i = 0; i < hitCount; ++i) {
-        memcpy(pData, getHandle(), handleSize);
-        pData += this->_hitRegion.stride;
-      }
-
-      this->_shaderBindingTable.unmapMemory();
-    }
-
-    VkBufferDeviceAddressInfo sbtAddrInfo{
-        VK_STRUCTURE_TYPE_BUFFER_DEVICE_ADDRESS_INFO};
-    sbtAddrInfo.buffer = this->_shaderBindingTable.getBuffer();
-    VkDeviceAddress sbtAddr =
-        vkGetBufferDeviceAddress(app.getDevice(), &sbtAddrInfo);
-    this->_rgenRegion.deviceAddress = sbtAddr;
-    this->_missRegion.deviceAddress = sbtAddr + this->_rgenRegion.size;
-    this->_hitRegion.deviceAddress =
-        sbtAddr + this->_rgenRegion.size + this->_missRegion.size;
-  }
 }
 
 void RayTracingDemo::_createDeferredPass(Application& app) {
@@ -764,10 +669,10 @@ void RayTracingDemo::draw(
 
     Application::vkCmdTraceRaysKHR(
         commandBuffer,
-        &this->_rgenRegion,
-        &this->_missRegion,
-        &this->_hitRegion,
-        &this->_callRegion,
+        &this->_shaderBindingTable.getRayGenRegion(),
+        &this->_shaderBindingTable.getMissRegion(),
+        &this->_shaderBindingTable.getHitRegion(),
+        &this->_shaderBindingTable.getCallRegion(),
         1080,
         960,
         1);

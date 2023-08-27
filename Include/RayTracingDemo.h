@@ -22,6 +22,7 @@
 #include <Althea/Texture.h>
 #include <Althea/TransientUniforms.h>
 #include <Althea/UniformBuffer.h>
+#include <Althea/ShaderBindingTable.h>
 #include <glm/glm.hpp>
 
 #include <vector>
@@ -44,14 +45,6 @@ struct GlobalUniforms {
   int lightCount;
   float time;
   float exposure;
-};
-
-struct SBTUniforms {
-  uint32_t sbtOffset;
-  uint32_t padding1;
-  uint32_t sbtStride;
-  uint32_t padding2;
-  uint32_t missIndex;
 };
 
 class RayTracingDemo : public IGameInstance {
@@ -99,17 +92,11 @@ private:
   std::unique_ptr<RayTracingPipeline> _pRayTracingPipeline;
   ImageResource _rayTracingTarget;
   AccelerationStructure _accelerationStructure;
-  BufferAllocation _shaderBindingTable;
-  // TODO: Writing to attachment in RT pass
+  ShaderBindingTable _shaderBindingTable;
   std::unique_ptr<DescriptorSetAllocator> _pDisplayPassMaterialAllocator;
   std::unique_ptr<Material> _pDisplayPassMaterial;
   std::unique_ptr<RenderPass> _pDisplayPass;
   SwapChainFrameBufferCollection _displayPassSwapChainFrameBuffers;
-  // TODO: Where should this live??
-  VkStridedDeviceAddressRegionKHR _rgenRegion{};
-  VkStridedDeviceAddressRegionKHR _missRegion{};
-  VkStridedDeviceAddressRegionKHR _hitRegion{};
-  VkStridedDeviceAddressRegionKHR _callRegion{};
 
 
   void _createDeferredPass(Application& app);
