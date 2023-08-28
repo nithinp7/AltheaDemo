@@ -425,13 +425,10 @@ void RayTracingDemo::_createRayTracingPass(
           this->_rayTracingTarget.sampler);
 
   RayTracingPipelineBuilder builder{};
-  builder.setAnyHitShader(GEngineDirectory + "/Shaders/RayTracing/AnyHit.glsl");
-  builder.setClosestHitShader(
-      GEngineDirectory + "/Shaders/RayTracing/ClosestHit.glsl");
-  builder.setIntersectionShader(
-      GEngineDirectory + "/Shaders/RayTracing/Intersection.glsl");
-  builder.setMissShader(GEngineDirectory + "/Shaders/RayTracing/Miss.glsl");
   builder.setRayGenShader(GEngineDirectory + "/Shaders/RayTracing/RayGen.glsl");
+  builder.addMissShader(GEngineDirectory + "/Shaders/RayTracing/Miss.glsl");
+  builder.addClosestHitShader(
+      GEngineDirectory + "/Shaders/RayTracing/ClosestHit.glsl");
 
   builder.layoutBuilder.addDescriptorSet(
       this->_pRayTracingMaterialAllocator->getLayout());
