@@ -265,7 +265,7 @@ void RayTracingDemo::_createGlobalResources(
     this->_pGlobalResources =
         std::make_unique<PerFrameResources>(app, globalResourceLayout);
     this->_pGlobalUniforms =
-        std::make_unique<TransientUniforms<GlobalUniforms>>(app, commandBuffer);
+        std::make_unique<TransientUniforms<GlobalUniforms>>(app);
 
     this->_pointLights = PointLightCollection(
         app,
@@ -438,7 +438,7 @@ void RayTracingDemo::_createRayTracingPass(
 
   // Create Shader Binding Table
   this->_shaderBindingTable =
-      ShaderBindingTable(app, commandBuffer, *this->_pRayTracingPipeline);
+      ShaderBindingTable(app, *this->_pRayTracingPipeline);
 
   // Display Pass
   DescriptorSetLayoutBuilder displayPassMatLayout{};

@@ -123,6 +123,7 @@ void BindlessDemo::destroyRenderState(Application& app) {
   this->_pForwardPass.reset();
   this->_gBufferResources = {};
   this->_forwardFrameBuffer = {};
+  this->_primitiveConstantsBuffer = {};
   this->_textureHeap = {};
 
   this->_pDeferredPass.reset();
@@ -232,9 +233,29 @@ void BindlessDemo::_createGlobalResources(
         std::make_unique<DescriptorSetAllocator>(app, primitiveMaterialLayout);
   }
 
-  this->_createModels(app, commandBuffer);
-  
-  this->_textureHeap = TextureHeap(this->_models);
+  // Create GLTF resource heaps
+  {
+    this->_createModels(app, commandBuffer);
+
+    uint32_t primCount = 0;
+    for (const Model& model : this->_models)
+      primCount += static_cast<uint32_t>(model.getPrimitivesCount());
+
+    this->_primitiveConstantsBuffer =
+        StructuredBuffer<PrimitiveConstants>(app, primCount);
+
+    for (const Model& model : this->_models) {
+      for (const Primitive& primitive : model.getPrimitives()) {
+        this->_primitiveConstantsBuffer.setElement(
+            primitive.getConstants(),
+            primitive.getPrimitiveIndex());
+      }
+    }
+
+    this->_primitiveConstantsBuffer.upload();
+
+    this->_textureHeap = TextureHeap(this->_models);
+  }
 
   // Global resources
   {
@@ -251,12 +272,17 @@ void BindlessDemo::_createGlobalResources(
         // Shadow map texture.
         .addTextureBinding()
         // Texture heap.
-        .addTextureHeapBinding(this->_textureHeap.getSize(), VK_SHADER_STAGE_FRAGMENT_BIT);
+        .addTextureHeapBinding(
+            this->_textureHeap.getSize(),
+            VK_SHADER_STAGE_FRAGMENT_BIT)
+        // Primitive constants heap.
+        .addStorageBufferBinding(
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
 
     this->_pGlobalResources =
         std::make_unique<PerFrameResources>(app, globalResourceLayout);
     this->_pGlobalUniforms =
-        std::make_unique<TransientUniforms<GlobalUniforms>>(app, commandBuffer);
+        std::make_unique<TransientUniforms<GlobalUniforms>>(app);
 
     this->_pointLights = PointLightCollection(
         app,
@@ -296,6 +322,10 @@ void BindlessDemo::_createGlobalResources(
         this->_pointLights.getShadowMapArrayView(),
         this->_pointLights.getShadowMapSampler());
     assignment.bindTextureHeap(this->_textureHeap);
+    assignment.bindStorageBuffer(
+        this->_primitiveConstantsBuffer.getAllocation(),
+        this->_primitiveConstantsBuffer.getSize(),
+        false);
   }
 
   // Set up SSR resources
@@ -344,14 +374,18 @@ void BindlessDemo::_createForwardPass(Application& app) {
     Primitive::buildPipeline(subpassBuilder.pipelineBuilder);
 
     ShaderDefines defs;
-    defs.emplace("TEXTURE_HEAP_COUNT", std::to_string(this->_models.size()));
+    defs.emplace(
+        "TEXTURE_HEAP_COUNT",
+        std::to_string(this->_textureHeap.getSize()));
 
     subpassBuilder
         .pipelineBuilder
         // Vertex shader
-        .addVertexShader(GEngineDirectory + "/Shaders/GltfForward.vert")
+        .addVertexShader(GEngineDirectory + "/Shaders/GltfForwardBindless.vert")
         // Fragment shader
-        .addFragmentShader(GEngineDirectory + "/Shaders/GltfForwardBindless.frag", defs)
+        .addFragmentShader(
+            GEngineDirectory + "/Shaders/GltfForwardBindless.frag",
+            defs)
 
         // Pipeline resource layouts
         .layoutBuilder

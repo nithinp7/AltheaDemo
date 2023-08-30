@@ -17,6 +17,7 @@
 #include <Althea/RenderPass.h>
 #include <Althea/Sampler.h>
 #include <Althea/ScreenSpaceReflection.h>
+#include <Althea/StructuredBuffer.h>
 #include <Althea/Texture.h>
 #include <Althea/TransientUniforms.h>
 #include <Althea/TextureHeap.h>
@@ -80,6 +81,7 @@ private:
   std::vector<Model> _models;
 
   void _createForwardPass(Application& app);
+  StructuredBuffer<PrimitiveConstants> _primitiveConstantsBuffer; 
   TextureHeap _textureHeap;
   std::unique_ptr<RenderPass> _pForwardPass;
   FrameBuffer _forwardFrameBuffer;
