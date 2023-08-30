@@ -192,11 +192,12 @@ void RayTracingDemo::_createModels(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
 
+  // TODO: BINDLESS!!
   this->_models.emplace_back(
       app,
       commandBuffer,
       GEngineDirectory + "/Content/Models/DamagedHelmet.glb",
-      *this->_pGltfMaterialAllocator);
+      this->_pGltfMaterialAllocator.get());
   this->_models.back().setModelTransform(glm::scale(
       glm::translate(glm::mat4(1.0f), glm::vec3(36.0f, 0.0f, 0.0f)),
       glm::vec3(4.0f)));
@@ -205,7 +206,7 @@ void RayTracingDemo::_createModels(
       app,
       commandBuffer,
       GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf",
-      *this->_pGltfMaterialAllocator);
+      this->_pGltfMaterialAllocator.get());
   this->_models.back().setModelTransform(glm::scale(
       glm::translate(glm::mat4(1.0f), glm::vec3(50.0f, -1.0f, 0.0f)),
       glm::vec3(8.0f)));
@@ -214,7 +215,7 @@ void RayTracingDemo::_createModels(
       app,
       commandBuffer,
       GEngineDirectory + "/Content/Models/MetalRoughSpheres.glb",
-      *this->_pGltfMaterialAllocator);
+      this->_pGltfMaterialAllocator.get());
   this->_models.back().setModelTransform(glm::scale(
       glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f)),
       glm::vec3(4.0f)));

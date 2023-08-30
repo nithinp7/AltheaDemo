@@ -134,7 +134,6 @@ void BindlessDemo::destroyRenderState(Application& app) {
   this->_pGlobalResources.reset();
   this->_pGlobalUniforms.reset();
   this->_pointLights = {};
-  this->_pGltfMaterialAllocator.reset();
   this->_iblResources = {};
 
   this->_pSSR.reset();
@@ -181,8 +180,7 @@ void BindlessDemo::_createModels(
   this->_models.emplace_back(
       app,
       commandBuffer,
-      GEngineDirectory + "/Content/Models/DamagedHelmet.glb",
-      *this->_pGltfMaterialAllocator);
+      GEngineDirectory + "/Content/Models/DamagedHelmet.glb");
   this->_models.back().setModelTransform(glm::scale(
       glm::translate(glm::mat4(1.0f), glm::vec3(36.0f, 0.0f, 0.0f)),
       glm::vec3(4.0f)));
@@ -190,8 +188,7 @@ void BindlessDemo::_createModels(
   this->_models.emplace_back(
       app,
       commandBuffer,
-      GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf",
-      *this->_pGltfMaterialAllocator);
+      GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf");
   this->_models.back().setModelTransform(glm::scale(
       glm::translate(glm::mat4(1.0f), glm::vec3(50.0f, -1.0f, 0.0f)),
       glm::vec3(8.0f)));
@@ -199,8 +196,7 @@ void BindlessDemo::_createModels(
   this->_models.emplace_back(
       app,
       commandBuffer,
-      GEngineDirectory + "/Content/Models/MetalRoughSpheres.glb",
-      *this->_pGltfMaterialAllocator);
+      GEngineDirectory + "/Content/Models/MetalRoughSpheres.glb");
   this->_models.back().setModelTransform(glm::scale(
       glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f)),
       glm::vec3(4.0f)));
@@ -208,8 +204,7 @@ void BindlessDemo::_createModels(
   this->_models.emplace_back(
       app,
       commandBuffer,
-      GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf",
-      *this->_pGltfMaterialAllocator);
+      GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf");
   this->_models.back().setModelTransform(glm::translate(
       glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)),
       glm::vec3(10.0f, -1.0f, 0.0f)));
@@ -223,15 +218,6 @@ void BindlessDemo::_createGlobalResources(
       commandBuffer,
       "NeoclassicalInterior");
   this->_gBufferResources = GBufferResources(app);
-
-  // Per-primitive material resources
-  {
-    DescriptorSetLayoutBuilder primitiveMaterialLayout;
-    Primitive::buildMaterial(primitiveMaterialLayout);
-
-    this->_pGltfMaterialAllocator =
-        std::make_unique<DescriptorSetAllocator>(app, primitiveMaterialLayout);
-  }
 
   // Create GLTF resource heaps
   {
@@ -289,7 +275,11 @@ void BindlessDemo::_createGlobalResources(
         commandBuffer,
         9,
         true,
-        this->_pGltfMaterialAllocator->getLayout());
+        this->_pGlobalResources->getLayout(),
+        true,
+        8,
+        7,
+        this->_textureHeap.getSize());
     for (uint32_t i = 0; i < 3; ++i) {
       for (uint32_t j = 0; j < 3; ++j) {
         PointLight light;
@@ -390,11 +380,7 @@ void BindlessDemo::_createForwardPass(Application& app) {
         // Pipeline resource layouts
         .layoutBuilder
         // Global resources (view, projection, environment map)
-        .addDescriptorSet(this->_pGlobalResources->getLayout())
-        // Material (per-object) resources (diffuse, normal map,
-        // metallic-roughness, etc)
-        // TODO: Should not need this anymore?
-        .addDescriptorSet(this->_pGltfMaterialAllocator->getLayout());
+        .addDescriptorSet(this->_pGlobalResources->getLayout());
   }
 
   std::vector<Attachment> attachments =
@@ -504,7 +490,7 @@ void BindlessDemo::draw(
       this->_pGlobalResources->getCurrentDescriptorSet(frame);
 
   // Draw point light shadow maps
-  this->_pointLights.drawShadowMaps(app, commandBuffer, frame, this->_models);
+  this->_pointLights.drawShadowMaps(app, commandBuffer, frame, this->_models, globalDescriptorSet);
 
   // Forward pass
   {

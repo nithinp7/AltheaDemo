@@ -73,7 +73,6 @@ private:
   std::unique_ptr<PerFrameResources> _pGlobalResources;
   std::unique_ptr<TransientUniforms<GlobalUniforms>> _pGlobalUniforms;
   PointLightCollection _pointLights;
-  std::unique_ptr<DescriptorSetAllocator> _pGltfMaterialAllocator;
   IBLResources _iblResources;
   GBufferResources _gBufferResources;
 
