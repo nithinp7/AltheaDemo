@@ -61,19 +61,10 @@ void RayTracingDemo::initGame(Application& app) {
   input.addKeyBinding(
       {GLFW_KEY_R, GLFW_PRESS, GLFW_MOD_CONTROL},
       [&app, that = this]() {
+        // TODO: Hot-reload RT pipelines
+
         for (Subpass& subpass :
              that->_pointLights.getShadowMapPass().getSubpasses()) {
-          GraphicsPipeline& pipeline = subpass.getPipeline();
-          if (pipeline.recompileStaleShaders()) {
-            if (pipeline.hasShaderRecompileErrors()) {
-              std::cout << pipeline.getShaderRecompileErrors() << "\n";
-            } else {
-              pipeline.recreatePipeline(app);
-            }
-          }
-        }
-
-        for (Subpass& subpass : that->_pForwardPass->getSubpasses()) {
           GraphicsPipeline& pipeline = subpass.getPipeline();
           if (pipeline.recompileStaleShaders()) {
             if (pipeline.hasShaderRecompileErrors()) {
@@ -116,8 +107,6 @@ void RayTracingDemo::createRenderState(Application& app) {
 
   SingleTimeCommandBuffer commandBuffer(app);
   this->_createGlobalResources(app, commandBuffer);
-  this->_createModels(app, commandBuffer);
-  this->_createForwardPass(app);
   this->_createRayTracingPass(app, commandBuffer);
   this->_createDeferredPass(app);
 }
@@ -125,9 +114,7 @@ void RayTracingDemo::createRenderState(Application& app) {
 void RayTracingDemo::destroyRenderState(Application& app) {
   this->_models.clear();
 
-  this->_pForwardPass.reset();
   this->_gBufferResources = {};
-  this->_forwardFrameBuffer = {};
 
   this->_pDeferredPass.reset();
   this->_swapChainFrameBuffers = {};
@@ -148,7 +135,10 @@ void RayTracingDemo::destroyRenderState(Application& app) {
   this->_pGlobalResources.reset();
   this->_pGlobalUniforms.reset();
   this->_pointLights = {};
-  this->_pGltfMaterialAllocator.reset();
+  this->_textureHeap = {};
+  this->_vertexBufferHeap = {};
+  this->_indexBufferHeap = {};
+  this->_primitiveConstantsBuffer = {};
   this->_iblResources = {};
 
   this->_pSSR.reset();
@@ -196,8 +186,7 @@ void RayTracingDemo::_createModels(
   this->_models.emplace_back(
       app,
       commandBuffer,
-      GEngineDirectory + "/Content/Models/DamagedHelmet.glb",
-      this->_pGltfMaterialAllocator.get());
+      GEngineDirectory + "/Content/Models/DamagedHelmet.glb");
   this->_models.back().setModelTransform(glm::scale(
       glm::translate(glm::mat4(1.0f), glm::vec3(36.0f, 0.0f, 0.0f)),
       glm::vec3(4.0f)));
@@ -205,8 +194,7 @@ void RayTracingDemo::_createModels(
   this->_models.emplace_back(
       app,
       commandBuffer,
-      GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf",
-      this->_pGltfMaterialAllocator.get());
+      GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf");
   this->_models.back().setModelTransform(glm::scale(
       glm::translate(glm::mat4(1.0f), glm::vec3(50.0f, -1.0f, 0.0f)),
       glm::vec3(8.0f)));
@@ -214,8 +202,7 @@ void RayTracingDemo::_createModels(
   this->_models.emplace_back(
       app,
       commandBuffer,
-      GEngineDirectory + "/Content/Models/MetalRoughSpheres.glb",
-      this->_pGltfMaterialAllocator.get());
+      GEngineDirectory + "/Content/Models/MetalRoughSpheres.glb");
   this->_models.back().setModelTransform(glm::scale(
       glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f)),
       glm::vec3(4.0f)));
@@ -223,8 +210,7 @@ void RayTracingDemo::_createModels(
   /*this->_models.emplace_back(
       app,
       commandBuffer,
-      GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf",
-      *this->_pGltfMaterialAllocator);
+      GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf");
   this->_models.back().setModelTransform(glm::translate(
       glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)),
       glm::vec3(10.0f, -1.0f, 0.0f)));*/
@@ -239,13 +225,30 @@ void RayTracingDemo::_createGlobalResources(
       "NeoclassicalInterior");
   this->_gBufferResources = GBufferResources(app);
 
-  // Per-primitive material resources
+  // Create GLTF resource heaps
   {
-    DescriptorSetLayoutBuilder primitiveMaterialLayout;
-    Primitive::buildMaterial(primitiveMaterialLayout);
+    this->_createModels(app, commandBuffer);
 
-    this->_pGltfMaterialAllocator =
-        std::make_unique<DescriptorSetAllocator>(app, primitiveMaterialLayout);
+    uint32_t primCount = 0;
+    for (const Model& model : this->_models)
+      primCount += static_cast<uint32_t>(model.getPrimitivesCount());
+
+    this->_primitiveConstantsBuffer =
+        StructuredBuffer<PrimitiveConstants>(app, primCount);
+
+    for (const Model& model : this->_models) {
+      for (const Primitive& primitive : model.getPrimitives()) {
+        this->_primitiveConstantsBuffer.setElement(
+            primitive.getConstants(),
+            primitive.getPrimitiveIndex());
+      }
+    }
+
+    this->_primitiveConstantsBuffer.upload();
+
+    this->_textureHeap = TextureHeap(this->_models);
+    this->_vertexBufferHeap = BufferHeap::CreateVertexBufferHeap(this->_models);
+    this->_indexBufferHeap = BufferHeap::CreateIndexBufferHeap(this->_models);
   }
 
   // Global resources
@@ -261,7 +264,18 @@ void RayTracingDemo::_createGlobalResources(
         .addStorageBufferBinding(
             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
         // Shadow map texture.
-        .addTextureBinding();
+        .addTextureBinding()
+        // Texture heap.
+        .addTextureHeapBinding(
+            this->_textureHeap.getSize(),
+            VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR)
+        // Primitive constants heap.
+        .addStorageBufferBinding(
+            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR)
+        // Vertex buffer heap.
+        .addBufferHeapBinding(this->_vertexBufferHeap.getSize(), VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR)
+        // Index buffer heap.
+        .addBufferHeapBinding(this->_indexBufferHeap.getSize(), VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR);
 
     this->_pGlobalResources =
         std::make_unique<PerFrameResources>(app, globalResourceLayout);
@@ -273,7 +287,11 @@ void RayTracingDemo::_createGlobalResources(
         commandBuffer,
         9,
         true,
-        this->_pGltfMaterialAllocator->getLayout());
+        this->_pGlobalResources->getLayout(),
+        true,
+        8,
+        7,
+        this->_textureHeap.getSize());
     for (uint32_t i = 0; i < 3; ++i) {
       for (uint32_t j = 0; j < 3; ++j) {
         PointLight light;
@@ -305,6 +323,13 @@ void RayTracingDemo::_createGlobalResources(
     assignment.bindTexture(
         this->_pointLights.getShadowMapArrayView(),
         this->_pointLights.getShadowMapSampler());
+    assignment.bindTextureHeap(this->_textureHeap);
+    assignment.bindStorageBuffer(
+        this->_primitiveConstantsBuffer.getAllocation(),
+        this->_primitiveConstantsBuffer.getSize(),
+        false);
+    assignment.bindBufferHeap(this->_vertexBufferHeap);
+    assignment.bindBufferHeap(this->_indexBufferHeap);
   }
 
   // Set up SSR resources
@@ -336,54 +361,6 @@ void RayTracingDemo::_createGlobalResources(
   }
 }
 
-void RayTracingDemo::_createForwardPass(Application& app) {
-  std::vector<SubpassBuilder> subpassBuilders;
-
-  //  FORWARD GLTF PASS
-  {
-    SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
-    // The GBuffer contains the following color attachments
-    // 1. Position
-    // 2. Normal
-    // 3. Albedo
-    // 4. Metallic-Roughness-Occlusion
-    subpassBuilder.colorAttachments = {0, 1, 2, 3};
-    subpassBuilder.depthAttachment = 4;
-
-    Primitive::buildPipeline(subpassBuilder.pipelineBuilder);
-
-    subpassBuilder
-        .pipelineBuilder
-        // Vertex shader
-        .addVertexShader(GEngineDirectory + "/Shaders/GltfForward.vert")
-        // Fragment shader
-        .addFragmentShader(GEngineDirectory + "/Shaders/GltfForward.frag")
-
-        // Pipeline resource layouts
-        .layoutBuilder
-        // Global resources (view, projection, environment map)
-        .addDescriptorSet(this->_pGlobalResources->getLayout())
-        // Material (per-object) resources (diffuse, normal map,
-        // metallic-roughness, etc)
-        .addDescriptorSet(this->_pGltfMaterialAllocator->getLayout());
-  }
-
-  std::vector<Attachment> attachments =
-      this->_gBufferResources.getAttachmentDescriptions();
-  const VkExtent2D& extent = app.getSwapChainExtent();
-  this->_pForwardPass = std::make_unique<RenderPass>(
-      app,
-      extent,
-      std::move(attachments),
-      std::move(subpassBuilders));
-
-  this->_forwardFrameBuffer = FrameBuffer(
-      app,
-      *this->_pForwardPass,
-      extent,
-      this->_gBufferResources.getAttachmentViews());
-}
-
 static uint32_t alignUp(uint32_t size, uint32_t align) {
   return (size + (align - 1)) & ~(align - 1);
 }
@@ -410,7 +387,6 @@ void RayTracingDemo::_createRayTracingPass(
   // Material layout
   DescriptorSetLayoutBuilder matBuilder{};
   matBuilder.addAccelerationStructureBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
-  matBuilder.addUniformBufferBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
   matBuilder.addStorageImageBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
 
   this->_pRayTracingMaterialAllocator =
@@ -420,19 +396,28 @@ void RayTracingDemo::_createRayTracingPass(
 
   this->_pRayTracingMaterial->assign()
       .bindAccelerationStructure(this->_accelerationStructure.getTLAS())
-      .bindTransientUniforms(*this->_pGlobalUniforms)
       .bindStorageImage(
           this->_rayTracingTarget.view,
           this->_rayTracingTarget.sampler);
 
-  RayTracingPipelineBuilder builder{};
-  builder.setRayGenShader(GEngineDirectory + "/Shaders/RayTracing/RayGen.glsl");
-  builder.addMissShader(GEngineDirectory + "/Shaders/RayTracing/Miss.glsl");
-  builder.addClosestHitShader(
-      GEngineDirectory + "/Shaders/RayTracing/ClosestHit.glsl");
+  ShaderDefines defs;
+  defs.emplace(
+      "TEXTURE_HEAP_COUNT",
+      std::to_string(this->_textureHeap.getSize()));
 
-  builder.layoutBuilder.addDescriptorSet(
-      this->_pRayTracingMaterialAllocator->getLayout());
+  RayTracingPipelineBuilder builder{};
+  builder.setRayGenShader(
+      GEngineDirectory + "/Shaders/RayTracing/RayGen.glsl",
+      defs);
+  builder.addMissShader(
+      GEngineDirectory + "/Shaders/RayTracing/Miss.glsl",
+      defs);
+  builder.addClosestHitShader(
+      GEngineDirectory + "/Shaders/RayTracing/ClosestHit.glsl",
+      defs);
+
+  builder.layoutBuilder.addDescriptorSet(this->_pGlobalResources->getLayout())
+      .addDescriptorSet(this->_pRayTracingMaterialAllocator->getLayout());
 
   this->_pRayTracingPipeline =
       std::make_unique<RayTracingPipeline>(app, std::move(builder));
@@ -653,15 +638,16 @@ void RayTracingDemo::draw(
       *this->_pRayTracingPipeline);
   // VkDescriptorSet rtDescSets = { globalDescriptorSet, this?}
   {
-    VkDescriptorSet rtMatDescSet =
-        this->_pRayTracingMaterial->getCurrentDescriptorSet(frame);
+    VkDescriptorSet sets[2] = {
+        globalDescriptorSet,
+        this->_pRayTracingMaterial->getCurrentDescriptorSet(frame)};
     vkCmdBindDescriptorSets(
         commandBuffer,
         VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
         this->_pRayTracingPipeline->getLayout(),
         0,
-        1,
-        &rtMatDescSet,
+        2,
+        sets,
         0,
         nullptr);
 

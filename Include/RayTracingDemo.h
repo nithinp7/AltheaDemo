@@ -23,6 +23,10 @@
 #include <Althea/TransientUniforms.h>
 #include <Althea/UniformBuffer.h>
 #include <Althea/ShaderBindingTable.h>
+#include <Althea/TextureHeap.h>
+#include <Althea/StructuredBuffer.h>
+#include <Althea/Primitive.h>
+#include <Althea/BufferHeap.h>
 #include <glm/glm.hpp>
 
 #include <vector>
@@ -75,16 +79,15 @@ private:
   std::unique_ptr<PerFrameResources> _pGlobalResources;
   std::unique_ptr<TransientUniforms<GlobalUniforms>> _pGlobalUniforms;
   PointLightCollection _pointLights;
-  std::unique_ptr<DescriptorSetAllocator> _pGltfMaterialAllocator;
   IBLResources _iblResources;
   GBufferResources _gBufferResources;
+  StructuredBuffer<PrimitiveConstants> _primitiveConstantsBuffer; 
+  TextureHeap _textureHeap;
+  BufferHeap _vertexBufferHeap;
+  BufferHeap _indexBufferHeap;
 
   void _createModels(Application& app, SingleTimeCommandBuffer& commandBuffer);
   std::vector<Model> _models;
-
-  void _createForwardPass(Application& app);
-  std::unique_ptr<RenderPass> _pForwardPass;
-  FrameBuffer _forwardFrameBuffer;
 
   void _createRayTracingPass(Application& app, SingleTimeCommandBuffer& commandBuffer);
   std::unique_ptr<DescriptorSetAllocator> _pRayTracingMaterialAllocator;
@@ -97,7 +100,6 @@ private:
   std::unique_ptr<Material> _pDisplayPassMaterial;
   std::unique_ptr<RenderPass> _pDisplayPass;
   SwapChainFrameBufferCollection _displayPassSwapChainFrameBuffers;
-
 
   void _createDeferredPass(Application& app);
   std::unique_ptr<RenderPass> _pDeferredPass;
