@@ -404,6 +404,12 @@ void RayTracingDemo::_createRayTracingPass(
   defs.emplace(
       "TEXTURE_HEAP_COUNT",
       std::to_string(this->_textureHeap.getSize()));
+  defs.emplace(
+      "VERTEX_BUFFER_HEAP_COUNT",
+      std::to_string(this->_vertexBufferHeap.getSize()));
+  defs.emplace(
+      "INDEX_BUFFER_HEAP_COUNT",
+      std::to_string(this->_indexBufferHeap.getSize()));
 
   RayTracingPipelineBuilder builder{};
   builder.setRayGenShader(
