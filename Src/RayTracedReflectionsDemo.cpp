@@ -1,19 +1,16 @@
-#include "RayTracingDemo.h"
+#include "RayTracedReflectionsDemo.h"
 
 #include <Althea/Application.h>
-#include <Althea/BufferUtilities.h>
 #include <Althea/Camera.h>
 #include <Althea/Cubemap.h>
 #include <Althea/DescriptorSet.h>
 #include <Althea/GraphicsPipeline.h>
-#include <Althea/IndexBuffer.h>
 #include <Althea/InputManager.h>
 #include <Althea/ModelViewProjection.h>
 #include <Althea/Primitive.h>
 #include <Althea/SingleTimeCommandBuffer.h>
 #include <Althea/Skybox.h>
 #include <Althea/Utilities.h>
-#include <Althea/VertexBuffer.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -29,11 +26,11 @@
 using namespace AltheaEngine;
 
 namespace AltheaDemo {
-namespace RayTracingDemo {
+namespace RayTracedReflectionsDemo {
 
-RayTracingDemo::RayTracingDemo() {}
+RayTracedReflectionsDemo::RayTracedReflectionsDemo() {}
 
-void RayTracingDemo::initGame(Application& app) {
+void RayTracedReflectionsDemo::initGame(Application& app) {
   const VkExtent2D& windowDims = app.getSwapChainExtent();
   this->_pCameraController = std::make_unique<CameraController>(
       app.getInputManager(),
@@ -61,10 +58,19 @@ void RayTracingDemo::initGame(Application& app) {
   input.addKeyBinding(
       {GLFW_KEY_R, GLFW_PRESS, GLFW_MOD_CONTROL},
       [&app, that = this]() {
-        // TODO: Hot-reload RT pipelines
-
         for (Subpass& subpass :
              that->_pointLights.getShadowMapPass().getSubpasses()) {
+          GraphicsPipeline& pipeline = subpass.getPipeline();
+          if (pipeline.recompileStaleShaders()) {
+            if (pipeline.hasShaderRecompileErrors()) {
+              std::cout << pipeline.getShaderRecompileErrors() << "\n";
+            } else {
+              pipeline.recreatePipeline(app);
+            }
+          }
+        }
+
+        for (Subpass& subpass : that->_pForwardPass->getSubpasses()) {
           GraphicsPipeline& pipeline = subpass.getPipeline();
           if (pipeline.recompileStaleShaders()) {
             if (pipeline.hasShaderRecompileErrors()) {
@@ -96,55 +102,48 @@ void RayTracingDemo::initGame(Application& app) {
       });
 }
 
-void RayTracingDemo::shutdownGame(Application& app) {
+void RayTracedReflectionsDemo::shutdownGame(Application& app) {
   this->_pCameraController.reset();
 }
 
-void RayTracingDemo::createRenderState(Application& app) {
+void RayTracedReflectionsDemo::createRenderState(Application& app) {
   const VkExtent2D& extent = app.getSwapChainExtent();
   this->_pCameraController->getCamera().setAspectRatio(
       (float)extent.width / (float)extent.height);
 
   SingleTimeCommandBuffer commandBuffer(app);
   this->_createGlobalResources(app, commandBuffer);
-  this->_createRayTracingPass(app, commandBuffer);
+  this->_createForwardPass(app);
   this->_createDeferredPass(app);
 }
 
-void RayTracingDemo::destroyRenderState(Application& app) {
+void RayTracedReflectionsDemo::destroyRenderState(Application& app) {
   this->_models.clear();
 
+  this->_pForwardPass.reset();
   this->_gBufferResources = {};
+  this->_forwardFrameBuffer = {};
+  this->_primitiveConstantsBuffer = {};
+  this->_textureHeap = {};
+  this->_vertexBufferHeap = {};
+  this->_indexBufferHeap = {};
+  this->_accelerationStructure = {};
 
   this->_pDeferredPass.reset();
   this->_swapChainFrameBuffers = {};
   this->_pDeferredMaterial.reset();
   this->_pDeferredMaterialAllocator.reset();
 
-  this->_accelerationStructure = {};
-  this->_shaderBindingTable = {};
-  this->_rayTracingTarget = {};
-  this->_pRayTracingMaterial.reset();
-  this->_pRayTracingMaterialAllocator.reset();
-  this->_pRayTracingPipeline.reset();
-  this->_pDisplayPassMaterial.reset();
-  this->_pDisplayPassMaterialAllocator.reset();
-  this->_pDisplayPass.reset();
-  this->_displayPassSwapChainFrameBuffers = {};
-
   this->_pGlobalResources.reset();
   this->_pGlobalUniforms.reset();
   this->_pointLights = {};
-  this->_textureHeap = {};
-  this->_vertexBufferHeap = {};
-  this->_indexBufferHeap = {};
-  this->_primitiveConstantsBuffer = {};
   this->_iblResources = {};
 
-  this->_pSSR.reset();
+  this->_shaderDefs.clear();
+  this->_pRTR.reset();
 }
 
-void RayTracingDemo::tick(Application& app, const FrameContext& frame) {
+void RayTracedReflectionsDemo::tick(Application& app, const FrameContext& frame) {
   this->_pCameraController->tick(frame.deltaTime);
   const Camera& camera = this->_pCameraController->getCamera();
 
@@ -178,11 +177,10 @@ void RayTracingDemo::tick(Application& app, const FrameContext& frame) {
   this->_pointLights.updateResource(frame);
 }
 
-void RayTracingDemo::_createModels(
+void RayTracedReflectionsDemo::_createModels(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
 
-  // TODO: BINDLESS!!
   this->_models.emplace_back(
       app,
       commandBuffer,
@@ -207,16 +205,16 @@ void RayTracingDemo::_createModels(
       glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f)),
       glm::vec3(4.0f)));
 
-  /*this->_models.emplace_back(
+  this->_models.emplace_back(
       app,
       commandBuffer,
       GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf");
   this->_models.back().setModelTransform(glm::translate(
       glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)),
-      glm::vec3(10.0f, -1.0f, 0.0f)));*/
+      glm::vec3(10.0f, -1.0f, 0.0f)));
 }
 
-void RayTracingDemo::_createGlobalResources(
+void RayTracedReflectionsDemo::_createGlobalResources(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
   this->_iblResources = ImageBasedLighting::createResources(
@@ -249,6 +247,7 @@ void RayTracingDemo::_createGlobalResources(
     this->_textureHeap = TextureHeap(this->_models);
     this->_vertexBufferHeap = BufferHeap::CreateVertexBufferHeap(this->_models);
     this->_indexBufferHeap = BufferHeap::CreateIndexBufferHeap(this->_models);
+    this->_accelerationStructure = AccelerationStructure(app, commandBuffer, this->_models);
   }
 
   // Global resources
@@ -256,26 +255,25 @@ void RayTracingDemo::_createGlobalResources(
     DescriptorSetLayoutBuilder globalResourceLayout;
 
     // Add textures for IBL
-    ImageBasedLighting::buildLayout(globalResourceLayout);
+    ImageBasedLighting::buildLayout(globalResourceLayout, VK_SHADER_STAGE_ALL);
     globalResourceLayout
         // Global uniforms.
-        .addUniformBufferBinding()
+        .addUniformBufferBinding(VK_SHADER_STAGE_ALL)
         // Point light buffer.
-        .addStorageBufferBinding(
-            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+        .addStorageBufferBinding(VK_SHADER_STAGE_ALL)
         // Shadow map texture.
-        .addTextureBinding()
+        .addTextureBinding(VK_SHADER_STAGE_ALL)
         // Texture heap.
         .addTextureHeapBinding(
             this->_textureHeap.getSize(),
-            VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR)
+            VK_SHADER_STAGE_ALL)
         // Primitive constants heap.
         .addStorageBufferBinding(
-            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR)
-        // Vertex buffer heap.
-        .addBufferHeapBinding(this->_vertexBufferHeap.getSize(), VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR)
-        // Index buffer heap.
-        .addBufferHeapBinding(this->_indexBufferHeap.getSize(), VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR);
+            VK_SHADER_STAGE_ALL)
+        // Vertex buffer heap
+        .addBufferHeapBinding(this->_vertexBufferHeap.getSize(), VK_SHADER_STAGE_ALL)
+        // Index buffer heap
+        .addBufferHeapBinding(this->_indexBufferHeap.getSize(), VK_SHADER_STAGE_ALL);
 
     this->_pGlobalResources =
         std::make_unique<PerFrameResources>(app, globalResourceLayout);
@@ -332,12 +330,24 @@ void RayTracingDemo::_createGlobalResources(
     assignment.bindBufferHeap(this->_indexBufferHeap);
   }
 
-  // Set up SSR resources
-  this->_pSSR = std::make_unique<ScreenSpaceReflection>(
+  this->_shaderDefs.emplace(
+      "TEXTURE_HEAP_COUNT",
+      std::to_string(this->_textureHeap.getSize()));
+  this->_shaderDefs.emplace(
+      "VERTEX_BUFFER_HEAP_COUNT",
+      std::to_string(this->_vertexBufferHeap.getSize()));
+  this->_shaderDefs.emplace(
+      "INDEX_BUFFER_HEAP_COUNT",
+      std::to_string(this->_indexBufferHeap.getSize()));
+
+  // Set up reflection resources
+  this->_pRTR = std::make_unique<RayTracedReflection>(
       app,
       commandBuffer,
       this->_pGlobalResources->getLayout(),
-      this->_gBufferResources);
+      this->_accelerationStructure.getTLAS(),
+      this->_gBufferResources,
+      this->_shaderDefs);
 
   // Deferred pass resources (GBuffer)
   {
@@ -357,137 +367,63 @@ void RayTracingDemo::_createGlobalResources(
     // Bind G-Buffer resources as textures in the deferred pass
     ResourcesAssignment& assignment = this->_pDeferredMaterial->assign();
     this->_gBufferResources.bindTextures(assignment);
-    this->_pSSR->bindTexture(assignment);
+    this->_pRTR->bindTexture(assignment);
   }
 }
 
-void RayTracingDemo::_createRayTracingPass(
-    Application& app,
-    SingleTimeCommandBuffer& commandBuffer) {
-
-  this->_accelerationStructure =
-      AccelerationStructure(app, commandBuffer, this->_models);
-
-  //DescriptorSetLayoutBuilder rayTracingMaterialLayout{};
-  // TODO: Use ray queries in deferred pass instead
-  ImageOptions imageOptions{};
-  imageOptions.width = 1080;
-  imageOptions.height = 960;
-  imageOptions.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
-
-  this->_rayTracingTarget.image = Image(app, imageOptions);
-  this->_rayTracingTarget.view =
-      ImageView(app, this->_rayTracingTarget.image, {});
-  this->_rayTracingTarget.sampler = Sampler(app, {});
-
-  // Material layout
-  DescriptorSetLayoutBuilder matBuilder{};
-  matBuilder.addAccelerationStructureBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
-  matBuilder.addStorageImageBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
-
-  this->_pRayTracingMaterialAllocator =
-      std::make_unique<DescriptorSetAllocator>(app, matBuilder, 1);
-  this->_pRayTracingMaterial =
-      std::make_unique<Material>(app, *this->_pRayTracingMaterialAllocator);
-
-  this->_pRayTracingMaterial->assign()
-      .bindAccelerationStructure(this->_accelerationStructure.getTLAS())
-      .bindStorageImage(
-          this->_rayTracingTarget.view,
-          this->_rayTracingTarget.sampler);
-
-  ShaderDefines defs;
-  defs.emplace(
-      "TEXTURE_HEAP_COUNT",
-      std::to_string(this->_textureHeap.getSize()));
-  defs.emplace(
-      "VERTEX_BUFFER_HEAP_COUNT",
-      std::to_string(this->_vertexBufferHeap.getSize()));
-  defs.emplace(
-      "INDEX_BUFFER_HEAP_COUNT",
-      std::to_string(this->_indexBufferHeap.getSize()));
-
-  RayTracingPipelineBuilder builder{};
-  builder.setRayGenShader(
-      GEngineDirectory + "/Shaders/RayTracing/RayGen.glsl",
-      defs);
-  builder.addMissShader(
-      GEngineDirectory + "/Shaders/RayTracing/Miss.glsl",
-      defs);
-  builder.addClosestHitShader(
-      GEngineDirectory + "/Shaders/RayTracing/ClosestHit.glsl",
-      defs);
-
-  builder.layoutBuilder.addDescriptorSet(this->_pGlobalResources->getLayout())
-      .addDescriptorSet(this->_pRayTracingMaterialAllocator->getLayout());
-
-  this->_pRayTracingPipeline =
-      std::make_unique<RayTracingPipeline>(app, std::move(builder));
-
-  // Create Shader Binding Table
-  this->_shaderBindingTable =
-      ShaderBindingTable(app, *this->_pRayTracingPipeline);
-
-  // Display Pass
-  DescriptorSetLayoutBuilder displayPassMatLayout{};
-  displayPassMatLayout.addTextureBinding();
-
-  this->_pDisplayPassMaterialAllocator =
-      std::make_unique<DescriptorSetAllocator>(app, displayPassMatLayout, 1);
-  this->_pDisplayPassMaterial =
-      std::make_unique<Material>(app, *this->_pDisplayPassMaterialAllocator);
-
-  this->_pDisplayPassMaterial->assign().bindTexture(this->_rayTracingTarget);
-
-  VkClearValue colorClear;
-  colorClear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
-  VkClearValue depthClear;
-  depthClear.depthStencil = {1.0f, 0};
-
-  std::vector<Attachment> attachments = {
-      Attachment{
-          ATTACHMENT_FLAG_COLOR,
-          app.getSwapChainImageFormat(),
-          colorClear,
-          true,
-          false,
-          true},
-  };
-
+void RayTracedReflectionsDemo::_createForwardPass(Application& app) {
   std::vector<SubpassBuilder> subpassBuilders;
 
-  // DISPLAY PASS
+  //  FORWARD GLTF PASS
   {
     SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
-    subpassBuilder.colorAttachments.push_back(0);
+    // The GBuffer contains the following color attachments
+    // 1. Position
+    // 2. Normal
+    // 3. Albedo
+    // 4. Metallic-Roughness-Occlusion
+    subpassBuilder.colorAttachments = {0, 1, 2, 3};
+    subpassBuilder.depthAttachment = 4;
 
-    subpassBuilder.pipelineBuilder.setCullMode(VK_CULL_MODE_FRONT_BIT)
-        .setDepthTesting(false)
+    Primitive::buildPipeline(subpassBuilder.pipelineBuilder);
 
+    ShaderDefines defs;
+    defs.emplace(
+        "TEXTURE_HEAP_COUNT",
+        std::to_string(this->_textureHeap.getSize()));
+
+    subpassBuilder
+        .pipelineBuilder
         // Vertex shader
-        .addVertexShader(GEngineDirectory + "/Shaders/Misc/FullScreenQuad.vert")
+        .addVertexShader(GEngineDirectory + "/Shaders/GltfForwardBindless.vert")
         // Fragment shader
         .addFragmentShader(
-            GEngineDirectory + "/Shaders/Misc/FullScreenTexture.frag")
+            GEngineDirectory + "/Shaders/GltfForwardBindless.frag",
+            defs)
 
         // Pipeline resource layouts
         .layoutBuilder
         // Global resources (view, projection, environment map)
-        .addDescriptorSet(this->_pGlobalResources->getLayout())
-        .addDescriptorSet(this->_pDisplayPassMaterialAllocator->getLayout());
+        .addDescriptorSet(this->_pGlobalResources->getLayout());
   }
 
-  this->_pDisplayPass = std::make_unique<RenderPass>(
+  std::vector<Attachment> attachments =
+      this->_gBufferResources.getAttachmentDescriptions();
+  const VkExtent2D& extent = app.getSwapChainExtent();
+  this->_pForwardPass = std::make_unique<RenderPass>(
       app,
-      app.getSwapChainExtent(),
+      extent,
       std::move(attachments),
       std::move(subpassBuilders));
 
-  this->_displayPassSwapChainFrameBuffers =
-      SwapChainFrameBufferCollection(app, *this->_pDisplayPass, {});
+  this->_forwardFrameBuffer = FrameBuffer(
+      app,
+      *this->_pForwardPass,
+      extent,
+      this->_gBufferResources.getAttachmentViews());
 }
 
-void RayTracingDemo::_createDeferredPass(Application& app) {
+void RayTracedReflectionsDemo::_createDeferredPass(Application& app) {
   VkClearValue colorClear;
   colorClear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
   VkClearValue depthClear;
@@ -566,126 +502,63 @@ struct DrawableEnvMap {
 };
 } // namespace
 
-void RayTracingDemo::draw(
+void RayTracedReflectionsDemo::draw(
     Application& app,
     VkCommandBuffer commandBuffer,
     const FrameContext& frame) {
 
+  this->_pointLights.updateResource(frame);
+  this->_gBufferResources.transitionToAttachment(commandBuffer);
+
   VkDescriptorSet globalDescriptorSet =
       this->_pGlobalResources->getCurrentDescriptorSet(frame);
 
-  /*
-    this->_pointLights.updateResource(frame);
-    this->_gBufferResources.transitionToAttachment(commandBuffer);
+  // Draw point light shadow maps
+  this->_pointLights.drawShadowMaps(app, commandBuffer, frame, this->_models, globalDescriptorSet);
 
-    // Draw point light shadow maps
-    this->_pointLights.drawShadowMaps(app, commandBuffer, frame, this->_models);
-
-    // Forward pass
-    {
-      ActiveRenderPass pass = this->_pForwardPass->begin(
-          app,
-          commandBuffer,
-          frame,
-          this->_forwardFrameBuffer);
-      // Bind global descriptor sets
-      pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
-      // Draw models
-      for (const Model& model : this->_models) {
-        pass.draw(model);
-      }
-    }
-
-    this->_gBufferResources.transitionToTextures(commandBuffer);
-
-    // Reflection buffer and convolution
-    {
-      this->_pSSR
-          ->captureReflection(app, commandBuffer, globalDescriptorSet, frame);
-      this->_pSSR->convolveReflectionBuffer(app, commandBuffer, frame);
-    }
-
-    // Deferred pass
-    {
-      ActiveRenderPass pass = this->_pDeferredPass->begin(
-          app,
-          commandBuffer,
-          frame,
-          this->_swapChainFrameBuffers.getCurrentFrameBuffer(frame));
-      // Bind global descriptor sets
-      pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
-
-      {
-        const DrawContext& context = pass.getDrawContext();
-        context.bindDescriptorSets(*this->_pDeferredMaterial);
-        context.draw(3);
-      }
-
-      pass.nextSubpass();
-      pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
-      pass.draw(this->_pointLights);
-    }
-
-    */
-
-  this->_rayTracingTarget.image.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_GENERAL,
-      VK_ACCESS_SHADER_WRITE_BIT,
-      VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
-
-  vkCmdBindPipeline(
-      commandBuffer,
-      VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
-      *this->_pRayTracingPipeline);
-  // VkDescriptorSet rtDescSets = { globalDescriptorSet, this?}
+  // Forward pass
   {
-    VkDescriptorSet sets[2] = {
-        globalDescriptorSet,
-        this->_pRayTracingMaterial->getCurrentDescriptorSet(frame)};
-    vkCmdBindDescriptorSets(
-        commandBuffer,
-        VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
-        this->_pRayTracingPipeline->getLayout(),
-        0,
-        2,
-        sets,
-        0,
-        nullptr);
-
-    Application::vkCmdTraceRaysKHR(
-        commandBuffer,
-        &this->_shaderBindingTable.getRayGenRegion(),
-        &this->_shaderBindingTable.getMissRegion(),
-        &this->_shaderBindingTable.getHitRegion(),
-        &this->_shaderBindingTable.getCallRegion(),
-        1080,
-        960,
-        1);
-  }
-
-  this->_rayTracingTarget.image.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-      VK_ACCESS_SHADER_READ_BIT,
-      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-
-  // Display pass
-  {
-    ActiveRenderPass pass = this->_pDisplayPass->begin(
+    ActiveRenderPass pass = this->_pForwardPass->begin(
         app,
         commandBuffer,
         frame,
-        this->_displayPassSwapChainFrameBuffers.getCurrentFrameBuffer(frame));
+        this->_forwardFrameBuffer);
+    // Bind global descriptor sets
+    pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
+    // Draw models
+    for (const Model& model : this->_models) {
+      pass.draw(model);
+    }
+  }
+
+  this->_gBufferResources.transitionToTextures(commandBuffer);
+
+  // Reflection buffer and convolution
+  {
+    this->_pRTR->captureReflection(app, commandBuffer, globalDescriptorSet, frame);
+    this->_pRTR->convolveReflectionBuffer(app, commandBuffer, frame);
+  }
+
+  // Deferred pass
+  {
+    ActiveRenderPass pass = this->_pDeferredPass->begin(
+        app,
+        commandBuffer,
+        frame,
+        this->_swapChainFrameBuffers.getCurrentFrameBuffer(frame));
     // Bind global descriptor sets
     pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
 
     {
       const DrawContext& context = pass.getDrawContext();
-      context.bindDescriptorSets(*this->_pDisplayPassMaterial);
+      context.bindDescriptorSets(*this->_pDeferredMaterial);
       context.draw(3);
     }
+
+    pass.nextSubpass();
+    pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
+    pass.draw(this->_pointLights);
   }
 }
-} // namespace RayTracingDemo
+} // namespace RayTracedReflectionsDemo
 } // namespace AltheaDemo
