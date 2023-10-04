@@ -267,12 +267,9 @@ void RayTracedReflectionsDemo::_createGlobalResources(
         // Shadow map texture.
         .addTextureBinding(VK_SHADER_STAGE_ALL)
         // Texture heap.
-        .addTextureHeapBinding(
-            this->_textureHeap.getSize(),
-            VK_SHADER_STAGE_ALL)
+        .addTextureHeapBinding(this->_textureHeap.getSize(), VK_SHADER_STAGE_ALL)
         // Primitive constants heap.
-        .addStorageBufferBinding(
-            VK_SHADER_STAGE_ALL)
+        .addStorageBufferBinding(VK_SHADER_STAGE_ALL)
         // Vertex buffer heap
         .addBufferHeapBinding(this->_vertexBufferHeap.getSize(), VK_SHADER_STAGE_ALL)
         // Index buffer heap

@@ -80,7 +80,6 @@ private:
   std::unique_ptr<TransientUniforms<GlobalUniforms>> _pGlobalUniforms;
   PointLightCollection _pointLights;
   IBLResources _iblResources;
-  GBufferResources _gBufferResources;
   StructuredBuffer<PrimitiveConstants> _primitiveConstantsBuffer; 
   TextureHeap _textureHeap;
   BufferHeap _vertexBufferHeap;
@@ -95,19 +94,11 @@ private:
   std::unique_ptr<RayTracingPipeline> _pRayTracingPipeline;
   ImageResource _rayTracingTarget;
   AccelerationStructure _accelerationStructure;
-  ShaderBindingTable _shaderBindingTable;
   std::unique_ptr<DescriptorSetAllocator> _pDisplayPassMaterialAllocator;
   std::unique_ptr<Material> _pDisplayPassMaterial;
   std::unique_ptr<RenderPass> _pDisplayPass;
   SwapChainFrameBufferCollection _displayPassSwapChainFrameBuffers;
 
-  void _createDeferredPass(Application& app);
-  std::unique_ptr<RenderPass> _pDeferredPass;
-  SwapChainFrameBufferCollection _swapChainFrameBuffers;
-  std::unique_ptr<DescriptorSetAllocator> _pDeferredMaterialAllocator;
-  std::unique_ptr<Material> _pDeferredMaterial;
-
-  std::unique_ptr<ScreenSpaceReflection> _pSSR;
   float _exposure = 0.3f;
 };
 } // namespace RayTracingDemo
