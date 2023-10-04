@@ -181,7 +181,7 @@ void DemoScene::_createModels(
       app,
       commandBuffer,
       GEngineDirectory + "/Content/Models/DamagedHelmet.glb",
-      *this->_pGltfMaterialAllocator);
+      this->_pGltfMaterialAllocator.get());
   this->_models.back().setModelTransform(glm::scale(
       glm::translate(glm::mat4(1.0f), glm::vec3(36.0f, 0.0f, 0.0f)),
       glm::vec3(4.0f)));
@@ -190,7 +190,7 @@ void DemoScene::_createModels(
       app,
       commandBuffer,
       GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf",
-      *this->_pGltfMaterialAllocator);
+      this->_pGltfMaterialAllocator.get());
   this->_models.back().setModelTransform(glm::scale(
       glm::translate(glm::mat4(1.0f), glm::vec3(50.0f, -1.0f, 0.0f)),
       glm::vec3(8.0f)));
@@ -199,7 +199,7 @@ void DemoScene::_createModels(
       app,
       commandBuffer,
       GEngineDirectory + "/Content/Models/MetalRoughSpheres.glb",
-      *this->_pGltfMaterialAllocator);
+      this->_pGltfMaterialAllocator.get());
   this->_models.back().setModelTransform(glm::scale(
       glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f)),
       glm::vec3(4.0f)));
@@ -208,7 +208,7 @@ void DemoScene::_createModels(
       app,
       commandBuffer,
       GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf",
-      *this->_pGltfMaterialAllocator);
+      this->_pGltfMaterialAllocator.get());
   this->_models.back().setModelTransform(glm::translate(
       glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)),
       glm::vec3(10.0f, -1.0f, 0.0f)));
@@ -250,7 +250,7 @@ void DemoScene::_createGlobalResources(
     this->_pGlobalResources =
         std::make_unique<PerFrameResources>(app, globalResourceLayout);
     this->_pGlobalUniforms =
-        std::make_unique<TransientUniforms<GlobalUniforms>>(app, commandBuffer);
+        std::make_unique<TransientUniforms<GlobalUniforms>>(app);
 
     this->_pointLights = PointLightCollection(
         app,
