@@ -146,12 +146,13 @@ void main() {
   vec3 baseColor = texture(gBufferAlbedo, uv).rgb;
   vec3 metallicRoughnessOcclusion = 
       texture(gBufferMetallicRoughnessOcclusion, uv).rgb;
+  // metallicRoughnessOcclusion.y *= 0.1;
 
   vec3 reflectedDirection = reflect(normalize(direction), normal);
   // vec4 reflectedColor = sampleReflection(0.2);//metallicRoughnessOcclusion.y);
   vec4 reflectedColor = sampleReflection(metallicRoughnessOcclusion.y);
   // reflectedColor = reflectedColor / reflectedColor.a;
-  reflectedColor.rgb = mix(baseColor, reflectedColor.rgb, reflectedColor.a);
+  // reflectedColor.rgb = mix(baseColor, reflectedColor.rgb, reflectedColor.a);
 
   vec3 irradianceColor = sampleIrrMap(normal);
 
@@ -178,5 +179,5 @@ void main() {
   // outColor = vec4(0.5 * direction + vec3(0.5), 1.0);
 
   outColor = vec4(material, 1.0);
-  // outColor = vec4(reflectedColor, 1.0);
+  //outColor = vec4(reflectedColor, 1.0);
 }

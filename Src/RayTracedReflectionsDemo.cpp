@@ -58,6 +58,8 @@ void RayTracedReflectionsDemo::initGame(Application& app) {
   input.addKeyBinding(
       {GLFW_KEY_R, GLFW_PRESS, GLFW_MOD_CONTROL},
       [&app, that = this]() {
+        that->_pRTR->tryRecompileShaders(app);
+
         for (Subpass& subpass :
              that->_pointLights.getShadowMapPass().getSubpasses()) {
           GraphicsPipeline& pipeline = subpass.getPipeline();
@@ -119,7 +121,8 @@ void RayTracedReflectionsDemo::createRenderState(Application& app) {
 
 void RayTracedReflectionsDemo::destroyRenderState(Application& app) {
   this->_models.clear();
-
+  Primitive::resetPrimitiveIndexCount();
+  
   this->_pForwardPass.reset();
   this->_gBufferResources = {};
   this->_forwardFrameBuffer = {};
