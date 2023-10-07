@@ -227,7 +227,7 @@ void PathTracing::_createModels(
       GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf");
   this->_models.back().setModelTransform(glm::translate(
       glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)),
-      glm::vec3(10.0f, -1.0f, 0.0f)));
+      glm::vec3(0.0f, -6.0f, 0.0f)));
 }
 
 void PathTracing::_createGlobalResources(
@@ -358,8 +358,9 @@ void PathTracing::_createRayTracingPass(
   //DescriptorSetLayoutBuilder rayTracingMaterialLayout{};
   // TODO: Use ray queries in deferred pass instead
   ImageOptions imageOptions{};
-  imageOptions.width = 1080;
-  imageOptions.height = 960;
+  imageOptions.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+  imageOptions.width = app.getSwapChainExtent().width;
+  imageOptions.height = app.getSwapChainExtent().height;
   imageOptions.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 
   this->_rayTracingTarget.image = Image(app, imageOptions);
@@ -520,7 +521,7 @@ void PathTracing::draw(
       0,
       sizeof(uint32_t),
       &this->_framesSinceCameraMoved);
-    this->_pRayTracingPipeline->traceRays(VkExtent2D{1080, 960}, commandBuffer);
+    this->_pRayTracingPipeline->traceRays(app.getSwapChainExtent(), commandBuffer);
   }
 
   this->_rayTracingTarget.image.transitionLayout(
