@@ -100,6 +100,7 @@ private:
   SwapChainFrameBufferCollection _displayPassSwapChainFrameBuffers;
 
   bool _freezeCamera = true;
+  uint32_t _framesSinceCameraMoved = 0;
 
   float _exposure = 0.6f;
 };

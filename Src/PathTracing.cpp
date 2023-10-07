@@ -152,8 +152,12 @@ void PathTracing::destroyRenderState(Application& app) {
 }
 
 void PathTracing::tick(Application& app, const FrameContext& frame) {
-  if (!this->_freezeCamera)
+  if (this->_freezeCamera) {
+    ++this->_framesSinceCameraMoved;
+  } else {
+    this->_framesSinceCameraMoved = 0;
     this->_pCameraController->tick(frame.deltaTime);
+  }
 
   const Camera& camera = this->_pCameraController->getCamera();
 
@@ -217,13 +221,13 @@ void PathTracing::_createModels(
       glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f)),
       glm::vec3(4.0f)));
 
-  /*this->_models.emplace_back(
+  this->_models.emplace_back(
       app,
       commandBuffer,
       GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf");
   this->_models.back().setModelTransform(glm::translate(
       glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)),
-      glm::vec3(10.0f, -1.0f, 0.0f)));*/
+      glm::vec3(10.0f, -1.0f, 0.0f)));
 }
 
 void PathTracing::_createGlobalResources(
@@ -401,8 +405,10 @@ void PathTracing::_createRayTracingPass(
       GEngineDirectory + "/Shaders/PathTracing/PathTrace.chit.glsl",
       defs);
 
-  builder.layoutBuilder.addDescriptorSet(this->_pGlobalResources->getLayout())
-      .addDescriptorSet(this->_pRayTracingMaterialAllocator->getLayout());
+  builder.layoutBuilder
+      .addDescriptorSet(this->_pGlobalResources->getLayout())
+      .addDescriptorSet(this->_pRayTracingMaterialAllocator->getLayout())
+      .addPushConstants<uint32_t>(VK_SHADER_STAGE_ALL);
 
   this->_pRayTracingPipeline =
       std::make_unique<RayTracingPipeline>(app, std::move(builder));
@@ -486,7 +492,7 @@ void PathTracing::draw(
   this->_rayTracingTarget.image.transitionLayout(
       commandBuffer,
       VK_IMAGE_LAYOUT_GENERAL,
-      VK_ACCESS_SHADER_WRITE_BIT,
+      VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
       VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
 
   vkCmdBindPipeline(
@@ -507,7 +513,13 @@ void PathTracing::draw(
         sets,
         0,
         nullptr);
-
+    vkCmdPushConstants(
+      commandBuffer,
+      this->_pRayTracingPipeline->getLayout(),
+      VK_SHADER_STAGE_ALL,
+      0,
+      sizeof(uint32_t),
+      &this->_framesSinceCameraMoved);
     this->_pRayTracingPipeline->traceRays(VkExtent2D{1080, 960}, commandBuffer);
   }
 
