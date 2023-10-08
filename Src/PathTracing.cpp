@@ -62,6 +62,8 @@ void PathTracing::initGame(Application& app) {
   input.addKeyBinding(
       {GLFW_KEY_R, GLFW_PRESS, GLFW_MOD_CONTROL},
       [&app, that = this]() {
+        that->_framesSinceCameraMoved = 0;
+
         if (that->_pRayTracingPipeline->recompileStaleShaders()) {
           if (that->_pRayTracingPipeline->hasShaderRecompileErrors()) {
             std::cout << that->_pRayTracingPipeline->getShaderRecompileErrors()
@@ -364,8 +366,12 @@ void PathTracing::_createRayTracingPass(
   imageOptions.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 
   this->_rayTracingTarget.image = Image(app, imageOptions);
+
+  ImageViewOptions viewOptions{};
+  viewOptions.format = imageOptions.format;
+  
   this->_rayTracingTarget.view =
-      ImageView(app, this->_rayTracingTarget.image, {});
+      ImageView(app, this->_rayTracingTarget.image, viewOptions);
   this->_rayTracingTarget.sampler = Sampler(app, {});
 
   // Material layout
