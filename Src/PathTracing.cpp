@@ -134,11 +134,14 @@ void PathTracing::destroyRenderState(Application& app) {
   Primitive::resetPrimitiveIndexCount();
 
   this->_accelerationStructure = {};
-  this->_rayTracingTarget = {};
-  this->_pRayTracingMaterial.reset();
+  this->_rayTracingTarget[0] = {};
+  this->_rayTracingTarget[1] = {};
+  this->_pRayTracingMaterial[0].reset();
+  this->_pRayTracingMaterial[1].reset();
   this->_pRayTracingMaterialAllocator.reset();
   this->_pRayTracingPipeline.reset();
-  this->_pDisplayPassMaterial.reset();
+  this->_pDisplayPassMaterial[0].reset();
+  this->_pDisplayPassMaterial[1].reset();
   this->_pDisplayPassMaterialAllocator.reset();
   this->_pDisplayPass.reset();
   this->_displayPassSwapChainFrameBuffers = {};
@@ -154,18 +157,19 @@ void PathTracing::destroyRenderState(Application& app) {
 }
 
 void PathTracing::tick(Application& app, const FrameContext& frame) {
-  if (this->_freezeCamera) {
-    ++this->_framesSinceCameraMoved;
-  } else {
-    this->_framesSinceCameraMoved = 0;
-    this->_pCameraController->tick(frame.deltaTime);
-  }
-
   const Camera& camera = this->_pCameraController->getCamera();
 
-  const glm::mat4& projection = camera.getProjection();
-
   GlobalUniforms globalUniforms;
+  globalUniforms.prevView = camera.computeView();
+
+  // if (this->_freezeCamera) {
+  //   ++this->_framesSinceCameraMoved;
+  // } else {
+    // this->_framesSinceCameraMoved = 0;
+  this->_framesSinceCameraMoved++; // TODO: Clean this up..
+  this->_pCameraController->tick(frame.deltaTime);
+  // }
+
   globalUniforms.projection = camera.getProjection();
   globalUniforms.inverseProjection = glm::inverse(globalUniforms.projection);
   globalUniforms.view = camera.computeView();
@@ -365,30 +369,51 @@ void PathTracing::_createRayTracingPass(
   imageOptions.height = app.getSwapChainExtent().height;
   imageOptions.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 
-  this->_rayTracingTarget.image = Image(app, imageOptions);
-
   ImageViewOptions viewOptions{};
   viewOptions.format = imageOptions.format;
   
-  this->_rayTracingTarget.view =
-      ImageView(app, this->_rayTracingTarget.image, viewOptions);
-  this->_rayTracingTarget.sampler = Sampler(app, {});
+  this->_rayTracingTarget[0].image = Image(app, imageOptions);
+  this->_rayTracingTarget[0].view =
+      ImageView(app, this->_rayTracingTarget[0].image, viewOptions);
+  this->_rayTracingTarget[0].sampler = Sampler(app, {});
+  
+  this->_rayTracingTarget[1].image = Image(app, imageOptions);
+  this->_rayTracingTarget[1].view =
+      ImageView(app, this->_rayTracingTarget[1].image, viewOptions);
+  this->_rayTracingTarget[1].sampler = Sampler(app, {});
 
   // Material layout
   DescriptorSetLayoutBuilder matBuilder{};
   matBuilder.addAccelerationStructureBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
-  matBuilder.addStorageImageBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
+  // prev accum buffer
+  matBuilder.addTextureBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR); 
+  // current accumulation buffer
+  matBuilder.addStorageImageBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR); 
 
   this->_pRayTracingMaterialAllocator =
-      std::make_unique<DescriptorSetAllocator>(app, matBuilder, 1);
-  this->_pRayTracingMaterial =
+      std::make_unique<DescriptorSetAllocator>(app, matBuilder, 2);
+  this->_pRayTracingMaterial[0] =
+      std::make_unique<Material>(app, *this->_pRayTracingMaterialAllocator);
+  this->_pRayTracingMaterial[1] =
       std::make_unique<Material>(app, *this->_pRayTracingMaterialAllocator);
 
-  this->_pRayTracingMaterial->assign()
+  this->_pRayTracingMaterial[0]->assign()
       .bindAccelerationStructure(this->_accelerationStructure.getTLAS())
+      .bindTexture(
+          this->_rayTracingTarget[1].view,
+          this->_rayTracingTarget[1].sampler)
       .bindStorageImage(
-          this->_rayTracingTarget.view,
-          this->_rayTracingTarget.sampler);
+          this->_rayTracingTarget[0].view,
+          this->_rayTracingTarget[0].sampler);
+
+  this->_pRayTracingMaterial[1]->assign()
+      .bindAccelerationStructure(this->_accelerationStructure.getTLAS())
+      .bindTexture(
+          this->_rayTracingTarget[0].view,
+          this->_rayTracingTarget[0].sampler)
+      .bindStorageImage(
+          this->_rayTracingTarget[1].view,
+          this->_rayTracingTarget[1].sampler);
 
   ShaderDefines defs;
   defs.emplace(
@@ -425,11 +450,14 @@ void PathTracing::_createRayTracingPass(
   displayPassMatLayout.addTextureBinding();
 
   this->_pDisplayPassMaterialAllocator =
-      std::make_unique<DescriptorSetAllocator>(app, displayPassMatLayout, 1);
-  this->_pDisplayPassMaterial =
+      std::make_unique<DescriptorSetAllocator>(app, displayPassMatLayout, 2);
+  this->_pDisplayPassMaterial[0] =
+      std::make_unique<Material>(app, *this->_pDisplayPassMaterialAllocator);
+  this->_pDisplayPassMaterial[1] =
       std::make_unique<Material>(app, *this->_pDisplayPassMaterialAllocator);
 
-  this->_pDisplayPassMaterial->assign().bindTexture(this->_rayTracingTarget);
+  this->_pDisplayPassMaterial[0]->assign().bindTexture(this->_rayTracingTarget[0]);
+  this->_pDisplayPassMaterial[1]->assign().bindTexture(this->_rayTracingTarget[1]);
 
   VkClearValue colorClear;
   colorClear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
@@ -496,10 +524,17 @@ void PathTracing::draw(
       this->_models,
       globalDescriptorSet);
 
-  this->_rayTracingTarget.image.transitionLayout(
+  uint32_t readIndex = this->_targetIndex ^ 1;
+  
+  this->_rayTracingTarget[readIndex].image.transitionLayout(
+      commandBuffer,
+      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+      VK_ACCESS_SHADER_READ_BIT,
+      VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
+  this->_rayTracingTarget[this->_targetIndex].image.transitionLayout(
       commandBuffer,
       VK_IMAGE_LAYOUT_GENERAL,
-      VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT,
+      VK_ACCESS_SHADER_WRITE_BIT,
       VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
 
   vkCmdBindPipeline(
@@ -510,7 +545,7 @@ void PathTracing::draw(
   {
     VkDescriptorSet sets[2] = {
         globalDescriptorSet,
-        this->_pRayTracingMaterial->getCurrentDescriptorSet(frame)};
+        this->_pRayTracingMaterial[this->_targetIndex]->getCurrentDescriptorSet(frame)};
     vkCmdBindDescriptorSets(
         commandBuffer,
         VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
@@ -530,7 +565,7 @@ void PathTracing::draw(
     this->_pRayTracingPipeline->traceRays(app.getSwapChainExtent(), commandBuffer);
   }
 
-  this->_rayTracingTarget.image.transitionLayout(
+  this->_rayTracingTarget[this->_targetIndex].image.transitionLayout(
       commandBuffer,
       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
       VK_ACCESS_SHADER_READ_BIT,
@@ -548,10 +583,12 @@ void PathTracing::draw(
 
     {
       const DrawContext& context = pass.getDrawContext();
-      context.bindDescriptorSets(*this->_pDisplayPassMaterial);
+      context.bindDescriptorSets(*this->_pDisplayPassMaterial[this->_targetIndex]);
       context.draw(3);
     }
   }
+
+  this->_targetIndex ^= 1;
 }
 } // namespace PathTracing
 } // namespace AltheaDemo

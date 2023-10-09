@@ -45,6 +45,7 @@ struct GlobalUniforms {
   glm::mat4 projection;
   glm::mat4 inverseProjection;
   glm::mat4 view;
+  glm::mat4 prevView;
   glm::mat4 inverseView;
   int lightCount;
   float time;
@@ -90,17 +91,18 @@ private:
 
   void _createRayTracingPass(Application& app, SingleTimeCommandBuffer& commandBuffer);
   std::unique_ptr<DescriptorSetAllocator> _pRayTracingMaterialAllocator;
-  std::unique_ptr<Material> _pRayTracingMaterial;
+  std::unique_ptr<Material> _pRayTracingMaterial[2];
   std::unique_ptr<RayTracingPipeline> _pRayTracingPipeline;
-  ImageResource _rayTracingTarget;
+  ImageResource _rayTracingTarget[2]; // ping-pong buffers
   AccelerationStructure _accelerationStructure;
   std::unique_ptr<DescriptorSetAllocator> _pDisplayPassMaterialAllocator;
-  std::unique_ptr<Material> _pDisplayPassMaterial;
+  std::unique_ptr<Material> _pDisplayPassMaterial[2];
   std::unique_ptr<RenderPass> _pDisplayPass;
   SwapChainFrameBufferCollection _displayPassSwapChainFrameBuffers;
 
   bool _freezeCamera = true;
   uint32_t _framesSinceCameraMoved = 0;
+  uint32_t _targetIndex = 0;
 
   float _exposure = 0.6f;
 };
