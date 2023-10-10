@@ -47,6 +47,7 @@ struct GlobalUniforms {
   glm::mat4 view;
   glm::mat4 prevView;
   glm::mat4 inverseView;
+  glm::mat4 prevInverseView;
   int lightCount;
   float time;
   float exposure;
@@ -93,7 +94,10 @@ private:
   std::unique_ptr<DescriptorSetAllocator> _pRayTracingMaterialAllocator;
   std::unique_ptr<Material> _pRayTracingMaterial[2];
   std::unique_ptr<RayTracingPipeline> _pRayTracingPipeline;
-  ImageResource _rayTracingTarget[2]; // ping-pong buffers
+   // ping-pong buffers
+  ImageResource _rayTracingTarget[2];
+  ImageResource _depthBuffer[2];
+
   AccelerationStructure _accelerationStructure;
   std::unique_ptr<DescriptorSetAllocator> _pDisplayPassMaterialAllocator;
   std::unique_ptr<Material> _pDisplayPassMaterial[2];

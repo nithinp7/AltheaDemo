@@ -136,6 +136,8 @@ void PathTracing::destroyRenderState(Application& app) {
   this->_accelerationStructure = {};
   this->_rayTracingTarget[0] = {};
   this->_rayTracingTarget[1] = {};
+  this->_depthBuffer[0] = {};
+  this->_depthBuffer[1] = {};
   this->_pRayTracingMaterial[0].reset();
   this->_pRayTracingMaterial[1].reset();
   this->_pRayTracingMaterialAllocator.reset();
@@ -161,6 +163,7 @@ void PathTracing::tick(Application& app, const FrameContext& frame) {
 
   GlobalUniforms globalUniforms;
   globalUniforms.prevView = camera.computeView();
+  globalUniforms.prevInverseView = glm::inverse(globalUniforms.prevView);
 
   // if (this->_freezeCamera) {
   //   ++this->_framesSinceCameraMoved;
@@ -233,7 +236,7 @@ void PathTracing::_createModels(
       GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf");
   this->_models.back().setModelTransform(glm::translate(
       glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)),
-      glm::vec3(0.0f, -6.0f, 0.0f)));
+      glm::vec3(0.0f, -8.0f, 0.0f)));
 }
 
 void PathTracing::_createGlobalResources(
@@ -371,16 +374,28 @@ void PathTracing::_createRayTracingPass(
 
   ImageViewOptions viewOptions{};
   viewOptions.format = imageOptions.format;
+
+  SamplerOptions samplerOptions{};
+  samplerOptions.minFilter = VK_FILTER_NEAREST;
+  samplerOptions.magFilter = VK_FILTER_NEAREST;
   
   this->_rayTracingTarget[0].image = Image(app, imageOptions);
   this->_rayTracingTarget[0].view =
       ImageView(app, this->_rayTracingTarget[0].image, viewOptions);
-  this->_rayTracingTarget[0].sampler = Sampler(app, {});
+  this->_rayTracingTarget[0].sampler = Sampler(app, samplerOptions);
   
   this->_rayTracingTarget[1].image = Image(app, imageOptions);
   this->_rayTracingTarget[1].view =
       ImageView(app, this->_rayTracingTarget[1].image, viewOptions);
-  this->_rayTracingTarget[1].sampler = Sampler(app, {});
+  this->_rayTracingTarget[1].sampler = Sampler(app, samplerOptions);
+
+  imageOptions.format = viewOptions.format = VK_FORMAT_R32_SFLOAT;
+  this->_depthBuffer[0].image = Image(app, imageOptions);
+  this->_depthBuffer[1].image = Image(app, imageOptions);
+  this->_depthBuffer[0].view = ImageView(app, this->_depthBuffer[0].image, viewOptions);
+  this->_depthBuffer[1].view = ImageView(app, this->_depthBuffer[1].image, viewOptions);
+  this->_depthBuffer[0].sampler = Sampler(app, {});
+  this->_depthBuffer[1].sampler = Sampler(app, {});
 
   // Material layout
   DescriptorSetLayoutBuilder matBuilder{};
@@ -388,6 +403,10 @@ void PathTracing::_createRayTracingPass(
   // prev accum buffer
   matBuilder.addTextureBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR); 
   // current accumulation buffer
+  matBuilder.addStorageImageBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR); 
+  // prev depth buffer
+  matBuilder.addTextureBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
+  // depth buffer
   matBuilder.addStorageImageBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR); 
 
   this->_pRayTracingMaterialAllocator =
@@ -404,7 +423,13 @@ void PathTracing::_createRayTracingPass(
           this->_rayTracingTarget[1].sampler)
       .bindStorageImage(
           this->_rayTracingTarget[0].view,
-          this->_rayTracingTarget[0].sampler);
+          this->_rayTracingTarget[0].sampler)
+      .bindTexture(
+          this->_depthBuffer[1].view,
+          this->_depthBuffer[1].sampler)
+      .bindStorageImage(
+          this->_depthBuffer[0].view,
+          this->_depthBuffer[0].sampler);
 
   this->_pRayTracingMaterial[1]->assign()
       .bindAccelerationStructure(this->_accelerationStructure.getTLAS())
@@ -413,7 +438,13 @@ void PathTracing::_createRayTracingPass(
           this->_rayTracingTarget[0].sampler)
       .bindStorageImage(
           this->_rayTracingTarget[1].view,
-          this->_rayTracingTarget[1].sampler);
+          this->_rayTracingTarget[1].sampler)
+      .bindTexture(
+          this->_depthBuffer[0].view,
+          this->_depthBuffer[0].sampler)
+      .bindStorageImage(
+          this->_depthBuffer[1].view,
+          this->_depthBuffer[1].sampler);
 
   ShaderDefines defs;
   defs.emplace(
@@ -532,6 +563,17 @@ void PathTracing::draw(
       VK_ACCESS_SHADER_READ_BIT,
       VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
   this->_rayTracingTarget[this->_targetIndex].image.transitionLayout(
+      commandBuffer,
+      VK_IMAGE_LAYOUT_GENERAL,
+      VK_ACCESS_SHADER_WRITE_BIT,
+      VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
+
+  this->_depthBuffer[readIndex].image.transitionLayout(
+      commandBuffer,
+      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+      VK_ACCESS_SHADER_READ_BIT,
+      VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
+  this->_depthBuffer[this->_targetIndex].image.transitionLayout(
       commandBuffer,
       VK_IMAGE_LAYOUT_GENERAL,
       VK_ACCESS_SHADER_WRITE_BIT,
