@@ -399,7 +399,7 @@ void PathTracing::_createRayTracingPass(
 
   // Material layout
   DescriptorSetLayoutBuilder matBuilder{};
-  matBuilder.addAccelerationStructureBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
+  matBuilder.addAccelerationStructureBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR);
   // prev accum buffer
   matBuilder.addTextureBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR); 
   // current accumulation buffer
@@ -466,6 +466,9 @@ void PathTracing::_createRayTracingPass(
       defs);
   builder.addClosestHitShader(
       GEngineDirectory + "/Shaders/PathTracing/PathTrace.chit.glsl",
+      defs);
+  builder.addClosestHitShader(
+      GEngineDirectory + "/Shaders/PathTracing/DepthRay.chit.glsl",
       defs);
 
   builder.layoutBuilder
