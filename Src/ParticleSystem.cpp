@@ -65,7 +65,7 @@ void ParticleSystem::initGame(Application& app) {
             that->_simPass.recreatePipeline(app);
           }
         }
-        
+
         for (Subpass& subpass :
              that->_pointLights.getShadowMapPass().getSubpasses()) {
           GraphicsPipeline& pipeline = subpass.getPipeline();
@@ -185,6 +185,12 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   }
 
   this->_pointLights.updateResource(frame);
+
+  SimUniforms simUniforms{};
+  simUniforms.deltaTime = frame.deltaTime;
+  simUniforms.particleCount = this->_particleBuffer.getCount();
+
+  this->_simUniforms.updateUniforms(simUniforms, frame);
 }
 
 void ParticleSystem::_createModels(
@@ -539,6 +545,12 @@ void ParticleSystem::draw(
 
   // barrier.buffer = this->_
   // vkCmdPipelineBarrier
+  {
+    VkDescriptorSet set = this->_pSimResources->getCurrentDescriptorSet(frame);
+    this->_simPass.bindPipeline(commandBuffer);
+    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, this->_simPass.getLayout(), 0, 1, &set, 0, nullptr);
+    vkCmdDispatch(commandBuffer, this->_particleBuffer.getCount(), 1, 1);
+  }
 
   this->_pointLights.updateResource(frame);
   this->_gBufferResources.transitionToAttachment(commandBuffer);
@@ -551,19 +563,19 @@ void ParticleSystem::draw(
 
   // Forward pass
   {
-    VkDescriptorSet sets[2] = {globalDescriptorSet, this->_pSimResources->getCurrentDescriptorSet(frame)};
-
     ActiveRenderPass pass = this->_pForwardPass->begin(
         app,
         commandBuffer,
         frame,
         this->_forwardFrameBuffer);
     // Bind global descriptor sets
-    pass.setGlobalDescriptorSets(gsl::span(sets, 1));
+    pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
     // Draw models
     for (const Model& model : this->_models) {
       pass.draw(model);
     }
+
+    VkDescriptorSet sets[2] = {globalDescriptorSet, this->_pSimResources->getCurrentDescriptorSet(frame)};
 
     pass.nextSubpass();
     pass.setGlobalDescriptorSets(gsl::span(sets, 2));
