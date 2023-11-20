@@ -23,6 +23,7 @@
 #include <glm/glm.hpp>
 
 #include <vector>
+#include <cstdint>
 
 using namespace AltheaEngine;
 
@@ -49,7 +50,19 @@ struct Particle {
   glm::vec3 velocity;
 };
 
+// TODO: Determine alignment / padding
 struct SimUniforms {
+  // Uniform grid params
+  glm::mat4 gridToWorld;
+  glm::mat4 worldToGrid;
+  
+  uint32_t xCells;
+  uint32_t yCells;
+  uint32_t zCells;
+
+  uint32_t bucketCount;
+  uint32_t bucketSize;
+
   float deltaTime;
   uint32_t particleCount;
 };
@@ -89,8 +102,12 @@ private:
   void _createSimResources(Application& app, SingleTimeCommandBuffer& commandBuffer);
   std::unique_ptr<PerFrameResources> _pSimResources;
   ComputePipeline _simPass;
+  ComputePipeline _velocityPass;
   TransientUniforms<SimUniforms> _simUniforms;
   StructuredBuffer<Particle> _particleBuffer;
+  // maps particle idx to cell idx
+  StructuredBuffer<uint32_t> _particleToCellBuffer;
+  StructuredBuffer<uint32_t> _spatialHash;
   
   void _createModels(Application& app, SingleTimeCommandBuffer& commandBuffer);
   std::vector<Model> _models;

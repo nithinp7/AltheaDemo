@@ -136,8 +136,10 @@ void ParticleSystem::destroyRenderState(Application& app) {
 
   this->_pSimResources.reset();
   this->_simPass = {};
+  this->_velocityPass = {};
   this->_simUniforms = {};
   this->_particleBuffer = {};
+  this->_particleToCellBuffer = {};
 
   this->_pDeferredPass.reset();
   this->_swapChainFrameBuffers = {};
@@ -170,23 +172,30 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
 
   this->_pGlobalUniforms->updateUniforms(globalUniforms, frame);
 
-  for (uint32_t i = 0; i < this->_pointLights.getCount(); ++i) {
-    PointLight light = this->_pointLights.getLight(i);
+  // for (uint32_t i = 0; i < this->_pointLights.getCount(); ++i) {
+  //   PointLight light = this->_pointLights.getLight(i);
 
-    light.position = 40.0f * glm::vec3(
-                                 static_cast<float>(i / 3),
-                                 -0.1f,
-                                 (static_cast<float>(i % 3) - 1.5f) * 0.5f);
+  //   light.position = 40.0f * glm::vec3(
+  //                                static_cast<float>(i / 3),
+  //                                -0.1f,
+  //                                (static_cast<float>(i % 3) - 1.5f) * 0.5f);
 
-    light.position.x += 5.5f * cos(1.5f * frame.currentTime + i);
-    light.position.z += 5.5f * sin(1.5 * frame.currentTime + i);
+  //   light.position.x += 5.5f * cos(1.5f * frame.currentTime + i);
+  //   light.position.z += 5.5f * sin(1.5 * frame.currentTime + i);
 
-    this->_pointLights.setLight(i, light);
-  }
+  //   this->_pointLights.setLight(i, light);
+  // }
 
   this->_pointLights.updateResource(frame);
 
   SimUniforms simUniforms{};
+  simUniforms.gridToWorld = glm::mat4(1.0f);
+  simUniforms.worldToGrid = glm::mat4(1.0f);
+
+  simUniforms.xCells = 1000;
+  simUniforms.yCells = 1000;
+  simUniforms.zCells = 1000;
+
   simUniforms.deltaTime = frame.deltaTime;
   simUniforms.particleCount = this->_particleBuffer.getCount();
 
@@ -194,44 +203,8 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
 }
 
 void ParticleSystem::_createModels(
-    Application& app,
-    SingleTimeCommandBuffer& commandBuffer) {
-
-  this->_models.emplace_back(
-      app,
-      commandBuffer,
-      GEngineDirectory + "/Content/Models/DamagedHelmet.glb",
-      this->_pGltfMaterialAllocator.get());
-  this->_models.back().setModelTransform(glm::scale(
-      glm::translate(glm::mat4(1.0f), glm::vec3(36.0f, 0.0f, 0.0f)),
-      glm::vec3(4.0f)));
-
-  this->_models.emplace_back(
-      app,
-      commandBuffer,
-      GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf",
-      this->_pGltfMaterialAllocator.get());
-  this->_models.back().setModelTransform(glm::scale(
-      glm::translate(glm::mat4(1.0f), glm::vec3(50.0f, -1.0f, 0.0f)),
-      glm::vec3(8.0f)));
-
-  this->_models.emplace_back(
-      app,
-      commandBuffer,
-      GEngineDirectory + "/Content/Models/MetalRoughSpheres.glb",
-      this->_pGltfMaterialAllocator.get());
-  this->_models.back().setModelTransform(glm::scale(
-      glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f)),
-      glm::vec3(4.0f)));
-
-  // this->_models.emplace_back(
-  //     app,
-  //     commandBuffer,
-  //     GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf",
-  //     this->_pGltfMaterialAllocator.get());
-  // this->_models.back().setModelTransform(glm::translate(
-  //     glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)),
-  //     glm::vec3(10.0f, -1.0f, 0.0f)));
+    Application& /*app*/,
+    SingleTimeCommandBuffer& /*commandBuffer*/) {
 }
 
 void ParticleSystem::_createGlobalResources(
@@ -344,7 +317,8 @@ void ParticleSystem::_createSimResources(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
   // TODO: Create particle count constant
-  this->_particleBuffer = StructuredBuffer<Particle>(app, 1000);
+  uint32_t particleCount = 1000;
+  this->_particleBuffer = StructuredBuffer<Particle>(app, particleCount);
   for (uint32_t i = 0; i < 10; ++i) {
     for (uint32_t j = 0; j < 10; ++j) {
       for (uint32_t k = 0; k < 10; ++k) {
@@ -362,6 +336,8 @@ void ParticleSystem::_createSimResources(
 
   this->_particleBuffer.upload();
 
+  this->_particleToCellBuffer = StructuredBuffer<uint32_t>(app, particleCount);
+
   this->_simUniforms = TransientUniforms<SimUniforms>(app);
 
   DescriptorSetLayoutBuilder matBuilder{};
@@ -369,18 +345,39 @@ void ParticleSystem::_createSimResources(
   matBuilder.addUniformBufferBinding(VK_SHADER_STAGE_ALL);
   // Particle buffer
   matBuilder.addStorageBufferBinding(VK_SHADER_STAGE_ALL);
+  // Particle to cell map
+  matBuilder.addStorageBufferBinding(VK_SHADER_STAGE_ALL);
 
   this->_pSimResources = std::make_unique<PerFrameResources>(app, matBuilder);
   this->_pSimResources->assign()
-    .bindTransientUniforms(this->_simUniforms)
-    .bindStorageBuffer(this->_particleBuffer.getAllocation(), this->_particleBuffer.getSize(), false);
+      .bindTransientUniforms(this->_simUniforms)
+      .bindStorageBuffer(
+          this->_particleBuffer.getAllocation(),
+          this->_particleBuffer.getSize(),
+          false)
+      .bindStorageBuffer(
+          this->_particleToCellBuffer.getAllocation(),
+          this->_particleToCellBuffer.getSize(),
+          false);
 
   // matBuilder.addUniformBufferBinding
-  ComputePipelineBuilder builder;
-  builder.setComputeShader(GProjectDirectory + "/Shaders/ParticleSystem/ParticleSystem.comp.glsl");
-  builder.layoutBuilder.addDescriptorSet(this->_pSimResources->getLayout());
+  {
+    ComputePipelineBuilder builder;
+    builder.setComputeShader(
+        GProjectDirectory + "/Shaders/ParticleSystem/ParticleSystem.comp.glsl");
+    builder.layoutBuilder.addDescriptorSet(this->_pSimResources->getLayout());
 
-  this->_simPass = ComputePipeline(app, std::move(builder));
+    this->_simPass = ComputePipeline(app, std::move(builder));
+  }
+
+  {
+    ComputePipelineBuilder builder;
+    builder.setComputeShader(
+        GProjectDirectory + "/Shaders/ParticleSystem/UpdateVelocity.comp.glsl");
+    builder.layoutBuilder.addDescriptorSet(this->_pSimResources->getLayout());
+
+    this->_velocityPass = ComputePipeline(app, std::move(builder));
+  }
 }
 
 void ParticleSystem::_createForwardPass(Application& app) {
@@ -427,12 +424,13 @@ void ParticleSystem::_createForwardPass(Application& app) {
     subpassBuilder.depthAttachment = 4;
 
     subpassBuilder.pipelineBuilder
-      .setPrimitiveType(PrimitiveType::POINTS) // TODO: Set point size?
-      .addVertexShader(GProjectDirectory + "/Shaders/ParticleSystem/Particles.vert")
-      .addFragmentShader(GProjectDirectory + "/Shaders/ParticleSystem/Particles.frag")
-      .layoutBuilder
-      .addDescriptorSet(this->_pGlobalResources->getLayout())
-      .addDescriptorSet(this->_pSimResources->getLayout());
+        .setPrimitiveType(PrimitiveType::POINTS) // TODO: Set point size?
+        .addVertexShader(
+            GProjectDirectory + "/Shaders/ParticleSystem/Particles.vert")
+        .addFragmentShader(
+            GProjectDirectory + "/Shaders/ParticleSystem/Particles.frag")
+        .layoutBuilder.addDescriptorSet(this->_pGlobalResources->getLayout())
+        .addDescriptorSet(this->_pSimResources->getLayout());
   }
 
   std::vector<Attachment> attachments =
@@ -548,7 +546,15 @@ void ParticleSystem::draw(
   {
     VkDescriptorSet set = this->_pSimResources->getCurrentDescriptorSet(frame);
     this->_simPass.bindPipeline(commandBuffer);
-    vkCmdBindDescriptorSets(commandBuffer, VK_PIPELINE_BIND_POINT_COMPUTE, this->_simPass.getLayout(), 0, 1, &set, 0, nullptr);
+    vkCmdBindDescriptorSets(
+        commandBuffer,
+        VK_PIPELINE_BIND_POINT_COMPUTE,
+        this->_simPass.getLayout(),
+        0,
+        1,
+        &set,
+        0,
+        nullptr);
     vkCmdDispatch(commandBuffer, this->_particleBuffer.getCount(), 1, 1);
   }
 
@@ -575,7 +581,9 @@ void ParticleSystem::draw(
       pass.draw(model);
     }
 
-    VkDescriptorSet sets[2] = {globalDescriptorSet, this->_pSimResources->getCurrentDescriptorSet(frame)};
+    VkDescriptorSet sets[2] = {
+        globalDescriptorSet,
+        this->_pSimResources->getCurrentDescriptorSet(frame)};
 
     pass.nextSubpass();
     pass.setGlobalDescriptorSets(gsl::span(sets, 2));
