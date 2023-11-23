@@ -8,6 +8,7 @@
 #include <Althea/InputManager.h>
 #include <Althea/ModelViewProjection.h>
 #include <Althea/Primitive.h>
+#include <Althea/ShapeUtilities.h>
 #include <Althea/SingleTimeCommandBuffer.h>
 #include <Althea/Skybox.h>
 #include <Althea/Utilities.h>
@@ -140,6 +141,8 @@ void ParticleSystem::destroyRenderState(Application& app) {
   this->_simUniforms = {};
   this->_particleBuffer = {};
   this->_particleToCellBuffer = {};
+  this->_sphereVertices = {};
+  this->_sphereIndices = {};
 
   this->_pDeferredPass.reset();
   this->_swapChainFrameBuffers = {};
@@ -189,8 +192,8 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   this->_pointLights.updateResource(frame);
 
   SimUniforms simUniforms{};
-  simUniforms.gridToWorld = glm::mat4(1.0f);
-  simUniforms.worldToGrid = glm::mat4(1.0f);
+  simUniforms.gridToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(0.2f));
+  simUniforms.worldToGrid = glm::inverse(simUniforms.gridToWorld);
 
   simUniforms.xCells = 1000;
   simUniforms.yCells = 1000;
@@ -204,8 +207,7 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
 
 void ParticleSystem::_createModels(
     Application& /*app*/,
-    SingleTimeCommandBuffer& /*commandBuffer*/) {
-}
+    SingleTimeCommandBuffer& /*commandBuffer*/) {}
 
 void ParticleSystem::_createGlobalResources(
     Application& app,
@@ -258,8 +260,8 @@ void ParticleSystem::_createGlobalResources(
 
         light.position = 40.0f * glm::vec3(
                                      static_cast<float>(i),
-                                     -0.1f,
-                                     (static_cast<float>(j) - 1.5f) * 0.5f);
+                                     -1.0f,
+                                     static_cast<float>(j) * 0.5f);
         light.emission =
             1000.0f * // / static_cast<float>(i + 1) *
             glm::vec3(cos(t) + 1.0f, sin(t + 1.0f) + 1.0f, sin(t) + 1.0f);
@@ -324,11 +326,15 @@ void ParticleSystem::_createSimResources(
       for (uint32_t k = 0; k < 10; ++k) {
         this->_particleBuffer.setElement(
             Particle{
-                glm::vec3(
+                glm::vec4(
                     static_cast<float>(i),
                     static_cast<float>(j),
-                    static_cast<float>(k)),
-                glm::vec3(0.0f)},
+                    static_cast<float>(k),
+                    0.0f),
+                glm::vec4(0.0f),
+                0,
+                0.1f, // radius
+                {}},
             10 * (i * 10 + j) + k);
       }
     }
@@ -336,7 +342,17 @@ void ParticleSystem::_createSimResources(
 
   this->_particleBuffer.upload();
 
-  this->_particleToCellBuffer = StructuredBuffer<uint32_t>(app, particleCount);
+  // Need transfer bit for vkCmdFillBuffer
+  this->_particleToCellBuffer = StructuredBuffer<uint32_t>(
+      app,
+      2 * particleCount,
+      VK_BUFFER_USAGE_TRANSFER_DST_BIT);
+
+  ShapeUtilities::createSphere(
+      app,
+      commandBuffer,
+      this->_sphereVertices,
+      this->_sphereIndices);
 
   this->_simUniforms = TransientUniforms<SimUniforms>(app);
 
@@ -371,12 +387,13 @@ void ParticleSystem::_createSimResources(
   }
 
   {
-    ComputePipelineBuilder builder;
-    builder.setComputeShader(
-        GProjectDirectory + "/Shaders/ParticleSystem/UpdateVelocity.comp.glsl");
-    builder.layoutBuilder.addDescriptorSet(this->_pSimResources->getLayout());
+    // ComputePipelineBuilder builder;
+    // builder.setComputeShader(
+    //     GProjectDirectory +
+    //     "/Shaders/ParticleSystem/UpdateVelocity.comp.glsl");
+    // builder.layoutBuilder.addDescriptorSet(this->_pSimResources->getLayout());
 
-    this->_velocityPass = ComputePipeline(app, std::move(builder));
+    // this->_velocityPass = ComputePipeline(app, std::move(builder));
   }
 }
 
@@ -424,7 +441,10 @@ void ParticleSystem::_createForwardPass(Application& app) {
     subpassBuilder.depthAttachment = 4;
 
     subpassBuilder.pipelineBuilder
-        .setPrimitiveType(PrimitiveType::POINTS) // TODO: Set point size?
+        .setPrimitiveType(PrimitiveType::TRIANGLES)
+        .addVertexInputBinding<glm::vec3>(VK_VERTEX_INPUT_RATE_VERTEX)
+        .addVertexAttribute(VertexAttributeType::VEC3, 0)
+
         .addVertexShader(
             GProjectDirectory + "/Shaders/ParticleSystem/Particles.vert")
         .addFragmentShader(
@@ -533,6 +553,12 @@ void ParticleSystem::draw(
     VkCommandBuffer commandBuffer,
     const FrameContext& frame) {
 
+  vkCmdFillBuffer(
+      commandBuffer,
+      this->_particleToCellBuffer.getAllocation().getBuffer(),
+      0,
+      this->_particleToCellBuffer.getSize(),
+      0);
   // TODO: Move barrier code into StructuredBuffer??
   // VkBufferMemoryBarrier barrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
   // barrier.buffer = this->_particleBuffer.getAllocation().getBuffer();
@@ -588,7 +614,11 @@ void ParticleSystem::draw(
     pass.nextSubpass();
     pass.setGlobalDescriptorSets(gsl::span(sets, 2));
     pass.getDrawContext().bindDescriptorSets();
-    pass.getDrawContext().draw(this->_particleBuffer.getCount());
+    pass.getDrawContext().bindIndexBuffer(this->_sphereIndices);
+    pass.getDrawContext().bindVertexBuffer(this->_sphereVertices);
+    pass.getDrawContext().drawIndexed(
+        this->_sphereIndices.getIndexCount(),
+        this->_particleBuffer.getCount());
   }
 
   this->_gBufferResources.transitionToTextures(commandBuffer);

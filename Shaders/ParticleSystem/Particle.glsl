@@ -2,8 +2,11 @@
 #define _PARTICLE_
 
 struct Particle {
-  vec3 position;
-  vec3 velocity;
+  vec4 position;
+  vec4 velocity;
+  uint gridCellHash;
+  float radius;
+  uint padding[2];
 };
 
 #endif // _PARTICLE_

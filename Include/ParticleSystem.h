@@ -46,8 +46,11 @@ struct GlobalUniforms {
 };
 
 struct Particle {
-  glm::vec3 position;
-  glm::vec3 velocity;
+  glm::vec4 position;
+  glm::vec4 velocity;
+  uint32_t gridCellHash;
+  float radius;
+  uint32_t padding[2];
 };
 
 // TODO: Determine alignment / padding
@@ -60,11 +63,10 @@ struct SimUniforms {
   uint32_t yCells;
   uint32_t zCells;
 
-  uint32_t bucketCount;
-  uint32_t bucketSize;
-
-  float deltaTime;
   uint32_t particleCount;
+  float deltaTime;
+
+  float padding[3];
 };
 
 class ParticleSystem : public IGameInstance {
@@ -107,7 +109,8 @@ private:
   StructuredBuffer<Particle> _particleBuffer;
   // maps particle idx to cell idx
   StructuredBuffer<uint32_t> _particleToCellBuffer;
-  StructuredBuffer<uint32_t> _spatialHash;
+  VertexBuffer<glm::vec3> _sphereVertices;
+  IndexBuffer _sphereIndices;
   
   void _createModels(Application& app, SingleTimeCommandBuffer& commandBuffer);
   std::vector<Model> _models;
