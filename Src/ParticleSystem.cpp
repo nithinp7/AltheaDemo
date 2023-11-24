@@ -213,16 +213,16 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   this->_pointLights.updateResource(frame);
 
   SimUniforms simUniforms{};
-  simUniforms.gridToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(0.5f));
+  simUniforms.gridToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
   simUniforms.worldToGrid = glm::inverse(simUniforms.gridToWorld);
 
-  simUniforms.xCells = 20;
-  simUniforms.yCells = 20;
-  simUniforms.zCells = 20;
+  simUniforms.xCells = 200;
+  simUniforms.yCells = 200;
+  simUniforms.zCells = 200;
 
   simUniforms.particleCount = this->_particleBuffer.getCount();
   simUniforms.spatialHashSize = this->_particleToCellBuffer.getCount();
-  simUniforms.spatialHashProbeSteps = 20;
+  simUniforms.spatialHashProbeSteps = 30;
 
   simUniforms.deltaTime = frame.deltaTime;
 
@@ -343,25 +343,21 @@ void ParticleSystem::_createSimResources(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
   // TODO: Create particle count constant
-  uint32_t particleCount = 1000;
+  uint32_t particleCount = 50000;
   this->_particleBuffer = StructuredBuffer<Particle>(app, particleCount);
-  for (uint32_t i = 0; i < 10; ++i) {
-    for (uint32_t j = 0; j < 10; ++j) {
-      for (uint32_t k = 0; k < 10; ++k) {
-        this->_particleBuffer.setElement(
-            Particle{
-                glm::vec4(
-                    static_cast<float>(i), // + 0.1f,
-                    static_cast<float>(j), // + 0.1f,
-                    static_cast<float>(k), // + 0.1f,
-                    0.0f),
-                glm::vec4(0.0f),
-                0.49f, // radius
-                0,
-                {}},
-            10 * (i * 10 + j) + k);
-      }
-    }
+  for (uint32_t i = 0; i < particleCount; ++i) {
+    this->_particleBuffer.setElement(
+        Particle{
+            0.01f * glm::vec4(
+                rand() % 1000,
+                rand() % 1000,
+                rand() % 1000,
+                0.0f),
+            glm::vec4(0.0f),
+            0.049f, // radius
+            0,
+            {}},
+        i);
   }
 
   this->_particleBuffer.upload();
@@ -369,7 +365,7 @@ void ParticleSystem::_createSimResources(
   // Need transfer bit for vkCmdFillBuffer
   this->_particleToCellBuffer = StructuredBuffer<uint32_t>(
       app,
-      2 * particleCount,
+      4 * particleCount,
       VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
   ShapeUtilities::createSphere(

@@ -41,9 +41,14 @@ void checkPair(inout Particle particle, uint otherParticleIdx)
 
   vec3 diff = other.position.xyz - particle.position.xyz;
   float dist = length(diff);
+  float sep = dist - other.radius - particle.radius;
 
-  if (dist < other.radius + particle.radius) {
+  if (sep <= 0.0) {
     particle.debug = 1; // mark collision
+    diff /= dist; // TODO div-by-zero guard
+    // Cancel the portion of the velocity going towards the collision
+    particle.velocity.xyz += 10.0 * sep * particle.velocity.xyz * max(dot(particle.velocity.xyz, diff), 0.0);
+    particle.position.xyz += sep * diff * 0.5;
   }
 }
 
@@ -85,10 +90,11 @@ void main() {
             uint otherParticleIdx = entry & PARTICLE_IDX_MASK;
             if (particleIdx != otherParticleIdx)
               checkPair(particle, otherParticleIdx);
-          } else if (foundFirst) {
+          } else /*if (foundFirst)*/ {
             // If we already found a particle with the desired key, the rest of the particles with 
             // the same key should be in contiguous slots
-            break;
+            // break;
+            ++entryLocation;
           }
         }
       }

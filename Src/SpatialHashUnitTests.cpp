@@ -23,7 +23,7 @@ static uint32_t findSlot(
   glm::vec4 worldPos = particle.position;
   worldPos.w = 1.0f;
   glm::vec3 gridPos(simUniforms.worldToGrid * worldPos);
-  glm::uvec3 cell(glm::floor(particle.position));
+  glm::uvec3 cell(glm::floor(gridPos));
   
   uint32_t gridCellHash = hashCoords(cell.x, cell.y, cell.z);
   uint32_t startSlotIdx = (gridCellHash >> 16) % spatialHash.size();
@@ -37,16 +37,17 @@ static uint32_t findSlot(
       // Failed to find the slot index
       __debugbreak();
       return 0xFFFFFFFF;
-    } else if (entry & PARTICLE_IDX_MASK == particleIdx) {
+    } else if ((entry & PARTICLE_IDX_MASK) == particleIdx) {
       return slotIdx;
     } else if ((entry & CELL_HASH_MASK) == (gridCellHash & CELL_HASH_MASK)) {
       bFoundFirst = true;
       ++slotIdx;
       if (slotIdx == spatialHash.size())
         slotIdx = 0;
-    } else if (bFoundFirst) {
-      __debugbreak();
-      return 0xFFFFFFFF;
+    } else /*if (bFoundFirst)*/ {
+      // __debugbreak();
+      // return 0xFFFFFFFF;
+      ++slotIdx;
     }
   }
 
@@ -85,8 +86,8 @@ void SpatialHashUnitTests::runTests(
       // uint32_t prevEntryLocation = (prevHash >> 16) % spatialHashSize;
       // TODO: This fails when rollovers are inserted into the front of the map...
       // if (curEntryLocation < prevEntryLocation)
-      if (cellHash < prevHash)
-        __debugbreak();
+      // if (cellHash < prevHash)
+      //   __debugbreak();
 
       // Doesn't account for rollovers
       // if (slotIdx < curEntryLocation)
