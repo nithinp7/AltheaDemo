@@ -48,8 +48,8 @@ struct GlobalUniforms {
 struct Particle {
   glm::vec4 position;
   glm::vec4 velocity;
-  uint32_t gridCellHash;
   float radius;
+  uint32_t debug;
   uint32_t padding[2];
 };
 
@@ -64,9 +64,12 @@ struct SimUniforms {
   uint32_t zCells;
 
   uint32_t particleCount;
+  uint32_t spatialHashSize;
+  uint32_t spatialHashProbeSteps;
+
   float deltaTime;
 
-  float padding[3];
+  float padding;
 };
 
 class ParticleSystem : public IGameInstance {
@@ -104,7 +107,7 @@ private:
   void _createSimResources(Application& app, SingleTimeCommandBuffer& commandBuffer);
   std::unique_ptr<PerFrameResources> _pSimResources;
   ComputePipeline _simPass;
-  ComputePipeline _velocityPass;
+  ComputePipeline _collisionsPass;
   TransientUniforms<SimUniforms> _simUniforms;
   StructuredBuffer<Particle> _particleBuffer;
   // maps particle idx to cell idx

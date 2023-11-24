@@ -4,8 +4,9 @@
 #define CELL_HASH_MASK 0xFFFF0000
 #define PARTICLE_IDX_MASK 0x0000FFFF
 
-layout(local_size_x = 16, local_size_y = 16) in;
+layout(local_size_x = 32) in;
 
+#include "Hash.glsl"
 #include "Particle.glsl"
 
 // TODO: Move to separate file
@@ -18,9 +19,12 @@ layout(set=0, binding=0) uniform SimUniforms {
   uint zCells;
 
   uint particleCount;
+  uint spatialHashSize;
+  uint spatialHashProbeSteps;
+
   float deltaTime;
 
-  float padding[3];
+  float padding;
 };
 
 layout(std430, set=0, binding=1) buffer PARTICLES_BUFFER {
@@ -31,11 +35,6 @@ layout(std430, set=0, binding=2) buffer PARTICLE_TO_CELL_BUFFER {
   uint particleToCell[];
 };
 
-// From Mathias Muller
-uint hashCoords(int x, int y, int z) {
-  return abs((x * 92837111) ^ (y * 689287499) ^ (z * 283923481));
-}
-
 void main() {
   uint particleIdx = uint(gl_GlobalInvocationID.x);
   if (particleIdx >= particleCount) {
@@ -43,12 +42,13 @@ void main() {
   }
 
   Particle particle = particles[particleIdx];
+
+  // Clear any debug flags for this frame
+  particle.debug = 0;
   
-  vec3 acceleration = vec3(0.0, -0.01, 0.0);
+  vec3 acceleration = vec3(0.0, -0.1, 0.0);
   particle.velocity.xyz += acceleration * deltaTime;
   particle.position.xyz += particle.velocity.xyz * deltaTime;
-
-  particle.position.xyz = clamp(particle.position.xyz, vec3(0.0), vec3(xCells, yCells, zCells));
 
   vec3 gridPos = (worldToGrid * vec4(particle.position.xyz, 1.0)).xyz;
   gridPos = clamp(gridPos, vec3(0.0), vec3(xCells, yCells, zCells));
@@ -63,36 +63,42 @@ void main() {
 
   ivec3 gridCell = ivec3(floor(gridPos));
   uint gridCellHash = hashCoords(gridCell.x, gridCell.y, gridCell.z);
-  particle.gridCellHash = gridCellHash;
   
   particles[particleIdx] = particle;
 
-  // hash map with 50% load factor 
-  uint hashMapSize = 2 * particleCount;
-
-  uint entryLocation = gridCellHash % hashMapSize;
-  uint entry = gridCellHash & CELL_HASH_MASK | particleIdx & PARTICLE_IDX_MASK;
+  uint entryLocation = (gridCellHash >> 16) % spatialHashSize;
+  uint entry = (gridCellHash & CELL_HASH_MASK) | (particleIdx & PARTICLE_IDX_MASK);
+  // TODO: This is a HACK
+  // uint entry = (entryLocation << 16) | (particleIdx & PARTICLE_IDX_MASK);
   
-  // TODO: Handle a valid entry==0 case?? i.e. hash=0 and pid=0
-  for (uint i = 0; i < 10; ++i) {
-    uint prevEntry = atomicExchange(particleToCell[entryLocation], entry);
-    // TODO: Do we need to exclusively check the grid cell hash
-    // or can we just compare the whole cell/particle entry?
-    if (prevEntry == 0) 
+  // TODO: Cleanup the documentation here
+  // there is an "entryLocation" which acts as the _actual_ insertion slot
+  // and there are "cur/prevEntrylocations" which are the ideal insertion
+  // slot given no collisions. Regardless of the actual insertion locations,
+  // we want the each entry to have weakly ascending "ideal" entry locations
+  // This means when looking for a key, we can start at the ideal entry location
+  // and scan in one direction
+
+  for (uint i = 0; i < spatialHashProbeSteps; ++i) {
+    uint prevEntry = atomicMin(particleToCell[entryLocation], entry);
+    //uint prevEntryLocation = (prevEntry >> 16) % spatialHashSize;
+    //uint curEntryLocation = (entry >> 16) % spatialHashSize;
+     
+    if (prevEntry == 0xFFFFFFFF) 
     {
       break;
     }
-    else if ((prevEntry & CELL_HASH_MASK) < (entry & CELL_HASH_MASK))
-    {
-      entryLocation = (entryLocation == 0) ? (hashMapSize - 1) : (entryLocation - 1);
-    }
+    // else if (prevEntryLocation < curEntryLocation)
+    // {
+    //   entryLocation = (entryLocation == 0) ? (spatialHashSize - 1) : (entryLocation - 1);
+    // }
     else 
     {
       ++entryLocation;
-      if (entryLocation == hashMapSize)
+      if (entryLocation == spatialHashSize)
         entryLocation = 0;
     }
 
-    entry = prevEntry;
+    entry = max(entry, prevEntry);
   }
 }

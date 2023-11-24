@@ -26,5 +26,5 @@ void main() {
   
   gl_Position = globals.projection * globals.view * vec4(worldPos, 1.0);
 
-  color = vec3(0.4, 0.1, 0.9);
+  color = particle.debug == 1 ? vec3(1.0, 0.0, 0.0) : vec3(0.4, 0.1, 0.9);
 }

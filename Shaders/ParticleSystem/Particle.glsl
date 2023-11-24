@@ -4,8 +4,8 @@
 struct Particle {
   vec4 position;
   vec4 velocity;
-  uint gridCellHash;
   float radius;
+  uint debug;
   uint padding[2];
 };
 
