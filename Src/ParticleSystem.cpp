@@ -121,6 +121,9 @@ void ParticleSystem::initGame(Application& app) {
             }
           }
         }
+
+        vkDeviceWaitIdle(app.getDevice());
+        that->_resetParticles();
       });
 
   input.addMousePositionCallback(
@@ -180,7 +183,10 @@ void ParticleSystem::destroyRenderState(Application& app) {
 }
 
 void ParticleSystem::tick(Application& app, const FrameContext& frame) {
-  this->_pCameraController->tick(frame.deltaTime);
+  // Use fixed delta time
+  float deltaTime = 1.0f / 60.0f;
+
+  this->_pCameraController->tick(deltaTime);
   const Camera& camera = this->_pCameraController->getCamera();
 
   const glm::mat4& projection = camera.getProjection();
@@ -213,18 +219,19 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   this->_pointLights.updateResource(frame);
 
   SimUniforms simUniforms{};
-  simUniforms.gridToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
+  simUniforms.gridToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(0.05f));
+  simUniforms.gridToWorld[3] = glm::vec4(-100.0f, -100.0f, -100.0f, 1.0f);
   simUniforms.worldToGrid = glm::inverse(simUniforms.gridToWorld);
 
-  simUniforms.xCells = 200;
-  simUniforms.yCells = 200;
-  simUniforms.zCells = 200;
+  simUniforms.xCells = 100;
+  simUniforms.yCells = 100;
+  simUniforms.zCells = 100;
 
   simUniforms.particleCount = this->_particleBuffer.getCount();
   simUniforms.spatialHashSize = this->_particleToCellBuffer.getCount();
-  simUniforms.spatialHashProbeSteps = 30;
+  simUniforms.spatialHashProbeSteps = 40;
 
-  simUniforms.deltaTime = frame.deltaTime;
+  simUniforms.deltaTime = deltaTime;
 
   this->_simUniforms.updateUniforms(simUniforms, frame);
 }
@@ -232,6 +239,29 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
 void ParticleSystem::_createModels(
     Application& /*app*/,
     SingleTimeCommandBuffer& /*commandBuffer*/) {}
+
+void ParticleSystem::_resetParticles() {
+  for (uint32_t i = 0; i < this->_particleBuffer.getCount(); ++i) {
+    glm::vec3 position =
+        0.005f * glm::vec3(rand() % 1000, rand() % 1000, rand() % 1000);
+    this->_particleBuffer.setElement(
+        Particle{// position
+                 position,
+                 // radius
+                 0.049f,
+                 // velocity
+                 glm::vec3(0.0f),
+                 // padding
+                 0,
+                 // next position
+                 position,
+                 // debug value
+                 0},
+        i);
+  }
+
+  this->_particleBuffer.upload();
+}
 
 void ParticleSystem::_createGlobalResources(
     Application& app,
@@ -343,24 +373,9 @@ void ParticleSystem::_createSimResources(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
   // TODO: Create particle count constant
-  uint32_t particleCount = 50000;
+  uint32_t particleCount = 10000; // 64000;
   this->_particleBuffer = StructuredBuffer<Particle>(app, particleCount);
-  for (uint32_t i = 0; i < particleCount; ++i) {
-    this->_particleBuffer.setElement(
-        Particle{
-            0.01f * glm::vec4(
-                rand() % 1000,
-                rand() % 1000,
-                rand() % 1000,
-                0.0f),
-            glm::vec4(0.0f),
-            0.049f, // radius
-            0,
-            {}},
-        i);
-  }
-
-  this->_particleBuffer.upload();
+  this->_resetParticles();
 
   // Need transfer bit for vkCmdFillBuffer
   this->_particleToCellBuffer = StructuredBuffer<uint32_t>(
@@ -470,6 +485,24 @@ void ParticleSystem::_createForwardPass(Application& app) {
             GProjectDirectory + "/Shaders/ParticleSystem/Particles.frag")
         .layoutBuilder.addDescriptorSet(this->_pGlobalResources->getLayout())
         .addDescriptorSet(this->_pSimResources->getLayout());
+  }
+
+  // Render floor
+  {
+    SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
+    // The GBuffer contains the following color attachments
+    // 1. Position
+    // 2. Normal
+    // 3. Albedo
+    // 4. Metallic-Roughness-Occlusion
+    subpassBuilder.colorAttachments = {0, 1, 2, 3};
+    subpassBuilder.depthAttachment = 4;
+
+    subpassBuilder.pipelineBuilder.setPrimitiveType(PrimitiveType::TRIANGLES)
+        .setCullMode(VK_CULL_MODE_FRONT_BIT)
+        .addVertexShader(GEngineDirectory + "/Shaders/Misc/FullScreenQuad.vert")
+        .addFragmentShader(GEngineDirectory + "/Shaders/Misc/Floor.frag")
+        .layoutBuilder.addDescriptorSet(this->_pGlobalResources->getLayout());
   }
 
   std::vector<Attachment> attachments =
@@ -711,6 +744,7 @@ void ParticleSystem::draw(
         globalDescriptorSet,
         this->_pSimResources->getCurrentDescriptorSet(frame)};
 
+    // Draw instanced particles
     pass.nextSubpass();
     pass.setGlobalDescriptorSets(gsl::span(sets, 2));
     pass.getDrawContext().bindDescriptorSets();
@@ -719,6 +753,12 @@ void ParticleSystem::draw(
     pass.getDrawContext().drawIndexed(
         this->_sphereIndices.getIndexCount(),
         this->_particleBuffer.getCount());
+
+    // Draw floor
+    pass.nextSubpass();
+    pass.setGlobalDescriptorSets(gsl::span(sets, 1));
+    pass.getDrawContext().bindDescriptorSets();
+    pass.getDrawContext().draw(3);
   }
 
   this->_gBufferResources.transitionToTextures(commandBuffer);

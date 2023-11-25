@@ -2,11 +2,12 @@
 #define _PARTICLE_
 
 struct Particle {
-  vec4 position;
-  vec4 velocity;
+  vec3 position;
   float radius;
+  vec3 velocity;
+  uint padding;
+  vec3 nextPosition;
   uint debug;
-  uint padding[2];
 };
 
 #endif // _PARTICLE_

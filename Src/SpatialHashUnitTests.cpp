@@ -10,7 +10,7 @@ namespace ParticleSystem {
 #define PARTICLE_IDX_MASK 0x0000FFFF
 
 static uint32_t hashCoords(int x, int y, int z) {
-  return glm::abs((x * 92837111) ^ (y * 689287499) ^ (z * 283923481));
+  return static_cast<uint32_t>(glm::abs((x * 92837111) ^ (y * 689287499) ^ (z * 283923481))) << 16;
 }
 
 static uint32_t findSlot(
@@ -20,8 +20,7 @@ static uint32_t findSlot(
     uint32_t particleIdx) {
   const Particle& particle = particles[particleIdx];
 
-  glm::vec4 worldPos = particle.position;
-  worldPos.w = 1.0f;
+  glm::vec4 worldPos = glm::vec4(particle.position, 1.0f);
   glm::vec3 gridPos(simUniforms.worldToGrid * worldPos);
   glm::uvec3 cell(glm::floor(gridPos));
   

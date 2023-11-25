@@ -45,15 +45,26 @@ void main() {
 
   // Clear any debug flags for this frame
   particle.debug = 0;
+
+  particle.velocity = (particle.nextPosition - particle.position) / deltaTime; // TODO: overwrite velocity
+  particle.position = particle.nextPosition;
   
-  vec3 acceleration = vec3(0.0, -0.1, 0.0);
+  vec3 acceleration = vec3(0.0, -0.5, 0.0);
   particle.velocity.xyz += acceleration * deltaTime;
-  particle.position.xyz += particle.velocity.xyz * deltaTime;
+  particle.nextPosition.xyz += particle.velocity.xyz * deltaTime;
 
-  vec3 gridPos = (worldToGrid * vec4(particle.position.xyz, 1.0)).xyz;
-  gridPos = clamp(gridPos, vec3(0.0), vec3(xCells, yCells, zCells));
+  if (particle.nextPosition.y <= particle.radius)
+  {
+    particle.nextPosition.y = particle.radius + 0.1 * (particle.radius - particle.nextPosition.y);
+    // apply ground friction TODO (mult by dt or not?)
+    particle.nextPosition.xz -= 0.1 * particle.velocity.xz * deltaTime; 
+  }
 
-  particle.position.xyz = (gridToWorld * vec4(gridPos, 1.0)).xyz;
+  vec3 gridPos = (worldToGrid * vec4(particle.nextPosition, 1.0)).xyz;
+  // gridPos = clamp(gridPos, vec3(0.0), vec3(xCells, yCells, zCells));
+
+  // particle.nextPosition = (gridToWorld * vec4(gridPos, 1.0)).xyz;
+  // particle.nextPosition = particle.position;
   
   // if (gridCell.x < 0 || gridCell.x >= xCells ||
   //     gridCell.y < 0 || gridCell.y >= yCells ||

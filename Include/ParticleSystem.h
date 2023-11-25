@@ -46,11 +46,12 @@ struct GlobalUniforms {
 };
 
 struct Particle {
-  glm::vec4 position;
-  glm::vec4 velocity;
-  float radius;
-  uint32_t debug;
-  uint32_t padding[2];
+  alignas(16) glm::vec3 position;
+  alignas(4) float radius;
+  alignas(16) glm::vec3 velocity;
+  alignas(4) uint32_t padding;
+  alignas(16) glm::vec3 nextPosition;
+  alignas(4) uint32_t debug;
 };
 
 // TODO: Determine alignment / padding
@@ -94,6 +95,8 @@ private:
 
   std::unique_ptr<CameraController> _pCameraController;
 
+  void _resetParticles();
+  
   void _createGlobalResources(
       Application& app,
       SingleTimeCommandBuffer& commandBuffer);
