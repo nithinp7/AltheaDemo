@@ -413,9 +413,6 @@ void ParticleSystem::_createSimResources(
           false);
 
   ShaderDefines shaderDefs{};
-  shaderDefs.emplace("BALL_COLLISIONS", "");
-  // shaderDefs.emplace("SPH", "");
-  // matBuilder.addUniformBufferBinding
   {
     ComputePipelineBuilder builder;
     builder.setComputeShader(

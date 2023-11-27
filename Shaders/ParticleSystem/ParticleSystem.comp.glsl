@@ -50,7 +50,7 @@ void main() {
   float wallRestitution = 0.1;
   float wallFriction = 0.1;
 
-  float gridLength = 5.0;
+  float gridLength = 10;//5.0;
   float minPos = particle.radius;
   float maxPos = gridLength - particle.radius;
   for (int i = 0; i < 3; ++i)
@@ -80,8 +80,6 @@ void main() {
 
   uint entryLocation = (gridCellHash >> 16) % spatialHashSize;
   uint entry = (gridCellHash & CELL_HASH_MASK) | (particleIdx & PARTICLE_IDX_MASK);
-  // TODO: This is a HACK
-  // uint entry = (entryLocation << 16) | (particleIdx & PARTICLE_IDX_MASK);
   
   // TODO: Cleanup the documentation here
   // there is an "entryLocation" which acts as the _actual_ insertion slot

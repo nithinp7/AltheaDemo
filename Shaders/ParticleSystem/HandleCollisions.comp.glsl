@@ -56,7 +56,6 @@ void checkPair(inout Particle particle, uint otherParticleIdx)
     else 
       diff /= dist;
 
-#ifdef BALL_COLLISIONS
     // Reflect the portion of the velocity going towards the collision
     // relative velocity
     vec3 dv = other.velocity - particle.velocity;
@@ -67,16 +66,10 @@ void checkPair(inout Particle particle, uint otherParticleIdx)
     float friction = 0.1;
 
     particle.nextPosition += restitution * diff * max(projection, 0.0) * deltaTime;
-    particle.nextPosition.xyz += sep * diff * 0.05; 
+    particle.nextPosition += sep * diff * 0.05; 
 
     // friction
     particle.nextPosition += friction * rejection * deltaTime;
-#endif
-
-#ifdef SPH
-    float mass = 1.0; // fixed for now
-    particle.density += mass * gaussianKernel(dist, particle.radius);
-#endif
   }
 }
 
@@ -89,19 +82,14 @@ void main() {
   Particle particle = particles[particleIdx];
   
   vec3 gridPos = (worldToGrid * vec4(particle.position.xyz, 1.0)).xyz;
-  //gridPos = clamp(gridPos, vec3(0.0), vec3(xCells, yCells, zCells));
 
   ivec3 gridCell = ivec3(floor(gridPos));
 
-  // for (int i = max(gridCell.x - 1, 0); i < min(gridCell.x + 1, xCells); ++i) {
-  //   for (int j = max(gridCell.y - 1, 0); j < min(gridCell.y + 1, yCells); ++j) {
-  //     for (int k = max(gridCell.z - 1, 0); k < min(gridCell.z + 1, zCells); ++k) { 
   for (int i = gridCell.x - 1; i < (gridCell.x + 1); ++i) {
     for (int j = gridCell.y - 1; j < (gridCell.y + 1); ++j) {
       for (int k = gridCell.z - 1; k < (gridCell.z + 1); ++k) {
         uint gridCellHash = hashCoords(i, j, k);
-        uint entryLocation = (gridCellHash >> 16) % spatialHashSize; 
-        // gridCellHash = entryLocation << 16; // HACK
+        uint entryLocation = (gridCellHash >> 16) % spatialHashSize;
 
         bool foundFirst = false;
         for (uint probeStep = 0; probeStep < spatialHashProbeSteps; ++probeStep) {
