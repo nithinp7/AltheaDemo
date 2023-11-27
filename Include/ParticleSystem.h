@@ -47,7 +47,7 @@ struct GlobalUniforms {
 
 struct Particle {
   alignas(16) glm::vec3 position;
-  alignas(4) float radius;
+  alignas(4) uint32_t padding;
   alignas(16) glm::vec3 velocity;
   alignas(4) uint32_t nextParticleLink;
   alignas(16) glm::vec3 nextPosition;
@@ -63,8 +63,12 @@ struct SimUniforms {
   uint32_t particleCount;
   uint32_t spatialHashSize;
   uint32_t spatialHashProbeSteps;
+  uint32_t collisionSteps;
 
   float deltaTime;
+  float particleRadius;
+  float detectionRadius;
+  float padding;
 };
 
 class ParticleSystem : public IGameInstance {

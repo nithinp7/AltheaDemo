@@ -3,7 +3,7 @@
 
 struct Particle {
   vec3 position;
-  float radius;
+  uint padding;
   vec3 velocity;
   uint nextParticleLink;
   vec3 nextPosition;

@@ -9,18 +9,7 @@ layout(local_size_x = 32) in;
 
 #include "Hash.glsl"
 #include "Particle.glsl"
-
-// TODO: Move to separate file
-layout(set=0, binding=0) uniform SimUniforms {
-  mat4 gridToWorld;
-  mat4 worldToGrid;
-  
-  uint particleCount;
-  uint spatialHashSize;
-  uint spatialHashProbeSteps;
-
-  float deltaTime;
-};
+#include "SimUniforms.glsl"
 
 layout(std430, set=0, binding=1) buffer PARTICLES_BUFFER {
   Particle particles[];
@@ -39,6 +28,7 @@ void main() {
   Particle particle = particles[particleIdx];
 
   particle.nextParticleLink = INVALID_INDEX;
+
   // Clear any debug flags for this frame
   particle.debug = 0;
 
@@ -58,38 +48,6 @@ void main() {
 
   particle.nextPosition += particle.velocity * deltaTime;
 
-  float wallRestitution = 0.1;
-  float wallFriction = 0.1;
-  float wallBias = 0.05;
-
-  float gridLength = 100.0;
-  float minPos = particle.radius;
-  float maxPos = gridLength - particle.radius;
-  for (int i = 0; i < 3; ++i)
-  {
-    if (particle.nextPosition[i] <= minPos)
-    {
-      // bias
-      particle.nextPosition[i] += wallBias * (minPos - particle.nextPosition[i]);
-      // restitution
-      particle.nextPosition[i] -= wallRestitution * min(particle.velocity[i], 0.0) * deltaTime;
-      // friction
-      particle.nextPosition[(i+1)%3] -= wallFriction * particle.velocity[(i+1)%3] * deltaTime;
-      particle.nextPosition[(i+2)%3] -= wallFriction * particle.velocity[(i+2)%3] * deltaTime;
-    }  
-
-    if (particle.nextPosition[i] >= maxPos)
-    {
-      // bias
-      particle.nextPosition[i] -= wallBias * (particle.nextPosition[i] - maxPos);
-      // restitution
-      particle.nextPosition[i] -= wallRestitution * max(particle.velocity[i], 0.0) * deltaTime;
-      // friction
-      particle.nextPosition[(i+1)%3] -= wallFriction * particle.velocity[(i+1)%3] * deltaTime;
-      particle.nextPosition[(i+2)%3] -= wallFriction * particle.velocity[(i+2)%3] * deltaTime;
-    }
-  }
- 
   vec3 gridPos = (worldToGrid * vec4(particle.position, 1.0)).xyz;
   ivec3 gridCell = ivec3(floor(gridPos));
   uint gridCellHash = hashCoords(gridCell.x, gridCell.y, gridCell.z);

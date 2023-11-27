@@ -90,7 +90,8 @@ void ParticleSystem::initGame(Application& app) {
 
         if (that->_collisionsPass.recompileStaleShaders()) {
           if (that->_collisionsPass.hasShaderRecompileErrors()) {
-            std::cout << that->_collisionsPass.getShaderRecompileErrors() << "\n";
+            std::cout << that->_collisionsPass.getShaderRecompileErrors()
+                      << "\n";
           } else {
             that->_collisionsPass.recreatePipeline(app);
           }
@@ -231,15 +232,19 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   // TODO: Just use spacing scale param??
   // can assume grid is world axis aligned and uniformly scaled on each dim
   // don't care how many cells there are, due to spatial hash
-  simUniforms.gridToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(0.05f));
+  simUniforms.gridToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
+  // simUniforms.gridToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(0.05f));
   // simUniforms.gridToWorld[3] = glm::vec4(-100.0f, -100.0f, -100.0f, 1.0f);
   simUniforms.worldToGrid = glm::inverse(simUniforms.gridToWorld);
 
   simUniforms.particleCount = this->_particleBuffer.getCount();
   simUniforms.spatialHashSize = this->_cellToBucket.getCount();
   simUniforms.spatialHashProbeSteps = 20; // TODO: Reduce this count now...
+  simUniforms.collisionSteps = 10;        // TODO: ??
 
   simUniforms.deltaTime = deltaTime;
+  simUniforms.particleRadius = 0.049f;
+  simUniforms.detectionRadius = 0.049f; // TODO: Separate these two?
 
   this->_simUniforms.updateUniforms(simUniforms, frame);
 }
@@ -256,11 +261,11 @@ void ParticleSystem::_resetParticles() {
     this->_particleBuffer.setElement(
         Particle{// position
                  position,
-                 // radius
-                 0.049f,
+                 // padding
+                 0,
                  // velocity
                  glm::vec3(0.0f),
-                 // padding
+                 // next particle in particle bucket linked-list
                  0,
                  // next position
                  position,
@@ -381,8 +386,9 @@ void ParticleSystem::_createGlobalResources(
 void ParticleSystem::_createSimResources(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
-  // TODO: Create particle count constant
+  // TODO: need to optimize to push particle count :)
   uint32_t particleCount = 64000;
+  // uint32_t particleCount = 10000;// 64000;
   this->_particleBuffer = StructuredBuffer<Particle>(app, particleCount);
   this->_resetParticles();
 
@@ -495,7 +501,9 @@ void ParticleSystem::_createForwardPass(Application& app) {
         .addFragmentShader(
             GProjectDirectory + "/Shaders/ParticleSystem/Particles.frag")
         .layoutBuilder.addDescriptorSet(this->_pGlobalResources->getLayout())
-        .addDescriptorSet(this->_pSimResources->getLayout());
+        .addDescriptorSet(this->_pSimResources->getLayout())
+        // we will send the particle radius as a push constant
+        .addPushConstants<float>(VK_SHADER_STAGE_VERTEX_BIT);
   }
 
   // Render floor
@@ -673,8 +681,7 @@ void ParticleSystem::draw(
         VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
 
     barriers[1].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
-    barriers[1].buffer =
-        this->_cellToBucket.getAllocation().getBuffer();
+    barriers[1].buffer = this->_cellToBucket.getAllocation().getBuffer();
     barriers[1].offset = 0;
     barriers[1].size = this->_cellToBucket.getSize();
     barriers[1].srcAccessMask =
@@ -761,6 +768,9 @@ void ParticleSystem::draw(
     pass.getDrawContext().bindDescriptorSets();
     pass.getDrawContext().bindIndexBuffer(this->_sphereIndices);
     pass.getDrawContext().bindVertexBuffer(this->_sphereVertices);
+    pass.getDrawContext().updatePushConstants<float>(
+        this->_simUniforms.getUniformBuffers()[0].getUniforms().particleRadius,
+        0);
     pass.getDrawContext().drawIndexed(
         this->_sphereIndices.getIndexCount(),
         this->_particleBuffer.getCount());
