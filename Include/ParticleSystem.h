@@ -49,7 +49,7 @@ struct Particle {
   alignas(16) glm::vec3 position;
   alignas(4) float radius;
   alignas(16) glm::vec3 velocity;
-  alignas(4) float density;
+  alignas(4) uint32_t nextParticleLink;
   alignas(16) glm::vec3 nextPosition;
   alignas(4) uint32_t debug;
 };
@@ -107,8 +107,8 @@ private:
   ComputePipeline _collisionsPass;
   TransientUniforms<SimUniforms> _simUniforms;
   StructuredBuffer<Particle> _particleBuffer;
-  // maps particle idx to cell idx
-  StructuredBuffer<uint32_t> _particleToCellBuffer;
+  // hashmap from grid cell to particle bucket (head particle of linked list)
+  StructuredBuffer<uint32_t> _cellToBucket;
   VertexBuffer<glm::vec3> _sphereVertices;
   IndexBuffer _sphereIndices;
   

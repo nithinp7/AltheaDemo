@@ -54,7 +54,7 @@ void ParticleSystem::initGame(Application& app) {
         that->_particleBuffer.download(particles);
 
         std::vector<uint32_t> spatialHash;
-        that->_particleToCellBuffer.download(spatialHash);
+        that->_cellToBucket.download(spatialHash);
 
         SpatialHashUnitTests::runTests(
             that->_simUniforms.getUniformBuffers()[0].getUniforms(),
@@ -85,6 +85,14 @@ void ParticleSystem::initGame(Application& app) {
             std::cout << that->_simPass.getShaderRecompileErrors() << "\n";
           } else {
             that->_simPass.recreatePipeline(app);
+          }
+        }
+
+        if (that->_collisionsPass.recompileStaleShaders()) {
+          if (that->_collisionsPass.hasShaderRecompileErrors()) {
+            std::cout << that->_collisionsPass.getShaderRecompileErrors() << "\n";
+          } else {
+            that->_collisionsPass.recreatePipeline(app);
           }
         }
 
@@ -164,7 +172,7 @@ void ParticleSystem::destroyRenderState(Application& app) {
   this->_collisionsPass = {};
   this->_simUniforms = {};
   this->_particleBuffer = {};
-  this->_particleToCellBuffer = {};
+  this->_cellToBucket = {};
   this->_sphereVertices = {};
   this->_sphereIndices = {};
 
@@ -228,8 +236,8 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   simUniforms.worldToGrid = glm::inverse(simUniforms.gridToWorld);
 
   simUniforms.particleCount = this->_particleBuffer.getCount();
-  simUniforms.spatialHashSize = this->_particleToCellBuffer.getCount();
-  simUniforms.spatialHashProbeSteps = 40;
+  simUniforms.spatialHashSize = this->_cellToBucket.getCount();
+  simUniforms.spatialHashProbeSteps = 20; // TODO: Reduce this count now...
 
   simUniforms.deltaTime = deltaTime;
 
@@ -374,14 +382,14 @@ void ParticleSystem::_createSimResources(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
   // TODO: Create particle count constant
-  uint32_t particleCount = 10000; // 64000;
+  uint32_t particleCount = 64000;
   this->_particleBuffer = StructuredBuffer<Particle>(app, particleCount);
   this->_resetParticles();
 
   // Need transfer bit for vkCmdFillBuffer
-  this->_particleToCellBuffer = StructuredBuffer<uint32_t>(
+  this->_cellToBucket = StructuredBuffer<uint32_t>(
       app,
-      4 * particleCount,
+      2 * particleCount, // TODO: Can make this smaller now??
       VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
   ShapeUtilities::createSphere(
@@ -408,8 +416,8 @@ void ParticleSystem::_createSimResources(
           this->_particleBuffer.getSize(),
           false)
       .bindStorageBuffer(
-          this->_particleToCellBuffer.getAllocation(),
-          this->_particleToCellBuffer.getSize(),
+          this->_cellToBucket.getAllocation(),
+          this->_cellToBucket.getSize(),
           false);
 
   ShaderDefines shaderDefs{};
@@ -610,16 +618,16 @@ void ParticleSystem::draw(
 
   vkCmdFillBuffer(
       commandBuffer,
-      this->_particleToCellBuffer.getAllocation().getBuffer(),
+      this->_cellToBucket.getAllocation().getBuffer(),
       0,
-      this->_particleToCellBuffer.getSize(),
+      this->_cellToBucket.getSize(),
       0xFFFFFFFF);
 
   {
     VkBufferMemoryBarrier barrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-    barrier.buffer = this->_particleToCellBuffer.getAllocation().getBuffer();
+    barrier.buffer = this->_cellToBucket.getAllocation().getBuffer();
     barrier.offset = 0;
-    barrier.size = this->_particleToCellBuffer.getSize();
+    barrier.size = this->_cellToBucket.getSize();
     barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
     barrier.dstAccessMask =
         VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
@@ -666,9 +674,9 @@ void ParticleSystem::draw(
 
     barriers[1].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
     barriers[1].buffer =
-        this->_particleToCellBuffer.getAllocation().getBuffer();
+        this->_cellToBucket.getAllocation().getBuffer();
     barriers[1].offset = 0;
-    barriers[1].size = this->_particleToCellBuffer.getSize();
+    barriers[1].size = this->_cellToBucket.getSize();
     barriers[1].srcAccessMask =
         VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
     barriers[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;

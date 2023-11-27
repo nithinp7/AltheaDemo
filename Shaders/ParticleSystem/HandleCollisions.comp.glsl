@@ -5,6 +5,7 @@
 
 #define CELL_HASH_MASK 0xFFFF0000
 #define PARTICLE_IDX_MASK 0x0000FFFF
+#define INVALID_INDEX 0xFFFFFFFF
 
 layout(local_size_x = 32) in;
 
@@ -27,24 +28,12 @@ layout(std430, set=0, binding=1) buffer PARTICLES_BUFFER {
   Particle particles[];
 };
 
-layout(std430, set=0, binding=2) buffer readonly PARTICLE_TO_CELL_BUFFER {
-  uint particleToCell[];
+layout(std430, set=0, binding=2) buffer readonly CELL_TO_BUCKET_BUFFER {
+  uint cellToBucket[];
 };
 
-float gaussianKernel(float d, float h) {
-  float d2 = d * d;
-
-  float h2 = h * h;
-  float h3 = h * h2;
-
-  // TODO: simplify / precompute
-  return 1.0 / pow(PI, 2.0/3.0) / h3 * exp(d2 / h2);
-}
-
-void checkPair(inout Particle particle, uint otherParticleIdx)
+void checkPair(inout Particle particle, Particle other)
 {
-  Particle other = particles[otherParticleIdx];
-
   vec3 diff = other.position.xyz - particle.position.xyz;
   float dist = length(diff);
   float sep = dist - other.radius - particle.radius;
@@ -62,14 +51,69 @@ void checkPair(inout Particle particle, uint otherParticleIdx)
     float projection = dot(dv, diff);
     vec3 rejection = dv - diff * projection;
 
-    float restitution = 0.2;
+    float restitution = 0.1;
     float friction = 0.1;
+    float bias = 0.02;
 
     particle.nextPosition += restitution * diff * max(projection, 0.0) * deltaTime;
-    particle.nextPosition += sep * diff * 0.05; 
+    particle.nextPosition += bias * sep * diff;
 
     // friction
     particle.nextPosition += friction * rejection * deltaTime;
+    // adhesion ??
+    // particle.nextPosition += friction * dv * deltaTime;
+  }
+}
+
+void checkBucket(inout Particle particle, uint particleIdx, uint nextParticleIdx)
+{
+  for (int i = 0; i < 16; ++i)
+  {
+    if (nextParticleIdx == INVALID_INDEX)
+    {
+      // At the end of the linked-list
+      return;
+    }
+
+    if (particleIdx == nextParticleIdx)
+    {
+      // Skip the current particle
+      nextParticleIdx = particle.nextParticleLink;
+      continue;
+    }
+
+    // Check any valid particle pairs in the bucket
+    Particle other = particles[nextParticleIdx];
+    checkPair(particle, other);
+  }
+}
+
+void checkGridCell(inout Particle particle, uint particleIdx, int i, int j, int k)
+{
+  uint gridCellHash = hashCoords(i, j, k);
+  uint entryLocation = (gridCellHash >> 16) % spatialHashSize;
+
+  for (uint probeStep = 0; probeStep < spatialHashProbeSteps; ++probeStep) {
+    uint entry = cellToBucket[entryLocation];
+
+    if (entry == INVALID_INDEX)
+    {
+      // Break if we hit an empty slot, this should not happen
+      break;
+    }
+
+    if ((entry & CELL_HASH_MASK) == (gridCellHash & CELL_HASH_MASK)) {
+      // If we found an entry corresponding to this cell, check the bucket
+      // for potentially colliding pairs
+      uint headParticleIdx = entry & PARTICLE_IDX_MASK;
+      checkBucket(particle, particleIdx, headParticleIdx);
+      break;
+    }
+
+    // Otherwise continue the linear probe of the hashmap
+    ++entryLocation;
+    if (entryLocation == spatialHashSize)
+      entryLocation = 0;
   }
 }
 
@@ -82,40 +126,15 @@ void main() {
   Particle particle = particles[particleIdx];
   
   vec3 gridPos = (worldToGrid * vec4(particle.position.xyz, 1.0)).xyz;
-
   ivec3 gridCell = ivec3(floor(gridPos));
 
+  // The grid cell size is setup so that a particle could be colliding with
+  // other particles from any of the 27 cells immediately surrounding it, so
+  // check each one for potential collisions.
   for (int i = gridCell.x - 1; i < (gridCell.x + 1); ++i) {
     for (int j = gridCell.y - 1; j < (gridCell.y + 1); ++j) {
       for (int k = gridCell.z - 1; k < (gridCell.z + 1); ++k) {
-        uint gridCellHash = hashCoords(i, j, k);
-        uint entryLocation = (gridCellHash >> 16) % spatialHashSize;
-
-        bool foundFirst = false;
-        for (uint probeStep = 0; probeStep < spatialHashProbeSteps; ++probeStep) {
-          uint entry = particleToCell[entryLocation];
-
-          // Break if we hit a key that is not the one we are looking for, this includes
-          // running into an empty slot
-          if (entry == 0xFFFFFFFF)
-            break;
-
-          if ((entry & CELL_HASH_MASK) == (gridCellHash & CELL_HASH_MASK)) {
-            foundFirst = true;
-            ++entryLocation;
-            if (entryLocation == spatialHashSize)
-              entryLocation = 0;
-
-            uint otherParticleIdx = entry & PARTICLE_IDX_MASK;
-            if (particleIdx != otherParticleIdx)
-              checkPair(particle, otherParticleIdx);
-          } else /*if (foundFirst)*/ {
-            // If we already found a particle with the desired key, the rest of the particles with 
-            // the same key should be in contiguous slots
-            // break;
-            ++entryLocation;
-          }
-        }
+        checkGridCell(particle, particleIdx, i, j, k);
       }
     }
   }

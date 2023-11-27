@@ -5,7 +5,7 @@ struct Particle {
   vec3 position;
   float radius;
   vec3 velocity;
-  float density;
+  uint nextParticleLink;
   vec3 nextPosition;
   uint debug;
 };
