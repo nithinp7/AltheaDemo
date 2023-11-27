@@ -49,7 +49,7 @@ struct Particle {
   alignas(16) glm::vec3 position;
   alignas(4) float radius;
   alignas(16) glm::vec3 velocity;
-  alignas(4) uint32_t padding;
+  alignas(4) float density;
   alignas(16) glm::vec3 nextPosition;
   alignas(4) uint32_t debug;
 };
@@ -60,17 +60,11 @@ struct SimUniforms {
   glm::mat4 gridToWorld;
   glm::mat4 worldToGrid;
   
-  uint32_t xCells;
-  uint32_t yCells;
-  uint32_t zCells;
-
   uint32_t particleCount;
   uint32_t spatialHashSize;
   uint32_t spatialHashProbeSteps;
 
   float deltaTime;
-
-  float padding;
 };
 
 class ParticleSystem : public IGameInstance {

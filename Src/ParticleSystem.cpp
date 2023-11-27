@@ -219,13 +219,13 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   this->_pointLights.updateResource(frame);
 
   SimUniforms simUniforms{};
-  simUniforms.gridToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(0.05f));
-  simUniforms.gridToWorld[3] = glm::vec4(-100.0f, -100.0f, -100.0f, 1.0f);
-  simUniforms.worldToGrid = glm::inverse(simUniforms.gridToWorld);
 
-  simUniforms.xCells = 100;
-  simUniforms.yCells = 100;
-  simUniforms.zCells = 100;
+  // TODO: Just use spacing scale param??
+  // can assume grid is world axis aligned and uniformly scaled on each dim
+  // don't care how many cells there are, due to spatial hash
+  simUniforms.gridToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(0.05f));
+  // simUniforms.gridToWorld[3] = glm::vec4(-100.0f, -100.0f, -100.0f, 1.0f);
+  simUniforms.worldToGrid = glm::inverse(simUniforms.gridToWorld);
 
   simUniforms.particleCount = this->_particleBuffer.getCount();
   simUniforms.spatialHashSize = this->_particleToCellBuffer.getCount();
@@ -243,7 +243,8 @@ void ParticleSystem::_createModels(
 void ParticleSystem::_resetParticles() {
   for (uint32_t i = 0; i < this->_particleBuffer.getCount(); ++i) {
     glm::vec3 position =
-        0.005f * glm::vec3(rand() % 1000, rand() % 1000, rand() % 1000);
+        0.01f * glm::vec3(rand() % 1000, rand() % 1000, rand() % 1000);
+    // position += glm::vec3(10.0f);
     this->_particleBuffer.setElement(
         Particle{// position
                  position,
@@ -411,11 +412,15 @@ void ParticleSystem::_createSimResources(
           this->_particleToCellBuffer.getSize(),
           false);
 
+  ShaderDefines shaderDefs{};
+  shaderDefs.emplace("BALL_COLLISIONS", "");
+  // shaderDefs.emplace("SPH", "");
   // matBuilder.addUniformBufferBinding
   {
     ComputePipelineBuilder builder;
     builder.setComputeShader(
-        GProjectDirectory + "/Shaders/ParticleSystem/ParticleSystem.comp.glsl");
+        GProjectDirectory + "/Shaders/ParticleSystem/ParticleSystem.comp.glsl",
+        shaderDefs);
     builder.layoutBuilder.addDescriptorSet(this->_pSimResources->getLayout());
 
     this->_simPass = ComputePipeline(app, std::move(builder));
@@ -425,7 +430,8 @@ void ParticleSystem::_createSimResources(
     ComputePipelineBuilder builder;
     builder.setComputeShader(
         GProjectDirectory +
-        "/Shaders/ParticleSystem/HandleCollisions.comp.glsl");
+            "/Shaders/ParticleSystem/HandleCollisions.comp.glsl",
+        shaderDefs);
     builder.layoutBuilder.addDescriptorSet(this->_pSimResources->getLayout());
 
     this->_collisionsPass = ComputePipeline(app, std::move(builder));

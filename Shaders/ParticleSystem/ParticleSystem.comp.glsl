@@ -14,17 +14,11 @@ layout(set=0, binding=0) uniform SimUniforms {
   mat4 gridToWorld;
   mat4 worldToGrid;
   
-  uint xCells;
-  uint yCells;
-  uint zCells;
-
   uint particleCount;
   uint spatialHashSize;
   uint spatialHashProbeSteps;
 
   float deltaTime;
-
-  float padding;
 };
 
 layout(std430, set=0, binding=1) buffer PARTICLES_BUFFER {
@@ -49,29 +43,36 @@ void main() {
   particle.velocity = (particle.nextPosition - particle.position) / deltaTime; // TODO: overwrite velocity
   particle.position = particle.nextPosition;
   
-  vec3 acceleration = vec3(0.0, -0.5, 0.0);
+  vec3 acceleration = vec3(0.0, -5.0, 0.0);
   particle.velocity.xyz += acceleration * deltaTime;
   particle.nextPosition.xyz += particle.velocity.xyz * deltaTime;
 
-  if (particle.nextPosition.y <= particle.radius)
+  float wallRestitution = 0.1;
+  float wallFriction = 0.1;
+
+  float gridLength = 5.0;
+  float minPos = particle.radius;
+  float maxPos = gridLength - particle.radius;
+  for (int i = 0; i < 3; ++i)
   {
-    particle.nextPosition.y = particle.radius + 0.1 * (particle.radius - particle.nextPosition.y);
-    // apply ground friction TODO (mult by dt or not?)
-    particle.nextPosition.xz -= 0.1 * particle.velocity.xz * deltaTime; 
+    if (particle.nextPosition[i] <= minPos)
+    {
+      particle.nextPosition[i] += 2.0 * wallRestitution * (minPos - particle.nextPosition[i]); 
+      // particle.nextPosition[i] = minPos + wallRestitution * (minPos - particle.nextPosition[i]); 
+      particle.nextPosition[(i+1)%3] -= wallFriction * particle.velocity[(i+1)%3] * deltaTime;
+      particle.nextPosition[(i+2)%3] -= wallFriction * particle.velocity[(i+2)%3] * deltaTime;
+    }  
+
+    if (particle.nextPosition[i] >= maxPos)
+    {
+      particle.nextPosition[i] -= 2.0 * wallRestitution * (particle.nextPosition[i] - maxPos);
+      // particle.nextPosition[i] = maxPos - wallRestitution * (particle.nextPosition[i] - maxPos);
+      particle.nextPosition[(i+1)%3] -= wallFriction * particle.velocity[(i+1)%3] * deltaTime;
+      particle.nextPosition[(i+2)%3] -= wallFriction * particle.velocity[(i+2)%3] * deltaTime;
+    }
   }
-
+ 
   vec3 gridPos = (worldToGrid * vec4(particle.nextPosition, 1.0)).xyz;
-  // gridPos = clamp(gridPos, vec3(0.0), vec3(xCells, yCells, zCells));
-
-  // particle.nextPosition = (gridToWorld * vec4(gridPos, 1.0)).xyz;
-  // particle.nextPosition = particle.position;
-  
-  // if (gridCell.x < 0 || gridCell.x >= xCells ||
-  //     gridCell.y < 0 || gridCell.y >= yCells ||
-  //     gridCell.z < 0 || gridCell.z >= zCells) {
-  //   return;
-  // }
-
   ivec3 gridCell = ivec3(floor(gridPos));
   uint gridCellHash = hashCoords(gridCell.x, gridCell.y, gridCell.z);
   
