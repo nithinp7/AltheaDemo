@@ -7,7 +7,7 @@
 #define PARTICLE_IDX_MASK 0x0000FFFF
 #define INVALID_INDEX 0xFFFFFFFF
 
-#define COLLISION_STEPS 1
+#define COLLISION_STEPS 10
 
 layout(local_size_x = 32) in;
 
@@ -42,7 +42,7 @@ void checkPair(inout Particle particle, Particle other)
     float projection = dot(dv, diff);
     vec3 rejection = dv - diff * projection;
 
-    float restitution = 0.01;
+    float restitution = 0.1;
     float friction = 0.1;
     float bias = 0.01;
     float k = 1.0 / float(COLLISION_STEPS);
@@ -185,17 +185,25 @@ void main() {
   Particle particle = particles[particleIdx];
   
   vec3 gridPos = (worldToGrid * vec4(particle.position.xyz, 1.0)).xyz;
-  ivec3 gridCell = ivec3(floor(gridPos));
+  vec3 gridCellF = floor(gridPos);
+  ivec3 gridCell = ivec3(gridCellF);
+  vec3 cellLocalPos = gridPos - gridCellF;
+  if (cellLocalPos.x < 0.5)
+    --gridCell.x;
+  if (cellLocalPos.y < 0.5)
+    --gridCell.y;
+  if (cellLocalPos.z < 0.5)
+    --gridCell.z;
 
   int gridCellCount = 0;
-  uint gridCellEntries[27];
+  uint gridCellEntries[8];
 
   // The grid cell size is setup so that a particle could be colliding with
-  // other particles from any of the 27 cells immediately surrounding it, so
+  // other particles from any of the 8 cells immediately surrounding it, so
   // check each one for potential collisions.
-  for (int i = gridCell.x - 1; i < (gridCell.x + 1); ++i) {
-    for (int j = gridCell.y - 1; j < (gridCell.y + 1); ++j) {
-      for (int k = gridCell.z - 1; k < (gridCell.z + 1); ++k) {
+  for (int i = gridCell.x; i <= (gridCell.x + 1); ++i) {
+    for (int j = gridCell.y; j <= (gridCell.y + 1); ++j) {
+      for (int k = gridCell.z; k <= (gridCell.z + 1); ++k) {
         uint entry = findGridCell(i, j, k);
         if (entry != INVALID_INDEX)
           gridCellEntries[gridCellCount++] = entry;
@@ -221,7 +229,7 @@ void main() {
     }
   }
 
-  // if (gridCellCount > 1)
+  // if (gridCellCount > 0)
   //   particle.debug = 2;
 
   particles[particleIdx] = particle;

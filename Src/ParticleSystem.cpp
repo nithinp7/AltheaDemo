@@ -398,11 +398,13 @@ void ParticleSystem::_createSimResources(
       2 * particleCount, // TODO: Can make this smaller now??
       VK_BUFFER_USAGE_TRANSFER_DST_BIT);
 
+  // TODO: Create LODs for particles
   ShapeUtilities::createSphere(
       app,
       commandBuffer,
       this->_sphereVertices,
-      this->_sphereIndices);
+      this->_sphereIndices,
+      10);
 
   this->_simUniforms = TransientUniforms<SimUniforms>(app);
 
