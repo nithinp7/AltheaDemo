@@ -28,6 +28,13 @@
 
 using namespace AltheaEngine;
 
+namespace {
+struct SolverPushConstants
+{
+  uint32_t phase;
+  uint32_t jacobiIters;
+};
+} // namespace
 namespace AltheaDemo {
 namespace ParticleSystem {
 
@@ -76,6 +83,14 @@ void ParticleSystem::initGame(Application& app) {
         input.setMouseCursorHidden(true);
       });
 
+  input.addKeyBinding(
+      {GLFW_KEY_P, GLFW_RELEASE, 0},
+      [that = this, &app]() {
+        
+        vkDeviceWaitIdle(app.getDevice());
+        that->_resetParticles();
+      });
+
   // Recreate any stale pipelines (shader hot-reload)
   input.addKeyBinding(
       {GLFW_KEY_R, GLFW_PRESS, GLFW_MOD_CONTROL},
@@ -88,12 +103,11 @@ void ParticleSystem::initGame(Application& app) {
           }
         }
 
-        if (that->_collisionsPass.recompileStaleShaders()) {
-          if (that->_collisionsPass.hasShaderRecompileErrors()) {
-            std::cout << that->_collisionsPass.getShaderRecompileErrors()
-                      << "\n";
+        if (that->_jacobiStep.recompileStaleShaders()) {
+          if (that->_jacobiStep.hasShaderRecompileErrors()) {
+            std::cout << that->_jacobiStep.getShaderRecompileErrors() << "\n";
           } else {
-            that->_collisionsPass.recreatePipeline(app);
+            that->_jacobiStep.recreatePipeline(app);
           }
         }
 
@@ -130,11 +144,7 @@ void ParticleSystem::initGame(Application& app) {
             }
           }
         }
-
-        vkDeviceWaitIdle(app.getDevice());
-        that->_resetParticles();
       });
-
   input.addMousePositionCallback(
       [&adjustingExposure = this->_adjustingExposure,
        &exposure = this->_exposure](double x, double y, bool cursorHidden) {
@@ -170,10 +180,13 @@ void ParticleSystem::destroyRenderState(Application& app) {
 
   this->_pSimResources.reset();
   this->_simPass = {};
-  this->_collisionsPass = {};
+  this->_jacobiStep = {};
   this->_simUniforms = {};
   this->_particleBuffer = {};
   this->_cellToBucket = {};
+  this->_positionsA = {};
+  this->_positionsB = {};
+
   this->_sphereVertices = {};
   this->_sphereIndices = {};
 
@@ -275,6 +288,17 @@ void ParticleSystem::_resetParticles() {
   }
 
   this->_particleBuffer.upload();
+
+  for (uint32_t idx = 0; idx < this->_particleBuffer.getCount(); ++idx)
+  {
+    glm::vec4 pos(this->_particleBuffer.getElement(idx).position, 1.0f);
+    this->_positionsA.setElement(pos, idx);
+    this->_positionsB.setElement(pos, idx);
+  }
+
+  this->_positionsA.upload();
+  this->_positionsB.upload();
+
 }
 
 void ParticleSystem::_createGlobalResources(
@@ -386,10 +410,11 @@ void ParticleSystem::_createGlobalResources(
 void ParticleSystem::_createSimResources(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
-  // TODO: need to optimize to push particle count :)
   uint32_t particleCount = 64000;
-  // uint32_t particleCount = 10000;// 64000;
   this->_particleBuffer = StructuredBuffer<Particle>(app, particleCount);
+  this->_positionsA = StructuredBuffer<glm::vec4>(app, particleCount);
+  this->_positionsB = StructuredBuffer<glm::vec4>(app, particleCount);
+
   this->_resetParticles();
 
   // Need transfer bit for vkCmdFillBuffer
@@ -404,7 +429,7 @@ void ParticleSystem::_createSimResources(
       commandBuffer,
       this->_sphereVertices,
       this->_sphereIndices,
-      10);
+      6);
 
   this->_simUniforms = TransientUniforms<SimUniforms>(app);
 
@@ -414,6 +439,10 @@ void ParticleSystem::_createSimResources(
   // Particle buffer
   matBuilder.addStorageBufferBinding(VK_SHADER_STAGE_ALL);
   // Particle to cell map
+  matBuilder.addStorageBufferBinding(VK_SHADER_STAGE_ALL);
+  // Positions A
+  matBuilder.addStorageBufferBinding(VK_SHADER_STAGE_ALL);
+  // Positions B
   matBuilder.addStorageBufferBinding(VK_SHADER_STAGE_ALL);
 
   this->_pSimResources = std::make_unique<PerFrameResources>(app, matBuilder);
@@ -426,6 +455,14 @@ void ParticleSystem::_createSimResources(
       .bindStorageBuffer(
           this->_cellToBucket.getAllocation(),
           this->_cellToBucket.getSize(),
+          false)
+      .bindStorageBuffer(
+          this->_positionsA.getAllocation(),
+          this->_positionsA.getSize(),
+          false)
+      .bindStorageBuffer(
+          this->_positionsB.getAllocation(),
+          this->_positionsB.getSize(),
           false);
 
   ShaderDefines shaderDefs{};
@@ -443,11 +480,12 @@ void ParticleSystem::_createSimResources(
     ComputePipelineBuilder builder;
     builder.setComputeShader(
         GProjectDirectory +
-            "/Shaders/ParticleSystem/HandleCollisions.comp.glsl",
+            "/Shaders/ParticleSystem/ProjectedJacobiStep.comp.glsl",
         shaderDefs);
-    builder.layoutBuilder.addDescriptorSet(this->_pSimResources->getLayout());
+    builder.layoutBuilder.addDescriptorSet(this->_pSimResources->getLayout())
+        .addPushConstants<SolverPushConstants>(VK_SHADER_STAGE_COMPUTE_BIT);
 
-    this->_collisionsPass = ComputePipeline(app, std::move(builder));
+    this->_jacobiStep = ComputePipeline(app, std::move(builder));
   }
 }
 
@@ -677,10 +715,8 @@ void ParticleSystem::draw(
     barriers[0].buffer = this->_particleBuffer.getAllocation().getBuffer();
     barriers[0].offset = 0;
     barriers[0].size = this->_particleBuffer.getSize();
-    barriers[0].srcAccessMask =
-        VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
-    barriers[0].dstAccessMask =
-        VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+    barriers[0].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+    barriers[0].dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
 
     barriers[1].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
     barriers[1].buffer = this->_cellToBucket.getAllocation().getBuffer();
@@ -689,6 +725,21 @@ void ParticleSystem::draw(
     barriers[1].srcAccessMask =
         VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
     barriers[1].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    VkBufferMemoryBarrier pingPongBarriers[2] = {};
+    pingPongBarriers[0].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    pingPongBarriers[0].buffer = this->_positionsA.getAllocation().getBuffer();
+    pingPongBarriers[0].offset = 0;
+    pingPongBarriers[0].size = this->_positionsA.getSize();
+    pingPongBarriers[0].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+    pingPongBarriers[0].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    pingPongBarriers[1].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
+    pingPongBarriers[1].buffer = this->_positionsB.getAllocation().getBuffer();
+    pingPongBarriers[1].offset = 0;
+    pingPongBarriers[1].size = this->_positionsB.getSize();
+    pingPongBarriers[1].srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+    pingPongBarriers[1].dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
 
     vkCmdPipelineBarrier(
         commandBuffer,
@@ -702,17 +753,58 @@ void ParticleSystem::draw(
         0,
         nullptr);
 
-    this->_collisionsPass.bindPipeline(commandBuffer);
+    this->_jacobiStep.bindPipeline(commandBuffer);
     vkCmdBindDescriptorSets(
         commandBuffer,
         VK_PIPELINE_BIND_POINT_COMPUTE,
-        this->_collisionsPass.getLayout(),
+        this->_jacobiStep.getLayout(),
         0,
         1,
         &set,
         0,
         nullptr);
-    vkCmdDispatch(commandBuffer, groupCountX, 1, 1);
+    uint32_t JACOBI_ITERS = 1;
+    for (uint32_t iter = 0; iter < JACOBI_ITERS; ++iter) {
+      // TODO: JUST FOR TESTING REMOVE
+      vkCmdPipelineBarrier(
+        commandBuffer,
+        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+        VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
+        0,
+        0,
+        nullptr,
+        1,
+        barriers,
+        0,
+        nullptr);
+      vkCmdPipelineBarrier(
+          commandBuffer,
+          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+          0,
+          0,
+          nullptr,
+          2,
+          pingPongBarriers,
+          0,
+          nullptr);
+
+      SolverPushConstants constants{};
+      constants.phase = iter % 2;
+      constants.jacobiIters = JACOBI_ITERS;
+      vkCmdPushConstants(
+          commandBuffer,
+          this->_jacobiStep.getLayout(),
+          VK_SHADER_STAGE_COMPUTE_BIT,
+          0,
+          sizeof(SolverPushConstants),
+          &constants);
+      vkCmdDispatch(commandBuffer, groupCountX, 1, 1);
+      
+      // Swap the barrier access direction for the next iteration
+      for (auto& barrier : pingPongBarriers)
+        std::swap(barrier.srcAccessMask, barrier.dstAccessMask);
+    }
   }
 
   {

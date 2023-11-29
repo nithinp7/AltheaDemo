@@ -59,7 +59,7 @@ float rng() {
 
 #define ENABLE_SSAO
 #ifdef ENABLE_SSAO 
-#define SSAO_RAY_COUNT 32
+#define SSAO_RAY_COUNT 12
 #define SSAO_RAYMARCH_STEPS 16
 float computeSSAO(vec2 currentUV, vec3 worldPos, vec3 normal) {
   

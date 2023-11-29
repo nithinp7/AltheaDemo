@@ -19,6 +19,14 @@ layout(std430, set=0, binding=2) buffer PARTICLE_TO_CELL_BUFFER {
   uint cellToBucket[];
 };
 
+layout(std430, set=0, binding=3) buffer POSITIONS_A {
+  vec4 positionsA[];
+};
+
+layout(std430, set=0, binding=4) buffer POSITIONS_B {
+  vec4 positionsB[];
+};
+
 void main() {
   uint particleIdx = uint(gl_GlobalInvocationID.x);
   if (particleIdx >= particleCount) {
@@ -32,10 +40,11 @@ void main() {
   // Clear any debug flags for this frame
   particle.debug = 0;
 
-  float maxSpeed = 2.0;
+  float maxSpeed = 10.0;
 
-  particle.velocity = (particle.nextPosition - particle.position) / deltaTime; // TODO: overwrite velocity
-  particle.position = particle.nextPosition;
+  vec3 nextPos = positionsB[particleIdx].xyz;
+  particle.velocity = (nextPos - particle.position) / deltaTime; // TODO: overwrite velocity
+  particle.position = nextPos;
   
   vec3 acceleration = vec3(0.0, -1.0, 0.0);
   particle.velocity += acceleration * deltaTime;
@@ -46,9 +55,12 @@ void main() {
     particle.velocity *= maxSpeed / speed;
   }
 
-  particle.nextPosition += particle.velocity * deltaTime;
+  // Initial estimate of particle position
+  vec3 projectedPos = particle.position + particle.velocity * deltaTime;
 
-  vec3 gridPos = (worldToGrid * vec4(particle.position, 1.0)).xyz;
+  positionsA[particleIdx].xyz = projectedPos;
+
+  vec3 gridPos = (worldToGrid * vec4(projectedPos, 1.0)).xyz;
   ivec3 gridCell = ivec3(floor(gridPos));
   uint gridCellHash = hashCoords(gridCell.x, gridCell.y, gridCell.z);
   

@@ -6,7 +6,7 @@ struct Particle {
   uint padding;
   vec3 velocity;
   uint nextParticleLink;
-  vec3 nextPosition;
+  vec3 REMOVE;
   uint debug;
 };
 

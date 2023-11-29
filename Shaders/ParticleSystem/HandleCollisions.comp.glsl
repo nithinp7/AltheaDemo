@@ -32,7 +32,7 @@ void checkPair(inout Particle particle, Particle other)
   if (sep <= 0.0) {
     particle.debug = 1; // mark collision
     if (dist < 0.00001)
-      diff = vec3(-1.0, 0.0, 0.0);
+      diff = vec3(1.0, 0.0, 0.0);
     else 
       diff /= dist;
 

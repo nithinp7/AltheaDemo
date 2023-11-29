@@ -108,11 +108,13 @@ private:
   void _createSimResources(Application& app, SingleTimeCommandBuffer& commandBuffer);
   std::unique_ptr<PerFrameResources> _pSimResources;
   ComputePipeline _simPass;
-  ComputePipeline _collisionsPass;
+  ComputePipeline _jacobiStep;
   TransientUniforms<SimUniforms> _simUniforms;
   StructuredBuffer<Particle> _particleBuffer;
   // hashmap from grid cell to particle bucket (head particle of linked list)
   StructuredBuffer<uint32_t> _cellToBucket;
+  StructuredBuffer<glm::vec4> _positionsA;
+  StructuredBuffer<glm::vec4> _positionsB;
   VertexBuffer<glm::vec3> _sphereVertices;
   IndexBuffer _sphereIndices;
   
