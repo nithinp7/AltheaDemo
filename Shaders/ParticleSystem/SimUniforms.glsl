@@ -5,7 +5,7 @@ layout(set=0, binding=0) uniform SimUniforms {
   uint particleCount;
   uint spatialHashSize;
   uint spatialHashProbeSteps;
-  uint collisionSteps;
+  uint jacobiIters;
 
   float deltaTime;
   float particleRadius;

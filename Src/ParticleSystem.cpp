@@ -32,7 +32,6 @@ namespace {
 struct SolverPushConstants
 {
   uint32_t phase;
-  uint32_t jacobiIters;
 };
 } // namespace
 namespace AltheaDemo {
@@ -206,7 +205,7 @@ void ParticleSystem::destroyRenderState(Application& app) {
 
 void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   // Use fixed delta time
-  float deltaTime = 1.0f / 60.0f;
+  float deltaTime = 1.0f / 30.0f;
 
   this->_pCameraController->tick(deltaTime);
   const Camera& camera = this->_pCameraController->getCamera();
@@ -253,7 +252,7 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   simUniforms.particleCount = this->_particleBuffer.getCount();
   simUniforms.spatialHashSize = this->_cellToBucket.getCount();
   simUniforms.spatialHashProbeSteps = 20; // TODO: Reduce this count now...
-  simUniforms.collisionSteps = 10;        // TODO: ??
+  simUniforms.jacobiIters = 1;        // TODO: ??
 
   simUniforms.deltaTime = deltaTime;
   simUniforms.particleRadius = 0.049f;
@@ -763,8 +762,8 @@ void ParticleSystem::draw(
         &set,
         0,
         nullptr);
-    uint32_t JACOBI_ITERS = 1;
-    for (uint32_t iter = 0; iter < JACOBI_ITERS; ++iter) {
+    uint32_t jacobiIters = this->_simUniforms.getUniformBuffers()[0].getUniforms().jacobiIters;
+    for (uint32_t iter = 0; iter < jacobiIters; ++iter) {
       // TODO: JUST FOR TESTING REMOVE
       vkCmdPipelineBarrier(
         commandBuffer,
@@ -791,7 +790,6 @@ void ParticleSystem::draw(
 
       SolverPushConstants constants{};
       constants.phase = iter % 2;
-      constants.jacobiIters = JACOBI_ITERS;
       vkCmdPushConstants(
           commandBuffer,
           this->_jacobiStep.getLayout(),

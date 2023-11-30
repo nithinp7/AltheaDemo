@@ -40,20 +40,21 @@ void main() {
   // Clear any debug flags for this frame
   particle.debug = 0;
 
-  float maxSpeed = 10.0;
-
   vec3 nextPos = positionsB[particleIdx].xyz;
   particle.velocity = (nextPos - particle.position) / deltaTime; // TODO: overwrite velocity
   particle.position = nextPos;
   
-  vec3 acceleration = vec3(0.0, -1.0, 0.0);
+  // apply gravity and drag
+  float drag = 0.0;
+  float gravity = 0.5;
+  vec3 acceleration = vec3(0.0, -gravity, 0.0) - drag * particle.velocity;
   particle.velocity += acceleration * deltaTime;
 
-  float speed = length(particle.velocity);
-  if (speed > maxSpeed)
-  {
-    particle.velocity *= maxSpeed / speed;
-  }
+  // float speed = length(particle.velocity);
+  // if (speed > maxSpeed)
+  // {
+  //   particle.velocity *= maxSpeed / speed;
+  // }
 
   // Initial estimate of particle position
   vec3 projectedPos = particle.position + particle.velocity * deltaTime;
@@ -80,7 +81,9 @@ void main() {
       break;
     }
     
+#ifdef PROBE_FOR_EMPTY_SLOT
     if ((prevEntry & CELL_HASH_MASK) == (gridCellHash & CELL_HASH_MASK))
+#endif
     {
       // An entry already exists for this grid cell, we have so far peaked it and know
       // that the key (grid cell hash) cannot change for this entry. However we need to 
@@ -90,11 +93,13 @@ void main() {
       break;
     }
     
+#ifdef PROBE_FOR_EMPTY_SLOT
     // This is a non-empty entry corresponding to a different grid-cell hash, continue
     // linearly probing the hashmap.
     ++entryLocation;
     if (entryLocation == spatialHashSize)
       entryLocation = 0;
+#endif
   }
   
   // Write-back the modified particle data

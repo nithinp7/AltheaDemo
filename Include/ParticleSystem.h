@@ -63,7 +63,7 @@ struct SimUniforms {
   uint32_t particleCount;
   uint32_t spatialHashSize;
   uint32_t spatialHashProbeSteps;
-  uint32_t collisionSteps;
+  uint32_t jacobiIters;
 
   float deltaTime;
   float particleRadius;

@@ -31,7 +31,6 @@ layout(std430, set=0, binding=4) buffer POSITIONS_B {
 
 layout(push_constant) uniform PushConstants {
   uint phase;
-  uint jacobiIters;
 } pushConstants;
 
 vec3 getPosition(uint idx)
@@ -73,7 +72,7 @@ void checkPair(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 par
       diff /= dist;
 
     float bias = 0.5;
-    float k = 1.0;// / float(pushConstants.jacobiIters);
+    float k = 1.0 / float(jacobiIters);
 
     deltaPos += k * bias * sep * diff;
     collidingParticlesCount++;
@@ -120,15 +119,20 @@ uint findGridCell(int i, int j, int k)
       return INVALID_INDEX;
     }
 
-    if ((entry & CELL_HASH_MASK) == (gridCellHash & CELL_HASH_MASK)) {
+#ifdef PROBE_FOR_EMPTY_SLOT
+    if ((entry & CELL_HASH_MASK) == (gridCellHash & CELL_HASH_MASK)) 
+#endif
+    {
       // Found an entry corresponding to this cell
       return entry;
     }
 
+#ifdef PROBE_FOR_EMPTY_SLOT
     // Otherwise continue the linear probe of the hashmap
     ++entryLocation;
     if (entryLocation == spatialHashSize)
       entryLocation = 0;
+#endif
   }
 
   // Did not find an entry corresponding to this grid-cell within the max
@@ -138,7 +142,7 @@ uint findGridCell(int i, int j, int k)
 
 void checkWallCollisions(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 particlePos)
 {
-  float k = 1.0;// / float(pushConstants.jacobiIters);
+  float k = 1.0 / float(jacobiIters);
 
   float wallBias = 1.0;
 
