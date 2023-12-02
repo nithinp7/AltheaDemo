@@ -41,21 +41,21 @@ void main() {
   particle.debug = 0;
 
   vec3 nextPos = positionsB[particleIdx].xyz;
-  particle.velocity = (nextPos - particle.position) / deltaTime; // TODO: overwrite velocity
+  vec3 velocity = (nextPos - particle.position) / deltaTime;
   particle.position = nextPos;
   
   // apply gravity and drag
   float drag = 0.1;
-  float gravity = 0.4;
-  vec3 acceleration = vec3(0.0, -gravity, 0.0) - drag * particle.velocity;
-  particle.velocity += acceleration * deltaTime;
+  float gravity = 0.8;
+  vec3 acceleration = vec3(0.0, -gravity, 0.0) - drag * velocity;
+  velocity += acceleration * deltaTime;
 
   float friction = 0.5;
   if (nextPos.y <= 0.0)
-    particle.velocity.xz -= friction * particle.velocity.xz * deltaTime;
+    velocity.xz -= friction * velocity.xz * deltaTime;
 
   // Initial estimate of particle position
-  vec3 projectedPos = particle.position + particle.velocity * deltaTime;
+  vec3 projectedPos = particle.position + velocity * deltaTime;
 
   positionsA[particleIdx].xyz = projectedPos;
 

@@ -28,7 +28,7 @@
 
 using namespace AltheaEngine;
 
-#define JACOBI_ITERS 3
+#define JACOBI_ITERS 5
 #define PARTICLE_RADIUS 0.1f
 
 #define LOCAL_SIZE_X 1
@@ -259,6 +259,8 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   // simUniforms.gridToWorld[3] = glm::vec4(-100.0f, -100.0f, -100.0f, 1.0f);
   simUniforms.worldToGrid = glm::inverse(simUniforms.gridToWorld);
 
+  simUniforms.inverseView = globalUniforms.inverseView;
+
   simUniforms.particleCount = this->_particleBuffer.getCount();
   simUniforms.spatialHashSize = this->_cellToBucket.getCount();
   simUniforms.spatialHashProbeSteps = 20; // TODO: Reduce this count now...
@@ -284,14 +286,8 @@ void ParticleSystem::_resetParticles() {
     this->_particleBuffer.setElement(
         Particle{// position
                  position,
-                 // padding
-                 0,
-                 // velocity
-                 glm::vec3(0.0f),
                  // next particle in particle bucket linked-list
                  0,
-                 // next position
-                 position,
                  // debug value
                  0},
         i);

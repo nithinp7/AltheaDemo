@@ -47,10 +47,7 @@ struct GlobalUniforms {
 
 struct Particle {
   alignas(16) glm::vec3 position;
-  alignas(4) uint32_t padding;
-  alignas(16) glm::vec3 velocity;
   alignas(4) uint32_t nextParticleLink;
-  alignas(16) glm::vec3 nextPosition;
   alignas(4) uint32_t debug;
 };
 
@@ -60,6 +57,8 @@ struct SimUniforms {
   glm::mat4 gridToWorld;
   glm::mat4 worldToGrid;
   
+  glm::mat4 inverseView;
+
   uint32_t particleCount;
   uint32_t spatialHashSize;
   uint32_t spatialHashProbeSteps;

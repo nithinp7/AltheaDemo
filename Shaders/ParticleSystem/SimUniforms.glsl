@@ -1,6 +1,8 @@
 layout(set=0, binding=0) uniform SimUniforms {
   mat4 gridToWorld;
   mat4 worldToGrid;
+
+  mat4 inverseView;
   
   uint particleCount;
   uint spatialHashSize;
