@@ -5,7 +5,7 @@
 #define PARTICLE_IDX_MASK 0x0000FFFF
 #define INVALID_INDEX 0xFFFFFFFF
 
-layout(local_size_x = 32) in;
+layout(local_size_x = LOCAL_SIZE_X) in;
 
 #include "Hash.glsl"
 #include "Particle.glsl"
@@ -45,16 +45,14 @@ void main() {
   particle.position = nextPos;
   
   // apply gravity and drag
-  float drag = 0.0;
-  float gravity = 0.5;
+  float drag = 0.1;
+  float gravity = 0.4;
   vec3 acceleration = vec3(0.0, -gravity, 0.0) - drag * particle.velocity;
   particle.velocity += acceleration * deltaTime;
 
-  // float speed = length(particle.velocity);
-  // if (speed > maxSpeed)
-  // {
-  //   particle.velocity *= maxSpeed / speed;
-  // }
+  float friction = 0.5;
+  if (nextPos.y <= 0.0)
+    particle.velocity.xz -= friction * particle.velocity.xz * deltaTime;
 
   // Initial estimate of particle position
   vec3 projectedPos = particle.position + particle.velocity * deltaTime;

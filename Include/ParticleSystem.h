@@ -68,7 +68,7 @@ struct SimUniforms {
   float deltaTime;
   float particleRadius;
   float detectionRadius;
-  float padding;
+  float time;
 };
 
 class ParticleSystem : public IGameInstance {

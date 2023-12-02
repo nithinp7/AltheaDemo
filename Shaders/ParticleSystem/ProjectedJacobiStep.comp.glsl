@@ -7,7 +7,7 @@
 #define PARTICLE_IDX_MASK 0x0000FFFF
 #define INVALID_INDEX 0xFFFFFFFF
 
-layout(local_size_x = 32) in;
+layout(local_size_x = LOCAL_SIZE_X) in;
 
 #include "Hash.glsl"
 #include "Particle.glsl"
@@ -61,18 +61,29 @@ void checkPair(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 par
 {
   // TODO: Should use nextPos or prevPos?
   vec3 diff = otherParticlePos - particlePos;
-  float dist = length(diff);
-  float sep = dist - 2.0 * particleRadius;
+  // float dist = length(diff);
+  float distSq = dot(diff, diff);
 
-  if (sep <= 0.0) {
+  // float adhesionBuffer = 0.025;
+  // float innerRadius = particleRadius - adhesionBuffer;
+  float minDist = 2.0 * particleRadius;
+  float minDistSq = 4.0 * particleRadius * particleRadius;
+
+  // float sep = dist - 2.0 * innerRadius;
+  // float sep = dist - 2.0 * particleRadius;
+
+  if (distSq < minDistSq) {
     // particle.debug = 1; // mark collision
-    if (dist < 0.00001)
-      diff = vec3(1.0, 0.0, 0.0);
-    else 
+    float dist = sqrt(distSq);
+    if (dist > 0.000001)
       diff /= dist;
+    else
+      diff = vec3(1.0, 0.0, 0.0);
+
+    float sep = dist - minDist;
 
     float bias = 0.5;
-    float k = 1.0 / float(jacobiIters);
+    float k = 1.0;/// float(jacobiIters);
 
     deltaPos += k * bias * sep * diff;
     collidingParticlesCount++;
@@ -81,7 +92,7 @@ void checkPair(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 par
 
 void checkBucket(inout vec3 deltaPos, inout uint collidingParticlesCount, Particle thisParticle, vec3 particlePos, uint particleIdx, uint nextParticleIdx)
 {
-  for (int i = 0; i < 16; ++i)
+  for (int i = 0; i < 4; ++i)
   {
     if (nextParticleIdx == INVALID_INDEX)
     {
@@ -142,24 +153,25 @@ uint findGridCell(int i, int j, int k)
 
 void checkWallCollisions(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 particlePos)
 {
-  float k = 1.0 / float(jacobiIters);
+  float k = 1.0;// / float(jacobiIters);
 
   float wallBias = 1.0;
 
-  float gridLength = 15.0;
-  float minPos = particleRadius;
-  float maxPos = gridLength - particleRadius;
+  vec3 gridLength = vec3(10.0);
+  gridLength[0] = 10.0 + 5.0 * sin(0.75 * time);// 5.0
+  vec3 minPos = vec3(particleRadius);
+  vec3 maxPos = gridLength - vec3(particleRadius);
   for (int i = 0; i < 3; ++i)
   {
-    if (particlePos[i] <= minPos)
+    if (particlePos[i] <= minPos[i])
     {
-      deltaPos[i] += k * wallBias * (minPos - particlePos[i]);
+      deltaPos[i] += k * wallBias * (minPos[i] - particlePos[i]);
       ++collidingParticlesCount;
     }  
 
-    if (particlePos[i] >= maxPos)
+    if (particlePos[i] >= maxPos[i])
     {
-      deltaPos[i] -= k * wallBias * (particlePos[i] - maxPos);
+      deltaPos[i] -= k * wallBias * (particlePos[i] - maxPos[i]);
       ++collidingParticlesCount;
     }
   }
@@ -203,10 +215,9 @@ void main() {
 
   vec3 deltaPos = vec3(0.0);
   uint collidingParticlesCount = 0;
+  bool anyParticleCollisions = false;
 
   {
-    checkWallCollisions(deltaPos, collidingParticlesCount, particlePos);
-    
     // TODO: Would it be ridiculous to cache the other particle structs instead of fetching them
     // in each solver iteration??
     for (int i = 0; i < gridCellCount; ++i)
@@ -215,12 +226,17 @@ void main() {
       uint particleBucketHeadIdx = entry & PARTICLE_IDX_MASK;
       checkBucket(deltaPos, collidingParticlesCount, particle, particlePos, particleIdx, particleBucketHeadIdx);
     }
+
+    if (collidingParticlesCount > 0)
+      anyParticleCollisions = true;
+
+    checkWallCollisions(deltaPos, collidingParticlesCount, particlePos);
   }
 
   if (collidingParticlesCount > 0)
   {
     particlePos += deltaPos / float(collidingParticlesCount);
-    // particles[particleIdx].debug = 1;
+    // particles[particleIdx].debug = anyParticleCollisions ? 1 : 2;
   }
 
   setPosition(particleIdx, particlePos);

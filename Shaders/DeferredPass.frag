@@ -109,8 +109,8 @@ vec3 sampleHemisphereCosine() {
 
 #define ENABLE_SSAO
 #ifdef ENABLE_SSAO 
-#define SSAO_RAY_COUNT 24
-#define SSAO_RAYMARCH_STEPS 24
+#define SSAO_RAY_COUNT 12
+#define SSAO_RAYMARCH_STEPS 4
 float computeSSAO(vec2 currentUV, vec3 worldPos, vec3 normal) {
   
   // vec4 projected = globals.projection * globals.view * vec4(rayDir, 0.0);

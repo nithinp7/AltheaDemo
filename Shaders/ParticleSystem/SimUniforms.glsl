@@ -10,5 +10,5 @@ layout(set=0, binding=0) uniform SimUniforms {
   float deltaTime;
   float particleRadius;
   float detectionRadius;
-  float padding;
+  float time;
 };

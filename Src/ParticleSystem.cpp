@@ -28,9 +28,15 @@
 
 using namespace AltheaEngine;
 
+#define JACOBI_ITERS 3
+#define PARTICLE_RADIUS 0.1f
+
+#define LOCAL_SIZE_X 1
+
+#define GEN_SHADER_DEBUG_INFO
+
 namespace {
-struct SolverPushConstants
-{
+struct SolverPushConstants {
   uint32_t phase;
 };
 } // namespace
@@ -62,10 +68,11 @@ void ParticleSystem::initGame(Application& app) {
         std::vector<uint32_t> spatialHash;
         that->_cellToBucket.download(spatialHash);
 
-        SpatialHashUnitTests::runTests(
-            that->_simUniforms.getUniformBuffers()[0].getUniforms(),
-            particles,
-            spatialHash);
+        // TODO: Verify that the ringbuffer usage is correct here before
+        // uncommenting SpatialHashUnitTests::runTests(
+        //     that->_simUniforms.getUniformBuffers()[app.getCurrentFrameRingBufferIndex()].getUniforms(),
+        //     particles,
+        //     spatialHash);
       });
 
   input.addKeyBinding(
@@ -82,13 +89,10 @@ void ParticleSystem::initGame(Application& app) {
         input.setMouseCursorHidden(true);
       });
 
-  input.addKeyBinding(
-      {GLFW_KEY_P, GLFW_RELEASE, 0},
-      [that = this, &app]() {
-        
-        vkDeviceWaitIdle(app.getDevice());
-        that->_resetParticles();
-      });
+  input.addKeyBinding({GLFW_KEY_P, GLFW_RELEASE, 0}, [that = this, &app]() {
+    vkDeviceWaitIdle(app.getDevice());
+    that->_resetParticles();
+  });
 
   // Recreate any stale pipelines (shader hot-reload)
   input.addKeyBinding(
@@ -151,6 +155,10 @@ void ParticleSystem::initGame(Application& app) {
           exposure = static_cast<float>(y);
         }
       });
+
+#ifdef GEN_SHADER_DEBUG_INFO
+  Shader::setShouldGenerateDebugInfo(true);
+#endif
 }
 
 void ParticleSystem::shutdownGame(Application& app) {
@@ -205,10 +213,12 @@ void ParticleSystem::destroyRenderState(Application& app) {
 
 void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   // Use fixed delta time
-  float deltaTime = 1.0f / 30.0f;
 
-  this->_pCameraController->tick(deltaTime);
+  this->_pCameraController->tick(frame.deltaTime);
   const Camera& camera = this->_pCameraController->getCamera();
+  
+  // Use fixed timestep for physics
+  float deltaTime = 1.0f / 15.0f;
 
   const glm::mat4& projection = camera.getProjection();
 
@@ -244,7 +254,7 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   // TODO: Just use spacing scale param??
   // can assume grid is world axis aligned and uniformly scaled on each dim
   // don't care how many cells there are, due to spatial hash
-  simUniforms.gridToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(0.1f));
+  simUniforms.gridToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(2.0f * PARTICLE_RADIUS));
   // simUniforms.gridToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(0.05f));
   // simUniforms.gridToWorld[3] = glm::vec4(-100.0f, -100.0f, -100.0f, 1.0f);
   simUniforms.worldToGrid = glm::inverse(simUniforms.gridToWorld);
@@ -252,11 +262,12 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   simUniforms.particleCount = this->_particleBuffer.getCount();
   simUniforms.spatialHashSize = this->_cellToBucket.getCount();
   simUniforms.spatialHashProbeSteps = 20; // TODO: Reduce this count now...
-  simUniforms.jacobiIters = 1;        // TODO: ??
+  simUniforms.jacobiIters = JACOBI_ITERS;
 
   simUniforms.deltaTime = deltaTime;
-  simUniforms.particleRadius = 0.049f;
-  simUniforms.detectionRadius = 0.049f; // TODO: Separate these two?
+  simUniforms.particleRadius = PARTICLE_RADIUS;
+  simUniforms.detectionRadius = PARTICLE_RADIUS; // TODO: Separate these two?
+  simUniforms.time = frame.currentTime;
 
   this->_simUniforms.updateUniforms(simUniforms, frame);
 }
@@ -288,8 +299,7 @@ void ParticleSystem::_resetParticles() {
 
   this->_particleBuffer.upload();
 
-  for (uint32_t idx = 0; idx < this->_particleBuffer.getCount(); ++idx)
-  {
+  for (uint32_t idx = 0; idx < this->_particleBuffer.getCount(); ++idx) {
     glm::vec4 pos(this->_particleBuffer.getElement(idx).position, 1.0f);
     this->_positionsA.setElement(pos, idx);
     this->_positionsB.setElement(pos, idx);
@@ -297,7 +307,6 @@ void ParticleSystem::_resetParticles() {
 
   this->_positionsA.upload();
   this->_positionsB.upload();
-
 }
 
 void ParticleSystem::_createGlobalResources(
@@ -465,6 +474,7 @@ void ParticleSystem::_createSimResources(
           false);
 
   ShaderDefines shaderDefs{};
+  shaderDefs.emplace("LOCAL_SIZE_X", std::to_string(LOCAL_SIZE_X));
   {
     ComputePipelineBuilder builder;
     builder.setComputeShader(
@@ -695,7 +705,7 @@ void ParticleSystem::draw(
   {
     VkDescriptorSet set = this->_pSimResources->getCurrentDescriptorSet(frame);
 
-    uint32_t groupCountX = (this->_particleBuffer.getCount() - 1) / 32 + 1;
+    uint32_t groupCountX = (this->_particleBuffer.getCount() - 1) / LOCAL_SIZE_X + 1;
 
     this->_simPass.bindPipeline(commandBuffer);
     vkCmdBindDescriptorSets(
@@ -714,8 +724,10 @@ void ParticleSystem::draw(
     barriers[0].buffer = this->_particleBuffer.getAllocation().getBuffer();
     barriers[0].offset = 0;
     barriers[0].size = this->_particleBuffer.getSize();
-    barriers[0].srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
-    barriers[0].dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+    barriers[0].srcAccessMask =
+        VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+    barriers[0].dstAccessMask =
+        VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
 
     barriers[1].sType = VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER;
     barriers[1].buffer = this->_cellToBucket.getAllocation().getBuffer();
@@ -762,20 +774,19 @@ void ParticleSystem::draw(
         &set,
         0,
         nullptr);
-    uint32_t jacobiIters = this->_simUniforms.getUniformBuffers()[0].getUniforms().jacobiIters;
-    for (uint32_t iter = 0; iter < jacobiIters; ++iter) {
+    for (uint32_t iter = 0; iter < JACOBI_ITERS; ++iter) {
       // TODO: JUST FOR TESTING REMOVE
       vkCmdPipelineBarrier(
-        commandBuffer,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
-        0,
-        0,
-        nullptr,
-        1,
-        barriers,
-        0,
-        nullptr);
+          commandBuffer,
+          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+          VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
+          0,
+          0,
+          nullptr,
+          1,
+          barriers,
+          0,
+          nullptr);
       vkCmdPipelineBarrier(
           commandBuffer,
           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
@@ -798,7 +809,7 @@ void ParticleSystem::draw(
           sizeof(SolverPushConstants),
           &constants);
       vkCmdDispatch(commandBuffer, groupCountX, 1, 1);
-      
+
       // Swap the barrier access direction for the next iteration
       for (auto& barrier : pingPongBarriers)
         std::swap(barrier.srcAccessMask, barrier.dstAccessMask);
@@ -827,14 +838,14 @@ void ParticleSystem::draw(
         nullptr);
   }
 
-  this->_pointLights.updateResource(frame);
+  // this->_pointLights.updateResource(frame);
   this->_gBufferResources.transitionToAttachment(commandBuffer);
 
   VkDescriptorSet globalDescriptorSet =
       this->_pGlobalResources->getCurrentDescriptorSet(frame);
 
   // Draw point light shadow maps
-  this->_pointLights.drawShadowMaps(app, commandBuffer, frame, this->_models);
+  // this->_pointLights.drawShadowMaps(app, commandBuffer, frame, this->_models);
 
   // Forward pass
   {
@@ -860,9 +871,7 @@ void ParticleSystem::draw(
     pass.getDrawContext().bindDescriptorSets();
     pass.getDrawContext().bindIndexBuffer(this->_sphereIndices);
     pass.getDrawContext().bindVertexBuffer(this->_sphereVertices);
-    pass.getDrawContext().updatePushConstants<float>(
-        this->_simUniforms.getUniformBuffers()[0].getUniforms().particleRadius,
-        0);
+    pass.getDrawContext().updatePushConstants<float>(PARTICLE_RADIUS, 0);
     pass.getDrawContext().drawIndexed(
         this->_sphereIndices.getIndexCount(),
         this->_particleBuffer.getCount());
@@ -899,9 +908,9 @@ void ParticleSystem::draw(
       context.draw(3);
     }
 
-    pass.nextSubpass();
-    pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
-    pass.draw(this->_pointLights);
+    // pass.nextSubpass();
+    // pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
+    // pass.draw(this->_pointLights);
   }
 }
 } // namespace ParticleSystem
