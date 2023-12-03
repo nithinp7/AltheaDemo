@@ -245,7 +245,7 @@ void RayTracedReflectionsDemo::_createGlobalResources(
       }
     }
 
-    this->_primitiveConstantsBuffer.upload();
+    this->_primitiveConstantsBuffer.upload(app, commandBuffer);
 
     this->_textureHeap = TextureHeap(this->_models);
     this->_vertexBufferHeap = BufferHeap::CreateVertexBufferHeap(this->_models);

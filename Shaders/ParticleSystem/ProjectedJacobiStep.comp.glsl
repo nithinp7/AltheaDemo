@@ -3,8 +3,6 @@
 
 #define PI 3.14159265359
 
-#define CELL_HASH_MASK 0xFFFF0000
-#define PARTICLE_IDX_MASK 0x0000FFFF
 #define INVALID_INDEX 0xFFFFFFFF
 
 layout(local_size_x = LOCAL_SIZE_X) in;
@@ -32,6 +30,8 @@ layout(std430, set=0, binding=4) buffer POSITIONS_B {
 layout(push_constant) uniform PushConstants {
   uint phase;
 } pushConstants;
+
+// shared uint[LOCAL_SIZE_X] ss
 
 vec3 getPosition(uint idx)
 {
@@ -82,7 +82,7 @@ void checkPair(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 par
 
     float sep = dist - minDist;
 
-    float bias = 0.5;
+    float bias = 0.8;
     float k = 1.0;/// float(jacobiIters);
 
     deltaPos += k * bias * sep * diff;
@@ -90,9 +90,9 @@ void checkPair(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 par
   }
 }
 
-void checkBucket(inout vec3 deltaPos, inout uint collidingParticlesCount, Particle thisParticle, vec3 particlePos, uint particleIdx, uint nextParticleIdx)
+void checkBucket(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 particlePos, uint particleIdx, uint nextParticleIdx)
 {
-  for (int i = 0; i < 4; ++i)
+  for (int i = 0; i < 8; ++i)
   {
     if (nextParticleIdx == INVALID_INDEX)
     {
@@ -100,18 +100,14 @@ void checkBucket(inout vec3 deltaPos, inout uint collidingParticlesCount, Partic
       return;
     }
 
-    if (particleIdx == nextParticleIdx)
-    {
-      // Skip the current particle
-      nextParticleIdx = thisParticle.nextParticleLink;
-      continue;
-    }
-
     // Check any valid particle pairs in the bucket
-    Particle nextParticle = particles[nextParticleIdx];
-    vec3 otherParticlePos = getPosition(nextParticleIdx);
-    checkPair(deltaPos, collidingParticlesCount, particlePos, otherParticlePos);
+    if (particleIdx != nextParticleIdx)
+    {
+      vec3 otherParticlePos = getPosition(nextParticleIdx);
+      checkPair(deltaPos, collidingParticlesCount, particlePos, otherParticlePos);
+    }
     
+    Particle nextParticle = particles[nextParticleIdx];
     nextParticleIdx = nextParticle.nextParticleLink;
   }
 }
@@ -119,36 +115,8 @@ void checkBucket(inout vec3 deltaPos, inout uint collidingParticlesCount, Partic
 uint findGridCell(int i, int j, int k)
 {
   uint gridCellHash = hashCoords(i, j, k);
-  uint entryLocation = (gridCellHash >> 16) % spatialHashSize;
-
-  for (uint probeStep = 0; probeStep < spatialHashProbeSteps; ++probeStep) {
-    uint entry = cellToBucket[entryLocation];
-
-    if (entry == INVALID_INDEX)
-    {
-      // Break if we hit an empty slot, this should not happen
-      return INVALID_INDEX;
-    }
-
-#ifdef PROBE_FOR_EMPTY_SLOT
-    if ((entry & CELL_HASH_MASK) == (gridCellHash & CELL_HASH_MASK)) 
-#endif
-    {
-      // Found an entry corresponding to this cell
-      return entry;
-    }
-
-#ifdef PROBE_FOR_EMPTY_SLOT
-    // Otherwise continue the linear probe of the hashmap
-    ++entryLocation;
-    if (entryLocation == spatialHashSize)
-      entryLocation = 0;
-#endif
-  }
-
-  // Did not find an entry corresponding to this grid-cell within the max
-  // number of linear probe steps
-  return INVALID_INDEX;
+  uint entryLocation = gridCellHash % spatialHashSize;
+  return cellToBucket[entryLocation];
 }
 
 void checkWallCollisions(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 particlePos)
@@ -157,8 +125,8 @@ void checkWallCollisions(inout vec3 deltaPos, inout uint collidingParticlesCount
 
   float wallBias = 1.0;
 
-  vec3 gridLength = vec3(15.0);
-  gridLength[0] = 15.0 + 8.0 * sin(1.0 * time);// 5.0
+  vec3 gridLength = vec3(30.0);
+  // gridLength[0] = 20.0 + 8.0 * sin(1.0 * time);// 5.0
   vec3 minPos = vec3(particleRadius);
   vec3 maxPos = gridLength - vec3(particleRadius);
   for (int i = 0; i < 3; ++i)
@@ -196,7 +164,6 @@ void main() {
     return;
   }
 
-  Particle particle = particles[particleIdx];
   vec3 particlePos = getPosition(particleIdx);
   
   vec3 gridPos = (worldToGrid * vec4(particlePos, 1.0)).xyz;
@@ -210,41 +177,24 @@ void main() {
   if (cellLocalPos.z < 0.5)
     --gridCell.z;
 
-  int gridCellCount = 0;
-  uint gridCellEntries[8];
-
-  // The grid cell size is setup so that a particle could be colliding with
-  // other particles from any of the 8 cells immediately surrounding it, so
-  // check each one for potential collisions.
-  for (int i = gridCell.x; i <= (gridCell.x + 1); ++i) {
-    for (int j = gridCell.y; j <= (gridCell.y + 1); ++j) {
-      for (int k = gridCell.z; k <= (gridCell.z + 1); ++k) {
-        uint entry = findGridCell(i, j, k);
-        if (entry != INVALID_INDEX)
-          gridCellEntries[gridCellCount++] = entry;
-      }
-    }
-  }
-
   vec3 deltaPos = vec3(0.0);
   uint collidingParticlesCount = 0;
   bool anyParticleCollisions = false;
 
-  {
-    // TODO: Would it be ridiculous to cache the other particle structs instead of fetching them
-    // in each solver iteration??
-    for (int i = 0; i < gridCellCount; ++i)
-    {
-      uint entry = gridCellEntries[i];
-      uint particleBucketHeadIdx = entry & PARTICLE_IDX_MASK;
-      checkBucket(deltaPos, collidingParticlesCount, particle, particlePos, particleIdx, particleBucketHeadIdx);
+  // The grid cell size is setup so that a particle could be colliding with
+  // other particles from any of the 8 cells immediately surrounding it, so
+  // check each one for potential collisions.
+  for (int i = 0; i < 8; ++i) {
+    uint particleBucketHeadIdx = findGridCell(gridCell.x + (i>>2), gridCell.y + ((i>>1)&1), gridCell.z + (i&1));
+    if (particleBucketHeadIdx != INVALID_INDEX) {
+      checkBucket(deltaPos, collidingParticlesCount, particlePos, particleIdx, particleBucketHeadIdx);
     }
-
-    if (collidingParticlesCount > 0)
-      anyParticleCollisions = true;
-
-    checkWallCollisions(deltaPos, collidingParticlesCount, particlePos);
   }
+  
+  if (collidingParticlesCount > 0)
+    anyParticleCollisions = true;
+
+  checkWallCollisions(deltaPos, collidingParticlesCount, particlePos);
 
   if (collidingParticlesCount > 0)
   {

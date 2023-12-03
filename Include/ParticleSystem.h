@@ -92,7 +92,7 @@ private:
 
   std::unique_ptr<CameraController> _pCameraController;
 
-  void _resetParticles();
+  void _resetParticles(const Application& app, VkCommandBuffer commandBuffer);
   
   void _createGlobalResources(
       Application& app,
