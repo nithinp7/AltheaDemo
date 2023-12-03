@@ -28,8 +28,8 @@
 
 using namespace AltheaEngine;
 
-#define PARTICLE_COUNT 1000000 // 500000 // 200000
-#define PARTICLES_PER_BUFFER  100000 // 50000
+#define PARTICLE_COUNT 1000000      // 500000 // 200000
+#define PARTICLES_PER_BUFFER 100000 // 50000
 
 #define SPATIAL_HASH_SIZE (PARTICLE_COUNT)
 #define SPATIAL_HASH_ENTRIES_PER_BUFFER (PARTICLES_PER_BUFFER)
@@ -38,6 +38,8 @@ using namespace AltheaEngine;
 #define PARTICLE_RADIUS 0.1f
 
 #define LOCAL_SIZE_X 1024
+
+#define INSTANCED_MODE
 
 #define GEN_SHADER_DEBUG_INFO
 
@@ -57,7 +59,7 @@ void ParticleSystem::initGame(Application& app) {
       app.getInputManager(),
       90.0f,
       (float)windowDims.width / (float)windowDims.height);
-  this->_pCameraController->setMaxSpeed(15.0f);
+  this->_pCameraController->setMaxSpeed(50.0f);
 
   // TODO: need to unbind these at shutdown
   InputManager& input = app.getInputManager();
@@ -294,7 +296,7 @@ void ParticleSystem::_resetParticles(
     uint32_t bufferIdx = particleIdx / PARTICLES_PER_BUFFER;
     uint32_t localIdx = particleIdx % PARTICLES_PER_BUFFER;
     glm::vec3 position =
-        0.01f * glm::vec3(rand() % 1000, rand() % 1000, rand() % 1000);
+        glm::vec3(rand() % 25, rand() % 25, rand() % 100);
     // position += glm::vec3(10.0f);
     this->_particleBuffer.getBuffer(bufferIdx).setElement(
         Particle{// position
@@ -324,6 +326,14 @@ void ParticleSystem::_createGlobalResources(
       "NeoclassicalInterior");
   this->_gBufferResources = GBufferResources(app);
 
+  // TODO: Create LODs for particles
+  ShapeUtilities::createSphere(
+      app,
+      commandBuffer,
+      this->_sphereVertices,
+      this->_sphereIndices,
+      6);
+
   // Per-primitive material resources
   {
     DescriptorSetLayoutBuilder primitiveMaterialLayout;
@@ -346,7 +356,11 @@ void ParticleSystem::_createGlobalResources(
         .addStorageBufferBinding(
             VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
         // Shadow map texture.
-        .addTextureBinding();
+        .addTextureBinding()
+        // Sphere indices
+        .addStorageBufferBinding(VK_SHADER_STAGE_VERTEX_BIT)
+        // Sphere verts
+        .addStorageBufferBinding(VK_SHADER_STAGE_VERTEX_BIT);
 
     this->_pGlobalResources =
         std::make_unique<PerFrameResources>(app, globalResourceLayout);
@@ -390,6 +404,14 @@ void ParticleSystem::_createGlobalResources(
     assignment.bindTexture(
         this->_pointLights.getShadowMapArrayView(),
         this->_pointLights.getShadowMapSampler());
+    assignment.bindStorageBuffer(
+        this->_sphereIndices.getAllocation(),
+        this->_sphereIndices.getSize(),
+        false);
+    assignment.bindStorageBuffer(
+        this->_sphereVertices.getAllocation(),
+        this->_sphereVertices.getSize(),
+        false);
   }
 
   // Set up SSR resources
@@ -462,14 +484,6 @@ void ParticleSystem::_createSimResources(
 
   this->_spatialHash =
       StructuredBufferHeap<uint32_t>(std::move(spatialHashHeap));
-
-  // TODO: Create LODs for particles
-  ShapeUtilities::createSphere(
-      app,
-      commandBuffer,
-      this->_sphereVertices,
-      this->_sphereIndices,
-      6);
 
   this->_simUniforms = TransientUniforms<SimUniforms>(app);
 
@@ -560,6 +574,11 @@ void ParticleSystem::_createForwardPass(Application& app) {
 
   // Render particles
   {
+    ShaderDefines defs{};
+#ifdef INSTANCED_MODE
+    defs.emplace("INSTANCED_MODE", "");
+#endif
+
     SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
     // The GBuffer contains the following color attachments
     // 1. Position
@@ -569,20 +588,23 @@ void ParticleSystem::_createForwardPass(Application& app) {
     subpassBuilder.colorAttachments = {0, 1, 2, 3};
     subpassBuilder.depthAttachment = 4;
 
-    subpassBuilder.pipelineBuilder.setPrimitiveType(PrimitiveType::TRIANGLES)
+    subpassBuilder.pipelineBuilder
+        .setPrimitiveType(PrimitiveType::TRIANGLES)
+#ifdef INSTANCED_MODE
         .addVertexInputBinding<glm::vec3>(VK_VERTEX_INPUT_RATE_VERTEX)
         .addVertexAttribute(VertexAttributeType::VEC3, 0)
-
+#endif
         .addVertexShader(
-            GProjectDirectory + "/Shaders/ParticleSystem/Particles.vert")
+            GProjectDirectory + "/Shaders/ParticleSystem/Particles.vert", defs)
         .addFragmentShader(
             GProjectDirectory + "/Shaders/ParticleSystem/Particles.frag")
         .layoutBuilder.addDescriptorSet(this->_pGlobalResources->getLayout())
-        .addDescriptorSet(this->_pSimResources->getLayout());
+        .addDescriptorSet(this->_pSimResources->getLayout())
+        .addPushConstants<uint32_t>(
+            VK_SHADER_STAGE_VERTEX_BIT); // sphere index count
   }
 
   // Render floor
-  if (0) // TODO: FIX
   {
     SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
     // The GBuffer contains the following color attachments
@@ -903,19 +925,29 @@ void ParticleSystem::draw(
 
     // Draw instanced particles
     pass.nextSubpass();
+    pass.getDrawContext().updatePushConstants<uint32_t>(
+        this->_sphereIndices.getIndexCount(),
+        0);
     pass.setGlobalDescriptorSets(gsl::span(sets, 2));
     pass.getDrawContext().bindDescriptorSets();
+#ifdef INSTANCED_MODE
     pass.getDrawContext().bindIndexBuffer(this->_sphereIndices);
     pass.getDrawContext().bindVertexBuffer(this->_sphereVertices);
     pass.getDrawContext().drawIndexed(
         this->_sphereIndices.getIndexCount(),
         PARTICLE_COUNT);
+#else
+    pass.getDrawContext().draw(
+        this->_sphereIndices.getIndexCount() * PARTICLE_COUNT);
+#endif
+    // this->_sphereIndices.getIndexCount(),
+    // PARTICLE_COUNT);
 
     // Draw floor
-    // pass.nextSubpass();
-    // pass.setGlobalDescriptorSets(gsl::span(sets, 1));
-    // pass.getDrawContext().bindDescriptorSets();
-    // pass.getDrawContext().draw(3);
+    pass.nextSubpass();
+    pass.setGlobalDescriptorSets(gsl::span(sets, 1));
+    pass.getDrawContext().bindDescriptorSets();
+    pass.getDrawContext().draw(3);
   }
 
   this->_gBufferResources.transitionToTextures(commandBuffer);

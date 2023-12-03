@@ -105,7 +105,8 @@ void checkWallCollisions(inout vec3 deltaPos, inout uint collidingParticlesCount
   // gridLength[0] = 20.0 + 8.0 * sin(1.0 * time);// 5.0
   vec3 minPos = vec3(particleRadius);
   vec3 maxPos = gridLength - vec3(particleRadius);
-  for (int i = 0; i < 3; ++i)
+  // for (int i = 0; i < 3; ++i)
+  int i = 1;
   {
     if (particlePos[i] <= minPos[i])
     {
@@ -113,14 +114,14 @@ void checkWallCollisions(inout vec3 deltaPos, inout uint collidingParticlesCount
       ++collidingParticlesCount;
     }  
 
-    if (particlePos[i] >= maxPos[i])
-    {
-      deltaPos[i] -= k * wallBias * (particlePos[i] - maxPos[i]);
-      ++collidingParticlesCount;
-    }
+    // if (particlePos[i] >= maxPos[i])
+    // {
+    //   deltaPos[i] -= k * wallBias * (particlePos[i] - maxPos[i]);
+    //   ++collidingParticlesCount;
+    // }
   }
 
-#if 0
+#if 1
   float camRadius = 2.0;
 
   vec3 camPos = inverseView[3].xyz + -inverseView[2].xyz * 2.0;
@@ -128,7 +129,7 @@ void checkWallCollisions(inout vec3 deltaPos, inout uint collidingParticlesCount
   float camDist = length(camDiff);
   if (camDist < camRadius)
   {
-    deltaPos += camRadius * camDiff / camDist;
+    deltaPos += 0.1 * camRadius * camDiff / camDist;
     ++collidingParticlesCount;
   }
 #endif
