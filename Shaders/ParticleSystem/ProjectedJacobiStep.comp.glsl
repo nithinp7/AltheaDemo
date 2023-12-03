@@ -7,25 +7,8 @@
 
 layout(local_size_x = LOCAL_SIZE_X) in;
 
-#include "Hash.glsl"
 #include "Particle.glsl"
-#include "SimUniforms.glsl"
-
-layout(std430, set=0, binding=1) buffer PARTICLES_BUFFER {
-  Particle particles[];
-};
-
-layout(std430, set=0, binding=2) buffer readonly CELL_TO_BUCKET_BUFFER {
-  uint cellToBucket[];
-};
-
-layout(std430, set=0, binding=3) buffer POSITIONS_A {
-  vec4 positionsA[];
-};
-
-layout(std430, set=0, binding=4) buffer POSITIONS_B {
-  vec4 positionsB[];
-};
+#include "SimResources.glsl"
 
 layout(push_constant) uniform PushConstants {
   uint phase;
@@ -37,11 +20,11 @@ vec3 getPosition(uint idx)
 {
   if (pushConstants.phase == 0)
   {
-    return positionsA[idx].xyz;
+    return getPositionA(idx);
   }
   else 
   {
-    return positionsB[idx].xyz;
+    return getPositionB(idx);
   }
 }
 
@@ -49,11 +32,11 @@ void setPosition(uint idx, vec3 pos)
 {
   if (pushConstants.phase == 0)
   {
-    positionsB[idx].xyz = pos;
+    setPositionB(idx, pos);
   }
   else 
   {
-    positionsA[idx].xyz = pos;
+    setPositionA(idx, pos);
   }
 }
 
@@ -82,7 +65,7 @@ void checkPair(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 par
 
     float sep = dist - minDist;
 
-    float bias = 0.8;
+    float bias = 0.5;
     float k = 1.0;/// float(jacobiIters);
 
     deltaPos += k * bias * sep * diff;
@@ -92,7 +75,7 @@ void checkPair(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 par
 
 void checkBucket(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 particlePos, uint particleIdx, uint nextParticleIdx)
 {
-  for (int i = 0; i < 8; ++i)
+  for (int i = 0; i < 4; ++i)
   {
     if (nextParticleIdx == INVALID_INDEX)
     {
@@ -107,16 +90,9 @@ void checkBucket(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 p
       checkPair(deltaPos, collidingParticlesCount, particlePos, otherParticlePos);
     }
     
-    Particle nextParticle = particles[nextParticleIdx];
+    Particle nextParticle = getParticle(nextParticleIdx);
     nextParticleIdx = nextParticle.nextParticleLink;
   }
-}
-
-uint findGridCell(int i, int j, int k)
-{
-  uint gridCellHash = hashCoords(i, j, k);
-  uint entryLocation = gridCellHash % spatialHashSize;
-  return cellToBucket[entryLocation];
 }
 
 void checkWallCollisions(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 particlePos)
@@ -185,7 +161,7 @@ void main() {
   // other particles from any of the 8 cells immediately surrounding it, so
   // check each one for potential collisions.
   for (int i = 0; i < 8; ++i) {
-    uint particleBucketHeadIdx = findGridCell(gridCell.x + (i>>2), gridCell.y + ((i>>1)&1), gridCell.z + (i&1));
+    uint particleBucketHeadIdx = getSpatialHashSlot(gridCell.x + (i>>2), gridCell.y + ((i>>1)&1), gridCell.z + (i&1));
     if (particleBucketHeadIdx != INVALID_INDEX) {
       checkBucket(deltaPos, collidingParticlesCount, particlePos, particleIdx, particleBucketHeadIdx);
     }
@@ -199,7 +175,6 @@ void main() {
   if (collidingParticlesCount > 0)
   {
     particlePos += deltaPos / float(collidingParticlesCount);
-    // particles[particleIdx].debug = anyParticleCollisions ? 1 : 2;
   }
 
   setPosition(particleIdx, particlePos);

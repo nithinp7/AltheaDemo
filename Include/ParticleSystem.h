@@ -18,6 +18,7 @@
 #include <Althea/Sampler.h>
 #include <Althea/ScreenSpaceReflection.h>
 #include <Althea/StructuredBuffer.h>
+#include <Althea/BufferHeap.h>
 #include <Althea/Texture.h>
 #include <Althea/TransientUniforms.h>
 #include <glm/glm.hpp>
@@ -60,13 +61,13 @@ struct SimUniforms {
   glm::mat4 inverseView;
 
   uint32_t particleCount;
+  uint32_t particlesPerBuffer;
   uint32_t spatialHashSize;
-  uint32_t spatialHashProbeSteps;
-  uint32_t jacobiIters;
+  uint32_t spatialHashEntriesPerBuffer;
 
+  uint32_t jacobiIters;
   float deltaTime;
   float particleRadius;
-  float detectionRadius;
   float time;
 };
 
@@ -106,14 +107,14 @@ private:
 
   void _createSimResources(Application& app, SingleTimeCommandBuffer& commandBuffer);
   std::unique_ptr<PerFrameResources> _pSimResources;
-  ComputePipeline _simPass;
+  ComputePipeline _simPass; // TODO: RENAME to spatialHashRegistration?
   ComputePipeline _jacobiStep;
   TransientUniforms<SimUniforms> _simUniforms;
-  StructuredBuffer<Particle> _particleBuffer;
-  // hashmap from grid cell to particle bucket (head particle of linked list)
-  StructuredBuffer<uint32_t> _cellToBucket;
-  StructuredBuffer<glm::vec4> _positionsA;
-  StructuredBuffer<glm::vec4> _positionsB;
+  StructuredBufferHeap<Particle> _particleBuffer;
+  StructuredBufferHeap<uint32_t> _spatialHash;
+  // TODO: These could probably be part of the same heap...
+  StructuredBufferHeap<glm::vec4> _positionsA;
+  StructuredBufferHeap<glm::vec4> _positionsB;
   VertexBuffer<glm::vec3> _sphereVertices;
   IndexBuffer _sphereIndices;
   

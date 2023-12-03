@@ -6,13 +6,12 @@
 // Per-vertex attributes
 layout(location=0) in vec3 vertPos;
 
-layout(std430, set=1, binding=1) readonly buffer PARTICLES_BUFFER {
-  Particle particles[];
-};
-
 #define GLOBAL_UNIFORMS_SET 0
 #define GLOBAL_UNIFORMS_BINDING 4
 #include <GlobalUniforms.glsl>
+
+#define SIM_RESOURCES_SET 1
+#include "SimResources.glsl"
 
 layout(location=0) out vec3 worldPos;
 layout(location=1) out vec3 normal;
@@ -23,9 +22,9 @@ layout(push_constant) uniform PushConstants {
 } pushConstants;
 
 void main() {
-  Particle particle = particles[gl_InstanceIndex];
+  Particle particle = getParticle(gl_InstanceIndex);
 
-  worldPos = particle.position.xyz + pushConstants.particleRadius * vertPos; 
+  worldPos = particle.position.xyz + particleRadius * vertPos; 
   normal = vertPos;
   
   gl_Position = globals.projection * globals.view * vec4(worldPos, 1.0);
