@@ -40,7 +40,7 @@ void setPosition(uint idx, vec3 pos)
   }
 }
 
-void checkPair(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 particlePos, vec3 otherParticlePos)
+void checkPair(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 particlePos, uint particleIdx, vec3 otherParticlePos, uint otherParticleIdx)
 {
   // TODO: Should use nextPos or prevPos?
   vec3 diff = otherParticlePos - particlePos;
@@ -60,8 +60,10 @@ void checkPair(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 par
     float dist = sqrt(distSq);
     if (dist > 0.000001)
       diff /= dist;
-    else
+    else if (particleIdx < otherParticleIdx)
       diff = vec3(1.0, 0.0, 0.0);
+    else 
+      diff = vec3(-1.0, 0.0, 0.0);
 
     float sep = dist - minDist;
 
@@ -75,7 +77,7 @@ void checkPair(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 par
 
 void checkBucket(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 particlePos, uint particleIdx, uint nextParticleIdx)
 {
-  for (int i = 0; i < 4; ++i)
+  for (int i = 0; i < 8; ++i)
   {
     if (nextParticleIdx == INVALID_INDEX)
     {
@@ -87,7 +89,7 @@ void checkBucket(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 p
     if (particleIdx != nextParticleIdx)
     {
       vec3 otherParticlePos = getPosition(nextParticleIdx);
-      checkPair(deltaPos, collidingParticlesCount, particlePos, otherParticlePos);
+      checkPair(deltaPos, collidingParticlesCount, particlePos, particleIdx, otherParticlePos, nextParticleIdx);
     }
     
     Particle nextParticle = getParticle(nextParticleIdx);
@@ -105,7 +107,7 @@ void checkWallCollisions(inout vec3 deltaPos, inout uint collidingParticlesCount
   // gridLength[0] = 20.0 + 8.0 * sin(1.0 * time);// 5.0
   vec3 minPos = vec3(particleRadius);
   vec3 maxPos = gridLength - vec3(particleRadius);
-  // for (int i = 0; i < 3; ++i)
+  //for (int i = 0; i < 3; ++i)
   int i = 1;
   {
     if (particlePos[i] <= minPos[i])
@@ -114,22 +116,44 @@ void checkWallCollisions(inout vec3 deltaPos, inout uint collidingParticlesCount
       ++collidingParticlesCount;
     }  
 
-    // if (particlePos[i] >= maxPos[i])
-    // {
-    //   deltaPos[i] -= k * wallBias * (particlePos[i] - maxPos[i]);
-    //   ++collidingParticlesCount;
-    // }
+#if 0
+    if (i != 1 && particlePos[i] >= maxPos[i])
+    {
+      deltaPos[i] -= k * wallBias * (particlePos[i] - maxPos[i]);
+      ++collidingParticlesCount;
+    }
+#endif
   }
 
 #if 1
-  float camRadius = 2.0;
+  float camRadius = 3.0;
+  float camRadiusSq = camRadius * camRadius;
 
-  vec3 camPos = inverseView[3].xyz + -inverseView[2].xyz * 2.0;
-  vec3 camDiff = particlePos - camPos;
-  float camDist = length(camDiff);
-  if (camDist < camRadius)
+  vec3 cameraPos = inverseView[3].xyz;
+  vec3 dir = normalize(-inverseView[2].xyz);
+
+  // Solve for t to find whether and where the camera ray intersects the
+  // floor plane
+  // c.y + t * d.y = 0
+
+  float t = -1.0;
+  if (abs(dir.y) > 0.0001)
   {
-    deltaPos += 0.1 * camRadius * camDiff / camDist;
+    t = -cameraPos.y / dir.y;
+  } 
+
+  if (t < 0.0)
+  {
+    return;
+  }
+
+  vec3 userBallPos = cameraPos + t * dir;
+  vec3 camDiff = particlePos - userBallPos;
+  float camDistSq = dot(camDiff, camDiff);
+  if (camDistSq < camRadiusSq)
+  {
+    float camDist = sqrt(camDistSq);
+    deltaPos += camRadius * camDiff / camDist;
     ++collidingParticlesCount;
   }
 #endif

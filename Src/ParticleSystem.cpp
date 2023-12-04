@@ -295,8 +295,8 @@ void ParticleSystem::_resetParticles(
   for (uint32_t particleIdx = 0; particleIdx < PARTICLE_COUNT; ++particleIdx) {
     uint32_t bufferIdx = particleIdx / PARTICLES_PER_BUFFER;
     uint32_t localIdx = particleIdx % PARTICLES_PER_BUFFER;
-    glm::vec3 position =
-        glm::vec3(rand() % 25, rand() % 25, rand() % 100);
+
+    glm::vec3 position(rand() % 25, rand() % 20, rand() % 150);
     // position += glm::vec3(10.0f);
     this->_particleBuffer.getBuffer(bufferIdx).setElement(
         Particle{// position
