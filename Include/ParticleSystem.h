@@ -60,6 +60,9 @@ struct SimUniforms {
   
   glm::mat4 inverseView;
 
+  glm::vec3 interactionLocation;
+  uint32_t inputMask;
+
   uint32_t particleCount;
   uint32_t particlesPerBuffer;
   uint32_t spatialHashSize;
@@ -69,6 +72,9 @@ struct SimUniforms {
   float deltaTime;
   float particleRadius;
   float time;
+
+  uint32_t addedParticles;
+  uint32_t padding[3];
 };
 
 class ParticleSystem : public IGameInstance {
@@ -133,6 +139,9 @@ private:
 
   std::unique_ptr<ScreenSpaceReflection> _pSSR;
   float _exposure = 0.3f;
+
+  uint32_t _activeParticleCount = 10000;
+  uint32_t _inputMask = 0;
 };
 } // namespace ParticleSystem
 } // namespace AltheaDemo

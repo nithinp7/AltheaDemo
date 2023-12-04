@@ -34,7 +34,7 @@ using namespace AltheaEngine;
 #define SPATIAL_HASH_SIZE (PARTICLE_COUNT)
 #define SPATIAL_HASH_ENTRIES_PER_BUFFER (PARTICLES_PER_BUFFER)
 
-#define JACOBI_ITERS 3
+#define JACOBI_ITERS 7
 #define PARTICLE_RADIUS 0.1f
 
 #define LOCAL_SIZE_X 1024
@@ -42,6 +42,9 @@ using namespace AltheaEngine;
 #define INSTANCED_MODE
 
 #define GEN_SHADER_DEBUG_INFO
+
+#define INPUT_MASK_MOUSE_LEFT 1
+#define INPUT_MASK_MOUSE_RIGHT 2
 
 namespace {
 struct SolverPushConstants {
@@ -63,6 +66,19 @@ void ParticleSystem::initGame(Application& app) {
 
   // TODO: need to unbind these at shutdown
   InputManager& input = app.getInputManager();
+  
+  input.addMouseBinding({GLFW_MOUSE_BUTTON_2, GLFW_PRESS, 0}, [that = this]() {
+    that->_inputMask |= INPUT_MASK_MOUSE_LEFT;
+  });
+  input.addMouseBinding({GLFW_MOUSE_BUTTON_2, GLFW_RELEASE, 0}, [that = this]() {
+    that->_inputMask &= ~INPUT_MASK_MOUSE_LEFT;
+  });
+  input.addMouseBinding({GLFW_MOUSE_BUTTON_1, GLFW_PRESS, 0}, [that = this]() {
+    that->_inputMask |= INPUT_MASK_MOUSE_RIGHT;
+  });
+  input.addMouseBinding({GLFW_MOUSE_BUTTON_1, GLFW_RELEASE, 0}, [that = this]() {
+    that->_inputMask &= ~INPUT_MASK_MOUSE_RIGHT;
+  });
 
   // Download buffers to CPU
   input.addKeyBinding(
@@ -228,7 +244,7 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   const Camera& camera = this->_pCameraController->getCamera();
 
   // Use fixed timestep for physics
-  float deltaTime = 1.0f / 15.0f;
+  float deltaTime = 1.0f / 15.0f;//glm::max(1.0f / 60.0f, frame.deltaTime);
 
   const glm::mat4& projection = camera.getProjection();
 
@@ -271,8 +287,26 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   simUniforms.worldToGrid = glm::inverse(simUniforms.gridToWorld);
 
   simUniforms.inverseView = globalUniforms.inverseView;
+  if (this->_inputMask & INPUT_MASK_MOUSE_LEFT)
+  {
+    // TODO:
+  }
 
-  simUniforms.particleCount = PARTICLE_COUNT;
+  simUniforms.inputMask = this->_inputMask;
+
+  if (this->_inputMask & INPUT_MASK_MOUSE_RIGHT) {
+    simUniforms.addedParticles = 100;
+  } else {
+    simUniforms.addedParticles = 0;
+  }
+
+  this->_activeParticleCount += simUniforms.addedParticles;
+  if (this->_activeParticleCount > PARTICLE_COUNT) {
+    simUniforms.addedParticles = PARTICLE_COUNT - this->_activeParticleCount;
+    this->_activeParticleCount = PARTICLE_COUNT;
+  }
+
+  simUniforms.particleCount = this->_activeParticleCount;
   simUniforms.particlesPerBuffer = PARTICLES_PER_BUFFER;
   simUniforms.spatialHashSize = SPATIAL_HASH_SIZE;
   simUniforms.spatialHashEntriesPerBuffer = SPATIAL_HASH_ENTRIES_PER_BUFFER;
@@ -296,7 +330,8 @@ void ParticleSystem::_resetParticles(
     uint32_t bufferIdx = particleIdx / PARTICLES_PER_BUFFER;
     uint32_t localIdx = particleIdx % PARTICLES_PER_BUFFER;
 
-    glm::vec3 position(rand() % 25, rand() % 20, rand() % 150);
+    glm::vec3 position(rand() % 10, rand() % 10, rand() % 10);
+    // glm::vec3 position(rand() % 25, rand() % 20, rand() % 150);
     // position += glm::vec3(10.0f);
     this->_particleBuffer.getBuffer(bufferIdx).setElement(
         Particle{// position
@@ -595,7 +630,8 @@ void ParticleSystem::_createForwardPass(Application& app) {
         .addVertexAttribute(VertexAttributeType::VEC3, 0)
 #endif
         .addVertexShader(
-            GProjectDirectory + "/Shaders/ParticleSystem/Particles.vert", defs)
+            GProjectDirectory + "/Shaders/ParticleSystem/Particles.vert",
+            defs)
         .addFragmentShader(
             GProjectDirectory + "/Shaders/ParticleSystem/Particles.frag")
         .layoutBuilder.addDescriptorSet(this->_pGlobalResources->getLayout())
@@ -764,7 +800,7 @@ void ParticleSystem::draw(
   }
 
   VkDescriptorSet set = this->_pSimResources->getCurrentDescriptorSet(frame);
-  uint32_t groupCountX = (PARTICLE_COUNT - 1) / LOCAL_SIZE_X + 1;
+  uint32_t groupCountX = (this->_activeParticleCount - 1) / LOCAL_SIZE_X + 1;
 
   // Dispatch particle registration into the spatial hash and prepare the
   // spatial hash and particle buckets (linked-lists) for read-only access
@@ -935,10 +971,10 @@ void ParticleSystem::draw(
     pass.getDrawContext().bindVertexBuffer(this->_sphereVertices);
     pass.getDrawContext().drawIndexed(
         this->_sphereIndices.getIndexCount(),
-        PARTICLE_COUNT);
+        this->_activeParticleCount);
 #else
     pass.getDrawContext().draw(
-        this->_sphereIndices.getIndexCount() * PARTICLE_COUNT);
+        this->_sphereIndices.getIndexCount() * this->_activeParticleCount);
 #endif
     // this->_sphereIndices.getIndexCount(),
     // PARTICLE_COUNT);

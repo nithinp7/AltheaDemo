@@ -26,7 +26,7 @@ void main() {
   particle.position = nextPos;
   
   // apply gravity and drag
-  float drag = 0.1;
+  float drag = 0.2;
   float gravity = 0.5;
   vec3 acceleration = vec3(0.0, -gravity, 0.0) - drag * velocity;
   velocity += acceleration * deltaTime;

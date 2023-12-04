@@ -126,6 +126,11 @@ void checkWallCollisions(inout vec3 deltaPos, inout uint collidingParticlesCount
   }
 
 #if 1
+if (bool(inputMask & INPUT_MASK_MOUSE_LEFT))
+{
+  // TODO: Create the projected cam position and upload in 
+  // uniforms, there is more flexibility that way and is probably
+  // more efficient
   float camRadius = 3.0;
   float camRadiusSq = camRadius * camRadius;
 
@@ -153,9 +158,10 @@ void checkWallCollisions(inout vec3 deltaPos, inout uint collidingParticlesCount
   if (camDistSq < camRadiusSq)
   {
     float camDist = sqrt(camDistSq);
-    deltaPos += camRadius * camDiff / camDist;
+    deltaPos += 0.001 * camRadius * camDiff / camDist;
     ++collidingParticlesCount;
   }
+}
 #endif
 }
 

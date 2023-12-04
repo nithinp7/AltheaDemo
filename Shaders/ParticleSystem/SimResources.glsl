@@ -4,6 +4,9 @@
 #include "Particle.glsl"
 #include "Hash.glsl"
 
+#define INPUT_MASK_MOUSE_LEFT 1
+#define INPUT_MASK_MOUSE_RIGHT 2
+
 #ifndef SIM_RESOURCES_SET
 #define SIM_RESOURCES_SET 0
 #endif
@@ -15,6 +18,9 @@ layout(set=SIM_RESOURCES_SET, binding=0) uniform SimUniforms {
   mat4 worldToGrid;
 
   mat4 inverseView;
+
+  vec3 interactionLocation;
+  uint inputMask;
   
   uint particleCount;
   uint particlesPerBuffer;
@@ -25,6 +31,9 @@ layout(set=SIM_RESOURCES_SET, binding=0) uniform SimUniforms {
   float deltaTime;
   float particleRadius;
   float time;
+
+  uint addedParticles;
+  uint padding[3];
 };
 
 layout(std430, set=SIM_RESOURCES_SET, binding=1) buffer PARTICLES_BUFFER {
