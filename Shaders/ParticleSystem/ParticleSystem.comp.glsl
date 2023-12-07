@@ -31,7 +31,7 @@ void main() {
   particleIdx = (particleIdx + randomParticleSwizzle) % particleCount;
 #endif
 
-  float dt = 1 * deltaTime;
+  float dt = 1* deltaTime;
 
   Particle particle = getParticle(particleIdx);
 
@@ -66,7 +66,7 @@ void main() {
   vec3 acceleration = vec3(0.0, -gravity, 0.0) - drag * velocity;
   velocity += acceleration * dt;
 
-  float maxSpeed = 1;
+  float maxSpeed = 5;
   float speed = length(velocity);
   if (speed > maxSpeed)
     velocity *= maxSpeed / speed;
