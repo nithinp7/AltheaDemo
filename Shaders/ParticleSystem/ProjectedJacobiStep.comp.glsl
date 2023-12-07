@@ -3,6 +3,8 @@
 
 #define PI 3.14159265359
 
+#define COLLISION_CHECKS 16
+
 #define INVALID_INDEX 0xFFFFFFFF
 
 layout(local_size_x = LOCAL_SIZE_X) in;
@@ -11,14 +13,14 @@ layout(local_size_x = LOCAL_SIZE_X) in;
 #include "SimResources.glsl"
 
 layout(push_constant) uniform PushConstants {
-  uint phase;
+  uint iteration;
 } pushConstants;
 
 // shared uint[LOCAL_SIZE_X] ss
 
 vec3 getPosition(uint idx)
 {
-  if (pushConstants.phase == 0)
+  if (pushConstants.iteration % 2 == 0)
   {
     return getPositionA(idx);
   }
@@ -30,7 +32,7 @@ vec3 getPosition(uint idx)
 
 void setPosition(uint idx, vec3 pos)
 {
-  if (pushConstants.phase == 0)
+  if (pushConstants.iteration % 2 == 0)
   {
     setPositionB(idx, pos);
   }
@@ -43,15 +45,21 @@ void setPosition(uint idx, vec3 pos)
 void checkPair(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 particlePos, uint particleIdx, vec3 otherParticlePos, uint otherParticleIdx)
 {
   // TODO: Should use nextPos or prevPos?
-  vec3 diff = otherParticlePos - particlePos;
+  vec3 diff = otherParticlePos - particlePos - deltaPos * 0.01;
   // float dist = length(diff);
   float distSq = dot(diff, diff);
 
-  // float adhesionBuffer = 0.025;
-  // float innerRadius = particleRadius - adhesionBuffer;
-  float minDist = 2.0 * particleRadius;
-  float minDistSq = 4.0 * particleRadius * particleRadius;
-
+// #define HACKY_ADHESION
+#ifdef HACKY_ADHESION
+  float adhesionBuffer = 0.01;
+  float innerRadius = particleRadius - adhesionBuffer;
+  float minDist = 2.0 * innerRadius;
+  float minDistSq = 4.0 * innerRadius * innerRadius;
+#else
+  float radius = 0.7 * particleRadius;//0.5 * particleRadius;
+  float minDist = 2.0 * radius;
+  float minDistSq = 4.0 * radius * radius;
+#endif
   // float sep = dist - 2.0 * innerRadius;
   // float sep = dist - 2.0 * particleRadius;
 
@@ -68,16 +76,18 @@ void checkPair(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 par
     float sep = dist - minDist;
 
     float bias = 0.5;
-    float k = 1.0;/// float(jacobiIters);
+    float k = 1.0;// / float(jacobiIters);
 
     deltaPos += k * bias * sep * diff;
     collidingParticlesCount++;
   }
+  // else 
+  //   collidingParticlesCount++; // ??
 }
 
 void checkBucket(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 particlePos, uint particleIdx, uint nextParticleIdx)
 {
-  for (int i = 0; i < 8; ++i)
+  for (int i = 0; i < COLLISION_CHECKS; ++i)
   {
     if (nextParticleIdx == INVALID_INDEX)
     {
@@ -103,12 +113,12 @@ void checkWallCollisions(inout vec3 deltaPos, inout uint collidingParticlesCount
 
   float wallBias = 1.0;
 
-  vec3 gridLength = vec3(30.0);
+  vec3 gridLength = vec3(10.0);
   // gridLength[0] = 20.0 + 8.0 * sin(1.0 * time);// 5.0
   vec3 minPos = vec3(particleRadius);
   vec3 maxPos = gridLength - vec3(particleRadius);
-  //for (int i = 0; i < 3; ++i)
-  int i = 1;
+  for (int i = 0; i < 3; ++i)
+  // int i = 1;
   {
     if (particlePos[i] <= minPos[i])
     {
@@ -116,7 +126,7 @@ void checkWallCollisions(inout vec3 deltaPos, inout uint collidingParticlesCount
       ++collidingParticlesCount;
     }  
 
-#if 0
+#if 1
     if (i != 1 && particlePos[i] >= maxPos[i])
     {
       deltaPos[i] -= k * wallBias * (particlePos[i] - maxPos[i]);
@@ -171,6 +181,10 @@ void main() {
     return;
   }
 
+  // int uTime = int(1000.0 * time);
+  // uint randomParticleSwizzle = hashCoords(uTime, uTime+1, uTime+2);
+  // particleIdx = (particleIdx + randomParticleSwizzle) % particleCount;
+  
   vec3 particlePos = getPosition(particleIdx);
   
   vec3 gridPos = (worldToGrid * vec4(particlePos, 1.0)).xyz;
@@ -203,9 +217,13 @@ void main() {
 
   checkWallCollisions(deltaPos, collidingParticlesCount, particlePos);
 
+  // deltaPos /= float(jacobiIters);
   if (collidingParticlesCount > 0)
   {
-    particlePos += deltaPos / float(collidingParticlesCount);
+    float k = 1;//1.9 / float(collidingParticlesCount);
+    // k /= float(pushConstants.iteration + 1);
+    // k = pow(1.0 - k, 1.0 / float(pushConstants.iteration + 1));
+    particlePos += k * deltaPos;
   }
 
   setPosition(particleIdx, particlePos);

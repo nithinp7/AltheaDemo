@@ -140,7 +140,7 @@ private:
   std::unique_ptr<ScreenSpaceReflection> _pSSR;
   float _exposure = 0.3f;
 
-  uint32_t _activeParticleCount = 10000;
+  uint32_t _activeParticleCount = 100000;
   uint32_t _inputMask = 0;
 };
 } // namespace ParticleSystem

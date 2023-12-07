@@ -31,10 +31,11 @@ using namespace AltheaEngine;
 #define PARTICLE_COUNT 1000000      // 500000 // 200000
 #define PARTICLES_PER_BUFFER 100000 // 50000
 
-#define SPATIAL_HASH_SIZE (PARTICLE_COUNT)
+#define SPATIAL_HASH_SIZE (2*PARTICLE_COUNT)
 #define SPATIAL_HASH_ENTRIES_PER_BUFFER (PARTICLES_PER_BUFFER)
 
-#define JACOBI_ITERS 7
+#define TIME_SUBSTEPS 4
+#define JACOBI_ITERS 3
 #define PARTICLE_RADIUS 0.1f
 
 #define LOCAL_SIZE_X 1024
@@ -48,7 +49,7 @@ using namespace AltheaEngine;
 
 namespace {
 struct SolverPushConstants {
-  uint32_t phase;
+  uint32_t iteration;
 };
 } // namespace
 namespace AltheaDemo {
@@ -66,19 +67,19 @@ void ParticleSystem::initGame(Application& app) {
 
   // TODO: need to unbind these at shutdown
   InputManager& input = app.getInputManager();
-  
+
   input.addMouseBinding({GLFW_MOUSE_BUTTON_2, GLFW_PRESS, 0}, [that = this]() {
     that->_inputMask |= INPUT_MASK_MOUSE_LEFT;
   });
-  input.addMouseBinding({GLFW_MOUSE_BUTTON_2, GLFW_RELEASE, 0}, [that = this]() {
-    that->_inputMask &= ~INPUT_MASK_MOUSE_LEFT;
-  });
+  input.addMouseBinding(
+      {GLFW_MOUSE_BUTTON_2, GLFW_RELEASE, 0},
+      [that = this]() { that->_inputMask &= ~INPUT_MASK_MOUSE_LEFT; });
   input.addMouseBinding({GLFW_MOUSE_BUTTON_1, GLFW_PRESS, 0}, [that = this]() {
     that->_inputMask |= INPUT_MASK_MOUSE_RIGHT;
   });
-  input.addMouseBinding({GLFW_MOUSE_BUTTON_1, GLFW_RELEASE, 0}, [that = this]() {
-    that->_inputMask &= ~INPUT_MASK_MOUSE_RIGHT;
-  });
+  input.addMouseBinding(
+      {GLFW_MOUSE_BUTTON_1, GLFW_RELEASE, 0},
+      [that = this]() { that->_inputMask &= ~INPUT_MASK_MOUSE_RIGHT; });
 
   // Download buffers to CPU
   input.addKeyBinding(
@@ -244,7 +245,7 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   const Camera& camera = this->_pCameraController->getCamera();
 
   // Use fixed timestep for physics
-  float deltaTime = 1.0f / 15.0f;//glm::max(1.0f / 60.0f, frame.deltaTime);
+  float deltaTime = 1.0f / 15.0f / float(TIME_SUBSTEPS);
 
   const glm::mat4& projection = camera.getProjection();
 
@@ -281,14 +282,13 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   // can assume grid is world axis aligned and uniformly scaled on each dim
   // don't care how many cells there are, due to spatial hash
   simUniforms.gridToWorld =
-      glm::scale(glm::mat4(1.0f), glm::vec3(2.0f * PARTICLE_RADIUS));
+      glm::scale(glm::mat4(1.0f), glm::vec3(2.4 * PARTICLE_RADIUS));
   // simUniforms.gridToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(0.05f));
   // simUniforms.gridToWorld[3] = glm::vec4(-100.0f, -100.0f, -100.0f, 1.0f);
   simUniforms.worldToGrid = glm::inverse(simUniforms.gridToWorld);
 
   simUniforms.inverseView = globalUniforms.inverseView;
-  if (this->_inputMask & INPUT_MASK_MOUSE_LEFT)
-  {
+  if (this->_inputMask & INPUT_MASK_MOUSE_LEFT) {
     // TODO:
   }
 
@@ -760,175 +760,193 @@ void ParticleSystem::draw(
   uint32_t spatialHashBufferCount = this->_spatialHash.getSize();
   uint32_t particleBufferCount = this->_particleBuffer.getSize();
 
-  // Reset the spatial hash and prepare the buffers for read/write
-  {
-    static std::vector<VkBufferMemoryBarrier> spatialHashResetBarriers;
-    spatialHashResetBarriers.resize(spatialHashBufferCount);
+  for (uint32_t substep = 0; substep < TIME_SUBSTEPS; ++substep) {
+    // Reset the spatial hash and prepare the buffers for read/write
+    {
+      static std::vector<VkBufferMemoryBarrier> spatialHashResetBarriers;
+      spatialHashResetBarriers.resize(spatialHashBufferCount);
 
-    for (uint32_t bufferIdx = 0; bufferIdx < spatialHashBufferCount;
-         ++bufferIdx) {
-      const auto& buffer = this->_spatialHash.getBuffer(bufferIdx);
+      for (uint32_t bufferIdx = 0; bufferIdx < spatialHashBufferCount;
+           ++bufferIdx) {
+        const auto& buffer = this->_spatialHash.getBuffer(bufferIdx);
 
-      vkCmdFillBuffer(
-          commandBuffer,
-          buffer.getAllocation().getBuffer(),
-          0,
-          buffer.getSize(),
-          0xFFFFFFFF);
+        VkBufferMemoryBarrier& barrier = spatialHashResetBarriers[bufferIdx];
+        barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+        barrier.buffer = buffer.getAllocation().getBuffer();
+        barrier.offset = 0;
+        barrier.size = buffer.getSize();
+        barrier.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
 
-      VkBufferMemoryBarrier& barrier = spatialHashResetBarriers[bufferIdx];
-      barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-      barrier.buffer = buffer.getAllocation().getBuffer();
-      barrier.offset = 0;
-      barrier.size = buffer.getSize();
-      barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-      barrier.dstAccessMask =
-          VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
-    }
+        vkCmdPipelineBarrier(
+            commandBuffer,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            VK_PIPELINE_STAGE_TRANSFER_BIT,
+            0,
+            0,
+            nullptr,
+            1,
+            &barrier,
+            0,
+            nullptr);
 
-    vkCmdPipelineBarrier(
-        commandBuffer,
-        VK_PIPELINE_STAGE_TRANSFER_BIT,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        0,
-        0,
-        nullptr,
-        spatialHashResetBarriers.size(),
-        spatialHashResetBarriers.data(),
-        0,
-        nullptr);
-  }
+        vkCmdFillBuffer(
+            commandBuffer,
+            buffer.getAllocation().getBuffer(),
+            0,
+            buffer.getSize(),
+            0xFFFFFFFF);
 
-  VkDescriptorSet set = this->_pSimResources->getCurrentDescriptorSet(frame);
-  uint32_t groupCountX = (this->_activeParticleCount - 1) / LOCAL_SIZE_X + 1;
+        barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+      }
 
-  // Dispatch particle registration into the spatial hash and prepare the
-  // spatial hash and particle buckets (linked-lists) for read-only access
-  {
-    this->_simPass.bindPipeline(commandBuffer);
-    vkCmdBindDescriptorSets(
-        commandBuffer,
-        VK_PIPELINE_BIND_POINT_COMPUTE,
-        this->_simPass.getLayout(),
-        0,
-        1,
-        &set,
-        0,
-        nullptr);
-    vkCmdDispatch(commandBuffer, groupCountX, 1, 1);
-
-    static std::vector<VkBufferMemoryBarrier> postRegistrationBarriers;
-    postRegistrationBarriers.resize(
-        particleBufferCount + spatialHashBufferCount);
-
-    for (uint32_t bufferIdx = 0; bufferIdx < particleBufferCount; ++bufferIdx) {
-      const auto& buffer = this->_particleBuffer.getBuffer(bufferIdx);
-
-      VkBufferMemoryBarrier& barrier = postRegistrationBarriers[bufferIdx];
-      barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-      barrier.buffer = buffer.getAllocation().getBuffer();
-      barrier.offset = 0;
-      barrier.size = buffer.getSize();
-      barrier.srcAccessMask =
-          VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
-      barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    }
-
-    for (uint32_t bufferIdx = 0; bufferIdx < spatialHashBufferCount;
-         ++bufferIdx) {
-      const auto& buffer = this->_spatialHash.getBuffer(bufferIdx);
-
-      VkBufferMemoryBarrier& barrier =
-          postRegistrationBarriers[bufferIdx + particleBufferCount];
-      barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-      barrier.buffer = buffer.getAllocation().getBuffer();
-      barrier.offset = 0;
-      barrier.size = buffer.getSize();
-      barrier.srcAccessMask =
-          VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
-      barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-    }
-
-    vkCmdPipelineBarrier(
-        commandBuffer,
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-        // The particle positions are currently used to render the particles as
-        // well currently consider splitting out particles and the hash into
-        // separate barriers
-        VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
-            VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
-        0,
-        0,
-        nullptr,
-        postRegistrationBarriers.size(),
-        postRegistrationBarriers.data(),
-        0,
-        nullptr);
-  }
-
-  // Dispatch jacobi iterations for collision resolution
-  {
-    static std::vector<VkBufferMemoryBarrier> pingPongBarriers;
-    pingPongBarriers.resize(2 * particleBufferCount);
-
-    for (uint32_t bufferIdx = 0; bufferIdx < particleBufferCount; ++bufferIdx) {
-      const auto& positionsA = this->_positionsA.getBuffer(bufferIdx);
-
-      VkBufferMemoryBarrier& barrierA = pingPongBarriers[2 * bufferIdx];
-      barrierA = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-      barrierA.buffer = positionsA.getAllocation().getBuffer();
-      barrierA.offset = 0;
-      barrierA.size = positionsA.getSize();
-      barrierA.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-      barrierA.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-      const auto& positionsB = this->_positionsB.getBuffer(bufferIdx);
-      VkBufferMemoryBarrier& barrierB = pingPongBarriers[2 * bufferIdx + 1];
-      barrierB = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-      barrierB.buffer = positionsB.getAllocation().getBuffer();
-      barrierB.offset = 0;
-      barrierB.size = positionsB.getSize();
-      barrierB.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
-      barrierB.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
-    }
-
-    this->_jacobiStep.bindPipeline(commandBuffer);
-    vkCmdBindDescriptorSets(
-        commandBuffer,
-        VK_PIPELINE_BIND_POINT_COMPUTE,
-        this->_jacobiStep.getLayout(),
-        0,
-        1,
-        &set,
-        0,
-        nullptr);
-    for (uint32_t iter = 0; iter < JACOBI_ITERS; ++iter) {
       vkCmdPipelineBarrier(
           commandBuffer,
-          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+          VK_PIPELINE_STAGE_TRANSFER_BIT,
           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
           0,
           0,
           nullptr,
-          pingPongBarriers.size(),
-          pingPongBarriers.data(),
+          spatialHashResetBarriers.size(),
+          spatialHashResetBarriers.data(),
           0,
           nullptr);
+    }
 
-      SolverPushConstants constants{};
-      constants.phase = iter % 2;
-      vkCmdPushConstants(
+    VkDescriptorSet set = this->_pSimResources->getCurrentDescriptorSet(frame);
+    uint32_t groupCountX = (this->_activeParticleCount - 1) / LOCAL_SIZE_X + 1;
+
+    // Dispatch particle registration into the spatial hash and prepare the
+    // spatial hash and particle buckets (linked-lists) for read-only access
+    {
+      this->_simPass.bindPipeline(commandBuffer);
+      vkCmdBindDescriptorSets(
           commandBuffer,
-          this->_jacobiStep.getLayout(),
-          VK_SHADER_STAGE_COMPUTE_BIT,
+          VK_PIPELINE_BIND_POINT_COMPUTE,
+          this->_simPass.getLayout(),
           0,
-          sizeof(SolverPushConstants),
-          &constants);
+          1,
+          &set,
+          0,
+          nullptr);
       vkCmdDispatch(commandBuffer, groupCountX, 1, 1);
 
-      // Swap the barrier access direction for the next iteration
-      for (auto& barrier : pingPongBarriers)
-        std::swap(barrier.srcAccessMask, barrier.dstAccessMask);
+      static std::vector<VkBufferMemoryBarrier> postRegistrationBarriers;
+      postRegistrationBarriers.resize(
+          particleBufferCount + spatialHashBufferCount);
+
+      for (uint32_t bufferIdx = 0; bufferIdx < particleBufferCount;
+           ++bufferIdx) {
+        const auto& buffer = this->_particleBuffer.getBuffer(bufferIdx);
+
+        VkBufferMemoryBarrier& barrier = postRegistrationBarriers[bufferIdx];
+        barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+        barrier.buffer = buffer.getAllocation().getBuffer();
+        barrier.offset = 0;
+        barrier.size = buffer.getSize();
+        barrier.srcAccessMask =
+            VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+      }
+
+      for (uint32_t bufferIdx = 0; bufferIdx < spatialHashBufferCount;
+           ++bufferIdx) {
+        const auto& buffer = this->_spatialHash.getBuffer(bufferIdx);
+
+        VkBufferMemoryBarrier& barrier =
+            postRegistrationBarriers[bufferIdx + particleBufferCount];
+        barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+        barrier.buffer = buffer.getAllocation().getBuffer();
+        barrier.offset = 0;
+        barrier.size = buffer.getSize();
+        barrier.srcAccessMask =
+            VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+      }
+
+      vkCmdPipelineBarrier(
+          commandBuffer,
+          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+          // The particle positions are currently used to render the particles
+          // as well currently consider splitting out particles and the hash
+          // into separate barriers
+          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT |
+              VK_PIPELINE_STAGE_VERTEX_SHADER_BIT,
+          0,
+          0,
+          nullptr,
+          postRegistrationBarriers.size(),
+          postRegistrationBarriers.data(),
+          0,
+          nullptr);
+    }
+
+    // Dispatch jacobi iterations for collision resolution
+    {
+      static std::vector<VkBufferMemoryBarrier> pingPongBarriers;
+      pingPongBarriers.resize(2 * particleBufferCount);
+
+      for (uint32_t bufferIdx = 0; bufferIdx < particleBufferCount;
+           ++bufferIdx) {
+        const auto& positionsA = this->_positionsA.getBuffer(bufferIdx);
+
+        VkBufferMemoryBarrier& barrierA = pingPongBarriers[2 * bufferIdx];
+        barrierA = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+        barrierA.buffer = positionsA.getAllocation().getBuffer();
+        barrierA.offset = 0;
+        barrierA.size = positionsA.getSize();
+        barrierA.srcAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+        barrierA.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+        const auto& positionsB = this->_positionsB.getBuffer(bufferIdx);
+        VkBufferMemoryBarrier& barrierB = pingPongBarriers[2 * bufferIdx + 1];
+        barrierB = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+        barrierB.buffer = positionsB.getAllocation().getBuffer();
+        barrierB.offset = 0;
+        barrierB.size = positionsB.getSize();
+        barrierB.srcAccessMask = VK_ACCESS_SHADER_READ_BIT;
+        barrierB.dstAccessMask = VK_ACCESS_SHADER_WRITE_BIT;
+      }
+
+      this->_jacobiStep.bindPipeline(commandBuffer);
+      vkCmdBindDescriptorSets(
+          commandBuffer,
+          VK_PIPELINE_BIND_POINT_COMPUTE,
+          this->_jacobiStep.getLayout(),
+          0,
+          1,
+          &set,
+          0,
+          nullptr);
+      for (uint32_t iter = 0; iter < JACOBI_ITERS; ++iter) {
+        vkCmdPipelineBarrier(
+            commandBuffer,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+            0,
+            0,
+            nullptr,
+            pingPongBarriers.size(),
+            pingPongBarriers.data(),
+            0,
+            nullptr);
+
+        SolverPushConstants constants{};
+        constants.iteration = iter;
+        vkCmdPushConstants(
+            commandBuffer,
+            this->_jacobiStep.getLayout(),
+            VK_SHADER_STAGE_COMPUTE_BIT,
+            0,
+            sizeof(SolverPushConstants),
+            &constants);
+        vkCmdDispatch(commandBuffer, groupCountX, 1, 1);
+
+        // Swap the barrier access direction for the next iteration
+        for (auto& barrier : pingPongBarriers)
+          std::swap(barrier.srcAccessMask, barrier.dstAccessMask);
+      }
     }
   }
 

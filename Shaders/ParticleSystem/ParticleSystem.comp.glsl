@@ -7,12 +7,31 @@ layout(local_size_x = LOCAL_SIZE_X) in;
 
 #include "Particle.glsl"
 #include "SimResources.glsl"
+#include "Hash.glsl"
+
+// Random number generator and sample warping
+// from ShaderToy https://www.shadertoy.com/view/4tXyWN
+// uvec2 seed;
+// float rng() {
+//     seed += uvec2(1);
+//     uvec2 q = 1103515245U * ( (seed >> 1U) ^ (seed.yx) );
+//     uint  n = 1103515245U * ( (q.x) ^ (q.y >> 3U) );
+//     return float(n) * (1.0 / float(0xffffffffU));
+// }
 
 void main() {
   uint particleIdx = uint(gl_GlobalInvocationID.x);
   if (particleIdx >= particleCount) {
     return;
   }
+
+#if 1
+  int uTime = int(1000.0 * time);
+  uint randomParticleSwizzle = hashCoords(uTime, uTime+1, uTime+2);
+  particleIdx = (particleIdx + randomParticleSwizzle) % particleCount;
+#endif
+
+  float dt = 1 * deltaTime;
 
   Particle particle = getParticle(particleIdx);
 
@@ -22,26 +41,38 @@ void main() {
   particle.debug = 0;
 
   vec3 nextPos = getPositionB(particleIdx).xyz;
-  vec3 velocity = (nextPos - particle.position) / deltaTime;
-  particle.position = nextPos;
+  vec3 stabilization = nextPos - getPositionA(particleIdx).xyz;
+  // stabilization = vec3(0.0);
+  vec3 diff = nextPos - particle.position - stabilization;
+  vec3 velocity = diff / dt;
+  // if (dot(velocity, velocity) < 0.001)
+  // {
+  //   velocity = vec3(0.0);
+  // } 
+  // else
+   {
+    particle.position = nextPos;
+  }
+
+  // vec3 stabilization = vec3(0.0);
   
+  float friction = 0.;//5;
+  if (nextPos.y <= particleRadius * 1.5)
+    velocity.xz -= friction * velocity.xz * dt;
+
   // apply gravity and drag
-  float drag = 0.2;
-  float gravity = 0.5;
+  float drag = 0.;//5;
+  float gravity = 3.;
   vec3 acceleration = vec3(0.0, -gravity, 0.0) - drag * velocity;
-  velocity += acceleration * deltaTime;
+  velocity += acceleration * dt;
 
-  float friction = 0.5;
-  if (nextPos.y <= 0.0)
-    velocity.xz -= friction * velocity.xz * deltaTime;
-
-  float maxSpeed = 2.0;
+  float maxSpeed = 1;
   float speed = length(velocity);
   if (speed > maxSpeed)
     velocity *= maxSpeed / speed;
 
   // Initial estimate of particle position
-  vec3 projectedPos = particle.position + velocity * deltaTime;
+  vec3 projectedPos = particle.position + velocity * dt;
 
   setPositionA(particleIdx, projectedPos);
 
