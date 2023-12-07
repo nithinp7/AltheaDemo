@@ -31,7 +31,7 @@ using namespace AltheaEngine;
 #define PARTICLE_COUNT 1000000      // 500000 // 200000
 #define PARTICLES_PER_BUFFER 100000 // 50000
 
-#define SPATIAL_HASH_SIZE (2*PARTICLE_COUNT)
+#define SPATIAL_HASH_SIZE (2 * PARTICLE_COUNT)
 #define SPATIAL_HASH_ENTRIES_PER_BUFFER (PARTICLES_PER_BUFFER)
 
 #define TIME_SUBSTEPS 2
@@ -46,6 +46,7 @@ using namespace AltheaEngine;
 
 #define INPUT_MASK_MOUSE_LEFT 1
 #define INPUT_MASK_MOUSE_RIGHT 2
+#define INPUT_MASK_SPACEBAR 4
 
 namespace {
 struct SolverPushConstants {
@@ -68,18 +69,26 @@ void ParticleSystem::initGame(Application& app) {
   // TODO: need to unbind these at shutdown
   InputManager& input = app.getInputManager();
 
-  input.addMouseBinding({GLFW_MOUSE_BUTTON_2, GLFW_PRESS, 0}, [that = this]() {
+  input.addMouseBinding({GLFW_MOUSE_BUTTON_1, GLFW_PRESS, 0}, [that = this]() {
     that->_inputMask |= INPUT_MASK_MOUSE_LEFT;
   });
   input.addMouseBinding(
-      {GLFW_MOUSE_BUTTON_2, GLFW_RELEASE, 0},
+      {GLFW_MOUSE_BUTTON_1, GLFW_RELEASE, 0},
       [that = this]() { that->_inputMask &= ~INPUT_MASK_MOUSE_LEFT; });
-  input.addMouseBinding({GLFW_MOUSE_BUTTON_1, GLFW_PRESS, 0}, [that = this]() {
+
+  input.addMouseBinding({GLFW_MOUSE_BUTTON_2, GLFW_PRESS, 0}, [that = this]() {
     that->_inputMask |= INPUT_MASK_MOUSE_RIGHT;
   });
   input.addMouseBinding(
-      {GLFW_MOUSE_BUTTON_1, GLFW_RELEASE, 0},
+      {GLFW_MOUSE_BUTTON_2, GLFW_RELEASE, 0},
       [that = this]() { that->_inputMask &= ~INPUT_MASK_MOUSE_RIGHT; });
+
+  input.addKeyBinding({GLFW_KEY_SPACE, GLFW_PRESS, 0}, [that = this]() {
+    that->_inputMask |= INPUT_MASK_SPACEBAR;
+  });
+  input.addKeyBinding({GLFW_KEY_SPACE, GLFW_RELEASE, 0}, [that = this]() {
+    that->_inputMask &= ~INPUT_MASK_SPACEBAR;
+  });
 
   // Download buffers to CPU
   input.addKeyBinding(
@@ -295,7 +304,7 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   simUniforms.inputMask = this->_inputMask;
 
   if (this->_inputMask & INPUT_MASK_MOUSE_RIGHT) {
-    simUniforms.addedParticles = 100;
+    simUniforms.addedParticles = 1000;
   } else {
     simUniforms.addedParticles = 0;
   }
@@ -798,7 +807,8 @@ void ParticleSystem::draw(
             0xFFFFFFFF);
 
         barrier.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-        barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+        barrier.dstAccessMask =
+            VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
       }
 
       vkCmdPipelineBarrier(

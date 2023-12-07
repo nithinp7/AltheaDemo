@@ -25,7 +25,7 @@ void main() {
     return;
   }
 
-#if 1
+#if 0
   int uTime = int(1000.0 * time);
   uint randomParticleSwizzle = hashCoords(uTime, uTime+1, uTime+2);
   particleIdx = (particleIdx + randomParticleSwizzle) % particleCount;
@@ -38,7 +38,7 @@ void main() {
   particle.nextParticleLink = INVALID_INDEX;
 
   // Clear any debug flags for this frame
-  particle.debug = 0;
+  //particle.debug = 0;
 
   vec3 nextPos = getPositionB(particleIdx).xyz;
   vec3 stabilization = nextPos - getPositionA(particleIdx).xyz;
@@ -84,6 +84,17 @@ void main() {
   // The previous entry (either invalid or a particle idx) will become the "next" link in the bucket
   particle.nextParticleLink = spatialHashAtomicExchange(gridCell.x, gridCell.y, gridCell.z, particleIdx);
   
+if (bool(inputMask & INPUT_MASK_SPACEBAR))
+  {
+    vec3 col = fract(projectedPos / 2.0);
+    uvec3 ucol = uvec3(255.0 * col.xyz);
+    particle.debug = (ucol.x << 16) | (ucol.y << 8) | ucol.z;
+  }
+#if 0
+  vec3 col = 0.5 * velocity / speed + vec3(0.5);
+  uvec3 ucol = uvec3(255.0 * col);
+  particle.debug = (ucol.x << 16) | (ucol.y << 8) | ucol.z;
+#endif
   // Write-back the modified particle data
   setParticle(particleIdx, particle);
 }

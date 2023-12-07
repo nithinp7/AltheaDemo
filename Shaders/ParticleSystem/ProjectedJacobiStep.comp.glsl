@@ -142,7 +142,7 @@ if (bool(inputMask & INPUT_MASK_MOUSE_LEFT))
   // TODO: Create the projected cam position and upload in 
   // uniforms, there is more flexibility that way and is probably
   // more efficient
-  float camRadius = 3.0;
+  float camRadius = 2.0;
   float camRadiusSq = camRadius * camRadius;
 
   vec3 cameraPos = inverseView[3].xyz;
@@ -169,7 +169,7 @@ if (bool(inputMask & INPUT_MASK_MOUSE_LEFT))
   if (camDistSq < camRadiusSq)
   {
     float camDist = sqrt(camDistSq);
-    deltaPos += 0.1 * camRadius * camDiff / camDist;
+    deltaPos += 0.01 * camRadius * camDiff / camDist;
     ++collidingParticlesCount;
   }
 }
