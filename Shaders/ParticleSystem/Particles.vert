@@ -50,7 +50,7 @@ void main() {
 
 #if 1
   color = vec3(particle.debug >> 16, (particle.debug >> 8) & 0xff, particle.debug & 0xff) / 255.0;
-#else
+#elif 0
   if (particle.debug == 1)
     color = vec3(1.0, 0.0, 0.0);
   else if (particle.debug == 2)
@@ -59,5 +59,7 @@ void main() {
     color = vec3(1.0, 1.0, 0.0);
   else
     color = vec3(0.4, 0.1, 0.9);
+#else
+  color = vec3(0.4, 0.1, 0.9);
 #endif
 }

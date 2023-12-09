@@ -50,6 +50,7 @@ struct Particle {
   alignas(16) glm::vec3 position;
   alignas(4) uint32_t nextParticleLink;
   alignas(4) uint32_t debug;
+  uint32_t padding[3];
 };
 
 // TODO: Determine alignment / padding

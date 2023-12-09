@@ -29,7 +29,7 @@
 using namespace AltheaEngine;
 
 #define PARTICLE_COUNT 1000000      // 500000 // 200000
-#define PARTICLES_PER_BUFFER 100000 // 50000
+#define PARTICLES_PER_BUFFER 100000 //100000 // 50000
 
 #define SPATIAL_HASH_SIZE (2 * PARTICLE_COUNT)
 #define SPATIAL_HASH_ENTRIES_PER_BUFFER (PARTICLES_PER_BUFFER)
@@ -38,7 +38,7 @@ using namespace AltheaEngine;
 #define JACOBI_ITERS 3
 #define PARTICLE_RADIUS 0.1f
 
-#define LOCAL_SIZE_X 1024
+#define LOCAL_SIZE_X 512
 
 #define INSTANCED_MODE
 
@@ -348,7 +348,7 @@ void ParticleSystem::_resetParticles(
                  // next particle in particle bucket linked-list
                  0,
                  // debug value
-                 0},
+                 0xfc3311},
         localIdx);
 
     glm::vec4 position4(position, 1.0f);

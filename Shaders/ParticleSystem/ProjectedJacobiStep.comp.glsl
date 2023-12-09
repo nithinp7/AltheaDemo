@@ -46,7 +46,7 @@ void setPosition(uint idx, vec3 pos)
 void checkPair(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 particlePos, uint particleIdx, vec3 otherParticlePos, uint otherParticleIdx)
 {
   // TODO: Should use nextPos or prevPos?
-  vec3 diff = otherParticlePos - particlePos - deltaPos * 0.0;//1;
+  vec3 diff = otherParticlePos - particlePos;// - 0.1 * deltaPos;
   // float dist = length(diff);
   float distSq = dot(diff, diff);
 
@@ -114,7 +114,7 @@ void checkWallCollisions(inout vec3 deltaPos, inout uint collidingParticlesCount
 
   float wallBias = 1.0;
 
-  vec3 gridLength = vec3(40.0);
+  vec3 gridLength = vec3(20.0);
   // gridLength[0] = 20.0 + 8.0 * sin(1.0 * time);// 5.0
   vec3 minPos = vec3(particleRadius);
   vec3 maxPos = gridLength - vec3(particleRadius);
@@ -142,7 +142,7 @@ if (bool(inputMask & INPUT_MASK_MOUSE_LEFT))
   // TODO: Create the projected cam position and upload in 
   // uniforms, there is more flexibility that way and is probably
   // more efficient
-  float camRadius = 2.0;
+  float camRadius = 1.;
   float camRadiusSq = camRadius * camRadius;
 
   vec3 cameraPos = inverseView[3].xyz;
@@ -169,7 +169,7 @@ if (bool(inputMask & INPUT_MASK_MOUSE_LEFT))
   if (camDistSq < camRadiusSq)
   {
     float camDist = sqrt(camDistSq);
-    deltaPos += 0.01 * camRadius * camDiff / camDist;
+    deltaPos += 1. * camRadius * camDiff / camDist;
     ++collidingParticlesCount;
   }
 }
