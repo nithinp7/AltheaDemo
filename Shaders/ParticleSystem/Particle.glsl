@@ -3,9 +3,9 @@
 
 struct Particle {
   vec3 position;
-  uint nextParticleLink;
+  uint globalIndex;
+  vec3 prevPosition;
   uint debug;
-  uint padding[3];
 };
 
 #endif // _PARTICLE_

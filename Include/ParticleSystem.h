@@ -48,9 +48,17 @@ struct GlobalUniforms {
 
 struct Particle {
   alignas(16) glm::vec3 position;
-  alignas(4) uint32_t nextParticleLink;
+  alignas(4) uint32_t globalIndex;
+  alignas(16) glm::vec3 prevPosition;
   alignas(4) uint32_t debug;
-  uint32_t padding[3];
+};
+
+struct ParticleEntry {
+  float positions[8]; // Don't need this to be particularly readable on the CPU anyways
+};
+
+struct ParticleBucket {
+  ParticleEntry particles[16];
 };
 
 // TODO: Determine alignment / padding
@@ -75,8 +83,15 @@ struct SimUniforms {
   float time;
 
   uint32_t addedParticles;
-  uint32_t padding[3];
+  uint32_t particleBucketCount;
+  uint32_t particleBucketsPerBuffer;
+  uint32_t freeListsCount;
 };
+
+#define SIM_PASS 0
+#define BUCKET_ALLOC_PASS 1
+#define BUCKET_INSERT_PASS 2
+#define JACOBI_STEP_PASS 3
 
 class ParticleSystem : public IGameInstance {
 public:
@@ -114,14 +129,17 @@ private:
 
   void _createSimResources(Application& app, SingleTimeCommandBuffer& commandBuffer);
   std::unique_ptr<PerFrameResources> _pSimResources;
-  ComputePipeline _simPass; // TODO: RENAME to spatialHashRegistration?
-  ComputePipeline _jacobiStep;
+   // TODO: RENAME to spatialHashRegistration?
+  
+  std::vector<ComputePipeline> _computePasses;
+
   TransientUniforms<SimUniforms> _simUniforms;
+  
   StructuredBufferHeap<Particle> _particleBuffer;
   StructuredBufferHeap<uint32_t> _spatialHash;
-  // TODO: These could probably be part of the same heap...
-  StructuredBufferHeap<glm::vec4> _positionsA;
-  StructuredBufferHeap<glm::vec4> _positionsB;
+  StructuredBuffer<uint32_t> _freeBucketCounter;
+  StructuredBufferHeap<ParticleBucket> _buckets;
+
   VertexBuffer<glm::vec3> _sphereVertices;
   IndexBuffer _sphereIndices;
   
@@ -141,7 +159,8 @@ private:
   std::unique_ptr<ScreenSpaceReflection> _pSSR;
   float _exposure = 0.3f;
 
-  uint32_t _activeParticleCount = 250000;
+  bool _flagReset = false;
+  uint32_t _activeParticleCount = 1000;
   uint32_t _inputMask = 0;
 };
 } // namespace ParticleSystem

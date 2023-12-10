@@ -1,8 +1,6 @@
 
 #version 450
 
-#define INVALID_INDEX 0xFFFFFFFF
-
 layout(local_size_x = LOCAL_SIZE_X) in;
 
 #include "Particle.glsl"
@@ -15,37 +13,33 @@ void main() {
     return;
   }
 
-#if 0
-  int uTime = int(1000.0 * time);
-  uint randomParticleSwizzle = uTime;//hashCoords(uTime, uTime+1, uTime+2);
-  particleIdx = (particleIdx + randomParticleSwizzle) % particleCount;
-#endif
+  bool newlyAdded = particleIdx >= (particleCount - addedParticles);
 
-  float dt = 1* deltaTime;
+  float dt = deltaTime;
 
   Particle particle = getParticle(particleIdx);
 
-  particle.nextParticleLink = INVALID_INDEX;
+  // TODO: Find better function name here...
 
-  // Clear any debug flags for this frame
-  //particle.debug = 0;
+  vec3 velocity = vec3(0.0);
+  
+  // if (false)
+  if (!newlyAdded)
+  {
+    ParticleBucketEntry particleEntry = getParticleEntry(particle.globalIndex);
+    vec3 nextPos = particleEntry.positions[1].xyz;
+    vec3 stabilization = nextPos - particleEntry.positions[1].xyz;
+    stabilization = vec3(0.0); // TODO: TEMP
 
-  vec3 nextPos = getPositionB(particleIdx).xyz;
-  vec3 stabilization = nextPos - getPositionA(particleIdx).xyz;
-  // stabilization = vec3(0.0);
-  vec3 diff = nextPos - particle.position - stabilization;
-  vec3 velocity = diff / dt;
-  // if (dot(velocity, velocity) < 0.01)
-  // {
-  //   velocity = vec3(0.0);
-  // } 
-  // else
-   {
+    vec3 diff = nextPos - particle.prevPosition - stabilization;
+    vec3 velocity = diff / dt;
+
     particle.position = nextPos;
+    particle.prevPosition = nextPos;
   }
 
   float friction = .0;//5;
-  if (nextPos.y <= particleRadius * 1.5)
+  if (particle.position.y <= particleRadius * 1.5)
     velocity.xz -= friction * velocity.xz * dt;
 
   // apply gravity and drag
@@ -60,19 +54,22 @@ void main() {
     velocity *= maxSpeed / speed;
 
   // Initial estimate of particle position
-  vec3 projectedPos = particle.position + velocity * dt;
+  particle.position += velocity * dt;
 
-  setPositionA(particleIdx, projectedPos);
+  // setPosition(particleIdx, projectedPos, 0);
 
-  vec3 gridPos = (worldToGrid * vec4(projectedPos, 1.0)).xyz;
+  vec3 gridPos = (worldToGrid * vec4(particle.position, 1.0)).xyz;
   ivec3 gridCell = ivec3(floor(gridPos));
+
+  // Store the particle grid cell hash
+  particle.globalIndex = incrementCellParticleCount(gridCell.x, gridCell.y, gridCell.z);
 
   // Whether we find an entry for this grid cell, entry for a hash-colliding cell, or create a 
   // a new entry, this particle will become the new head of the particle bucket linked-list.
   // The previous entry (either invalid or a particle idx) will become the "next" link in the bucket
-  particle.nextParticleLink = spatialHashAtomicExchange(gridCell.x, gridCell.y, gridCell.z, particleIdx);
+  // particle.nextParticleLink = spatialHashAtomicExchange(gridCell.x, gridCell.y, gridCell.z, particleIdx);
 
-#if 1
+#if 0
 if (particleIdx >= (particleCount - addedParticles))
 {
     vec3 col = vec3(1.0, 0.2, 0.1);
@@ -85,11 +82,12 @@ if (bool(inputMask & INPUT_MASK_SPACEBAR))
     uvec3 ucol = uvec3(255.0 * col.xyz);
     particle.debug = (ucol.x << 16) | (ucol.y << 8) | ucol.z;
   }
-#elif 1
+#elif 0
   vec3 col = 0.5 * velocity / speed + vec3(0.5);
   uvec3 ucol = uvec3(255.0 * col);
   particle.debug = (ucol.x << 16) | (ucol.y << 8) | ucol.z;
 #endif
+
   // Write-back the modified particle data
   setParticle(particleIdx, particle);
 }

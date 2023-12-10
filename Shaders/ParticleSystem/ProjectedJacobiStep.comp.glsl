@@ -6,7 +6,6 @@
 // Need to reduce this...
 #define COLLISION_CHECKS 16
 
-#define INVALID_INDEX 0xFFFFFFFF
 
 layout(local_size_x = LOCAL_SIZE_X) in;
 
@@ -19,28 +18,16 @@ layout(push_constant) uniform PushConstants {
 
 // shared uint[LOCAL_SIZE_X] ss
 
-vec3 getPosition(uint idx)
+vec3 getPosition(uint globalParticleIdx)
 {
-  if (pushConstants.iteration % 2 == 0)
-  {
-    return getPositionA(idx);
-  }
-  else 
-  {
-    return getPositionB(idx);
-  }
+  uint phase = pushConstants.iteration % 2;
+  return getPosition(globalParticleIdx, phase);
 }
 
-void setPosition(uint idx, vec3 pos)
+void setPosition(uint globalParticleIdx, vec3 pos)
 {
-  if (pushConstants.iteration % 2 == 0)
-  {
-    setPositionB(idx, pos);
-  }
-  else 
-  {
-    setPositionA(idx, pos);
-  }
+  uint phase = (pushConstants.iteration + 1) % 2;
+  setPosition(globalParticleIdx, pos, phase);
 }
 
 void checkPair(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 particlePos, uint particleIdx, vec3 otherParticlePos, uint otherParticleIdx)
@@ -86,25 +73,17 @@ void checkPair(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 par
   //   collidingParticlesCount++; // ??
 }
 
-void checkBucket(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 particlePos, uint particleIdx, uint nextParticleIdx)
+void checkBucket(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 particlePos, uint thisParticleIdx, uint bucketEnd)
 {
-  for (int i = 0; i < COLLISION_CHECKS; ++i)
+  uint bucketStart = bucketEnd & ~0xF;
+  for (uint globalParticleIdx = bucketStart; globalParticleIdx < bucketEnd; ++globalParticleIdx)
   {
-    if (nextParticleIdx == INVALID_INDEX)
-    {
-      // At the end of the linked-list
-      return;
-    }
-
     // Check any valid particle pairs in the bucket
-    if (particleIdx != nextParticleIdx)
+    if (globalParticleIdx != thisParticleIdx)
     {
-      vec3 otherParticlePos = getPosition(nextParticleIdx);
-      checkPair(deltaPos, collidingParticlesCount, particlePos, particleIdx, otherParticlePos, nextParticleIdx);
+      vec3 otherParticlePos = getPosition(globalParticleIdx);
+      checkPair(deltaPos, collidingParticlesCount, particlePos, thisParticleIdx, otherParticlePos, globalParticleIdx);
     }
-    
-    Particle nextParticle = getParticle(nextParticleIdx);
-    nextParticleIdx = nextParticle.nextParticleLink;
   }
 }
 
@@ -185,8 +164,10 @@ void main() {
   // int uTime = int(1000.0 * time);
   // uint randomParticleSwizzle = hashCoords(uTime, uTime+1, uTime+2);
   // particleIdx = (particleIdx + randomParticleSwizzle) % particleCount;
+  Particle particle = getParticle(particleIdx);
   
-  vec3 particlePos = getPosition(particleIdx);
+  uint globalParticleIdx = particle.globalIndex;
+  vec3 particlePos = getPosition(globalParticleIdx);
   
   vec3 gridPos = (worldToGrid * vec4(particlePos, 1.0)).xyz;
   vec3 gridCellF = floor(gridPos);
@@ -207,9 +188,9 @@ void main() {
   // other particles from any of the 8 cells immediately surrounding it, so
   // check each one for potential collisions.
   for (int i = 0; i < 8; ++i) {
-    uint particleBucketHeadIdx = getSpatialHashSlot(gridCell.x + (i>>2), gridCell.y + ((i>>1)&1), gridCell.z + (i&1));
-    if (particleBucketHeadIdx != INVALID_INDEX) {
-      checkBucket(deltaPos, collidingParticlesCount, particlePos, particleIdx, particleBucketHeadIdx);
+    uint bucketEnd = getSpatialHashSlot(gridCell.x + (i>>2), gridCell.y + ((i>>1)&1), gridCell.z + (i&1));
+    if (bucketEnd != INVALID_INDEX) {
+      checkBucket(deltaPos, collidingParticlesCount, particlePos, globalParticleIdx, bucketEnd);
     }
   }
   
@@ -227,5 +208,5 @@ void main() {
     particlePos += k * deltaPos;
   }
 
-  setPosition(particleIdx, particlePos);
+  setPosition(globalParticleIdx, particlePos);
 }
