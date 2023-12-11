@@ -28,11 +28,16 @@ void main() {
   {
     ParticleBucketEntry particleEntry = getParticleEntry(particle.globalIndex);
     vec3 nextPos = particleEntry.positions[1].xyz;
-    vec3 stabilization = nextPos - particleEntry.positions[1].xyz;
-    stabilization = vec3(0.0); // TODO: TEMP
+    vec3 stabilization = nextPos - particleEntry.positions[0].xyz;
+    // vec3 stabilization = vec3(0.0); // TODO: TEMP
 
     vec3 diff = nextPos - particle.prevPosition - stabilization;
-    vec3 velocity = diff / dt;
+    velocity = diff / dt;
+
+    // float friction = 5.0;
+    // vec3 projection = dot(stabilization, velocity) * stabilization;
+    // vec3 rejection = velocity - projection;
+    // velocity -= rejection * friction * dt;
 
     particle.position = nextPos;
     particle.prevPosition = nextPos;
@@ -69,7 +74,7 @@ void main() {
   // The previous entry (either invalid or a particle idx) will become the "next" link in the bucket
   // particle.nextParticleLink = spatialHashAtomicExchange(gridCell.x, gridCell.y, gridCell.z, particleIdx);
 
-#if 0
+#if 1
 if (particleIdx >= (particleCount - addedParticles))
 {
     vec3 col = vec3(1.0, 0.2, 0.1);
@@ -77,12 +82,12 @@ if (particleIdx >= (particleCount - addedParticles))
     particle.debug = (ucol.x << 16) | (ucol.y << 8) | ucol.z;
 }
 if (bool(inputMask & INPUT_MASK_SPACEBAR))
-  {
-    vec3 col = fract(projectedPos / 20.0);
-    uvec3 ucol = uvec3(255.0 * col.xyz);
-    particle.debug = (ucol.x << 16) | (ucol.y << 8) | ucol.z;
-  }
-#elif 0
+{
+  vec3 col = fract(particle.position / 50.0);
+  uvec3 ucol = uvec3(255.0 * col.xyz);
+  particle.debug = (ucol.x << 16) | (ucol.y << 8) | ucol.z;
+}
+#elif 1
   vec3 col = 0.5 * velocity / speed + vec3(0.5);
   uvec3 ucol = uvec3(255.0 * col);
   particle.debug = (ucol.x << 16) | (ucol.y << 8) | ucol.z;

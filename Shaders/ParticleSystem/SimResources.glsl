@@ -119,13 +119,10 @@ void allocateBucketForCell(uint slotIdx) {
 
   uint particleCount = spatialHashHeap[bufferIdx].spatialHash[localSlotIdx];
   if (particleCount != INVALID_INDEX) {
-    // TODO: HARDCODED, FIX SOON
-
-    // uint freeListIdx = slotIdx % freeListsCount;
+    uint freeListIdx = slotIdx % freeListsCount;
     // // TODO: Measure how much contention is seen here...
-    // uint freeListCounter = atomicAdd(nextFreeBucket[freeListIdx], 1);
-    // uint bucketIdx = (freeListCounter * freeListsCount + freeListIdx) % particleBucketCount;
-    uint bucketIdx = slotIdx;
+    uint freeListCounter = atomicAdd(nextFreeBucket[freeListIdx], 1);
+    uint bucketIdx = (freeListCounter * freeListsCount + freeListIdx) % particleBucketCount;
     uint globalIdx = bucketIdx << 4;
 
     spatialHashHeap[bufferIdx].spatialHash[localSlotIdx] = globalIdx;

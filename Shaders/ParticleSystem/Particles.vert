@@ -48,7 +48,7 @@ void main() {
 
   gl_Position = globals.projection * globals.view * vec4(worldPos, 1.0);
 
-#if 0
+#if 1
   color = vec3(particle.debug >> 16, (particle.debug >> 8) & 0xff, particle.debug & 0xff) / 255.0;
 #elif 0
   if (particle.debug == 1)

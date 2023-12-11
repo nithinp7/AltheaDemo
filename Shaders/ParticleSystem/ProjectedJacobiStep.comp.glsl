@@ -44,7 +44,7 @@ void checkPair(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 par
   float minDist = 2.0 * innerRadius;
   float minDistSq = 4.0 * innerRadius * innerRadius;
 #else
-  float radius = 0.7 * particleRadius;//0.5 * particleRadius;
+  float radius = 1. * particleRadius;//0.5 * particleRadius;
   float minDist = 2.0 * radius;
   float minDistSq = 4.0 * radius * radius;
 #endif
@@ -93,7 +93,7 @@ void checkWallCollisions(inout vec3 deltaPos, inout uint collidingParticlesCount
 
   float wallBias = 1.0;
 
-  vec3 gridLength = vec3(20.0);
+  vec3 gridLength = vec3(50.0);
   // gridLength[0] = 20.0 + 8.0 * sin(1.0 * time);// 5.0
   vec3 minPos = vec3(particleRadius);
   vec3 maxPos = gridLength - vec3(particleRadius);
@@ -121,7 +121,7 @@ if (bool(inputMask & INPUT_MASK_MOUSE_LEFT))
   // TODO: Create the projected cam position and upload in 
   // uniforms, there is more flexibility that way and is probably
   // more efficient
-  float camRadius = 1.;
+  float camRadius = 3.;
   float camRadiusSq = camRadius * camRadius;
 
   vec3 cameraPos = inverseView[3].xyz;
@@ -148,7 +148,7 @@ if (bool(inputMask & INPUT_MASK_MOUSE_LEFT))
   if (camDistSq < camRadiusSq)
   {
     float camDist = sqrt(camDistSq);
-    deltaPos += 1. * camRadius * camDiff / camDist;
+    deltaPos += 1.0 * camRadius * camDiff / camDist;
     ++collidingParticlesCount;
   }
 }
@@ -202,7 +202,7 @@ void main() {
   // deltaPos /= float(jacobiIters);
   if (collidingParticlesCount > 0)
   {
-    float k = 1;//1.9 / float(collidingParticlesCount);
+    float k = 1.0;// / float(collidingParticlesCount);
     // k /= float(pushConstants.iteration + 1);
     // k = pow(1.0 - k, 1.0 / float(pushConstants.iteration + 1));
     particlePos += k * deltaPos;

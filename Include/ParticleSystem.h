@@ -160,7 +160,7 @@ private:
   float _exposure = 0.3f;
 
   bool _flagReset = false;
-  uint32_t _activeParticleCount = 1000;
+  uint32_t _activeParticleCount = 1000000;
   uint32_t _inputMask = 0;
 };
 } // namespace ParticleSystem

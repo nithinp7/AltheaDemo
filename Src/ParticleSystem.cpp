@@ -28,18 +28,18 @@
 
 using namespace AltheaEngine;
 
-#define PARTICLE_COUNT 1000//  1000000      // 500000 // 200000
-#define PARTICLES_PER_BUFFER 1000// 100000 // 100000 // 50000
+#define PARTICLE_COUNT 1000000      // 500000 // 200000
+#define PARTICLES_PER_BUFFER 100000 // 100000 // 50000
 
-#define SPATIAL_HASH_SIZE 1000// (2 * PARTICLE_COUNT)
-#define SPATIAL_HASH_ENTRIES_PER_BUFFER 1000// (PARTICLES_PER_BUFFER)
+#define SPATIAL_HASH_SIZE (PARTICLE_COUNT)
+#define SPATIAL_HASH_ENTRIES_PER_BUFFER (PARTICLE_COUNT / 4)
 
 // TODO: Probably waaay too many
-#define PARTICLE_BUCKET_COUNT 1000 //(PARTICLE_COUNT / 4)
-#define PARTICLE_BUCKETS_PER_BUFFFER 1000 //(PARTICLE_BUCKET_COUNT)
+#define PARTICLE_BUCKET_COUNT 1000000 //(PARTICLE_COUNT / 4)
+#define PARTICLE_BUCKETS_PER_BUFFFER 10000 //(PARTICLE_BUCKET_COUNT)
 
 #define TIME_SUBSTEPS 1
-#define JACOBI_ITERS 1
+#define JACOBI_ITERS 3
 #define PARTICLE_RADIUS 0.1f
 
 #define LOCAL_SIZE_X 512
@@ -288,7 +288,7 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   // can assume grid is world axis aligned and uniformly scaled on each dim
   // don't care how many cells there are, due to spatial hash
   simUniforms.gridToWorld =
-      glm::scale(glm::mat4(1.0f), glm::vec3(2.4 * PARTICLE_RADIUS));
+      glm::scale(glm::mat4(1.0f), glm::vec3(2.0f * PARTICLE_RADIUS));
   // simUniforms.gridToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(0.05f));
   // simUniforms.gridToWorld[3] = glm::vec4(-100.0f, -100.0f, -100.0f, 1.0f);
   simUniforms.worldToGrid = glm::inverse(simUniforms.gridToWorld);
@@ -342,8 +342,8 @@ void ParticleSystem::_resetParticles(
     uint32_t bufferIdx = particleIdx / PARTICLES_PER_BUFFER;
     uint32_t localIdx = particleIdx % PARTICLES_PER_BUFFER;
 
-    glm::vec3 position(rand() % 10, rand() % 10, rand() % 10);
-    // glm::vec3 position(rand() % 25, rand() % 20, rand() % 150);
+    // glm::vec3 position(rand() % 10, rand() % 10, rand() % 10);
+    glm::vec3 position(rand() % 50, rand() % 50, rand() % 50);
     // position += glm::vec3(10.0f);
     this->_particleBuffer.getBuffer(bufferIdx).setElement(
         Particle{// position
