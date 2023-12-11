@@ -93,8 +93,8 @@ void checkWallCollisions(inout vec3 deltaPos, inout uint collidingParticlesCount
 
   float wallBias = 1.0;
 
-  vec3 gridLength = vec3(50.0);
-  // gridLength[0] = 20.0 + 8.0 * sin(1.0 * time);// 5.0
+  vec3 gridLength = vec3(100.0);
+  gridLength[0] = 60.0 + 20.0 * sin(0.25 * time);// 5.0
   vec3 minPos = vec3(particleRadius);
   vec3 maxPos = gridLength - vec3(particleRadius);
   for (int i = 0; i < 3; ++i)
@@ -202,7 +202,7 @@ void main() {
   // deltaPos /= float(jacobiIters);
   if (collidingParticlesCount > 0)
   {
-    float k = 1.0;// / float(collidingParticlesCount);
+    float k = 1.0;// oat(collidingParticlesCount);
     // k /= float(pushConstants.iteration + 1);
     // k = pow(1.0 - k, 1.0 / float(pushConstants.iteration + 1));
     particlePos += k * deltaPos;

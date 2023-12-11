@@ -26,18 +26,19 @@ void main() {
   // if (false)
   if (!newlyAdded)
   {
+    uint phase = 0;
     ParticleBucketEntry particleEntry = getParticleEntry(particle.globalIndex);
-    vec3 nextPos = particleEntry.positions[1].xyz;
-    vec3 stabilization = nextPos - particleEntry.positions[0].xyz;
-    // vec3 stabilization = vec3(0.0); // TODO: TEMP
+    vec3 nextPos = particleEntry.positions[phase].xyz;
+    vec3 stabilization = nextPos - particleEntry.positions[1-phase].xyz;
+    // stabilization = vec3(0.0); // TODO: TEMP
 
     vec3 diff = nextPos - particle.prevPosition - stabilization;
     velocity = diff / dt;
 
-    // float friction = 5.0;
-    // vec3 projection = dot(stabilization, velocity) * stabilization;
-    // vec3 rejection = velocity - projection;
-    // velocity -= rejection * friction * dt;
+    float friction = 0.1;
+    vec3 projection = dot(stabilization, velocity) * stabilization;
+    vec3 rejection = velocity - projection;
+    velocity -= rejection * friction * dt;
 
     particle.position = nextPos;
     particle.prevPosition = nextPos;
@@ -48,12 +49,12 @@ void main() {
     velocity.xz -= friction * velocity.xz * dt;
 
   // apply gravity and drag
-  float drag = 0.;//5;
-  float gravity = 2;
+  float drag = 0.1;//5;
+  float gravity = 4;
   vec3 acceleration = vec3(0.0, -gravity, 0.0) - drag * velocity;
   velocity += acceleration * dt;
 
-  float maxSpeed = 2;
+  float maxSpeed = 5;
   float speed = length(velocity);
   if (speed > maxSpeed)
     velocity *= maxSpeed / speed;
@@ -89,6 +90,7 @@ if (bool(inputMask & INPUT_MASK_SPACEBAR))
 }
 #elif 1
   vec3 col = 0.5 * velocity / speed + vec3(0.5);
+  col.y = 0.0;
   uvec3 ucol = uvec3(255.0 * col);
   particle.debug = (ucol.x << 16) | (ucol.y << 8) | ucol.z;
 #endif

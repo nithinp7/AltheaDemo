@@ -43,7 +43,7 @@ void main() {
   vec3 vertexPos = vertices[index];
 #endif 
 
-  worldPos = particle.position + particleRadius * vertexPos;//vertPos; 
+  worldPos = particle.position + 1.3 * particleRadius * vertexPos;//vertPos; 
   normal = vertexPos;
 
   gl_Position = globals.projection * globals.view * vec4(worldPos, 1.0);

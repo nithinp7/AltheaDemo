@@ -14,5 +14,5 @@ void main() {
   GBuffer_Position = vec4(worldPos, 1.0);
   GBuffer_Normal = vec4(normalize(normal), 1.0);
   GBuffer_Albedo = vec4(color, 1.0);
-  GBuffer_MetallicRoughnessOcclusion = vec4(0.0, 1.0, 1.0, 1.0);
+  GBuffer_MetallicRoughnessOcclusion = vec4(0.0, 0.05, 1.0, 1.0);
 }

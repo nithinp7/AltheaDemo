@@ -38,11 +38,11 @@ using namespace AltheaEngine;
 #define PARTICLE_BUCKET_COUNT 1000000 //(PARTICLE_COUNT / 4)
 #define PARTICLE_BUCKETS_PER_BUFFFER 10000 //(PARTICLE_BUCKET_COUNT)
 
-#define TIME_SUBSTEPS 1
-#define JACOBI_ITERS 3
+#define TIME_SUBSTEPS 2
+#define JACOBI_ITERS 2
 #define PARTICLE_RADIUS 0.1f
 
-#define LOCAL_SIZE_X 512
+#define LOCAL_SIZE_X 1024
 
 #define INSTANCED_MODE
 
@@ -343,7 +343,9 @@ void ParticleSystem::_resetParticles(
     uint32_t localIdx = particleIdx % PARTICLES_PER_BUFFER;
 
     // glm::vec3 position(rand() % 10, rand() % 10, rand() % 10);
-    glm::vec3 position(rand() % 50, rand() % 50, rand() % 50);
+    glm::vec3 position(rand() % 30, rand() % 300, rand() % 30);
+    position += glm::vec3(35.0);
+
     // position += glm::vec3(10.0f);
     this->_particleBuffer.getBuffer(bufferIdx).setElement(
         Particle{// position
