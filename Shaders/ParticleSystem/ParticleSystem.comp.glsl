@@ -35,10 +35,10 @@ void main() {
     vec3 diff = nextPos - particle.prevPosition - stabilization;
     velocity = diff / dt;
 
-    float friction = 0.1;
-    vec3 projection = dot(stabilization, velocity) * stabilization;
-    vec3 rejection = velocity - projection;
-    velocity -= rejection * friction * dt;
+    // float friction = 0.1;
+    // vec3 projection = dot(stabilization, velocity) * stabilization;
+    // vec3 rejection = velocity - projection;
+    // velocity -= rejection * friction * dt;
 
     particle.position = nextPos;
     particle.prevPosition = nextPos;
@@ -49,12 +49,12 @@ void main() {
     velocity.xz -= friction * velocity.xz * dt;
 
   // apply gravity and drag
-  float drag = 0.1;//5;
-  float gravity = 4;
+  float drag = 0.;//5;
+  float gravity = 3;
   vec3 acceleration = vec3(0.0, -gravity, 0.0) - drag * velocity;
   velocity += acceleration * dt;
 
-  float maxSpeed = 5;
+  float maxSpeed = 3;
   float speed = length(velocity);
   if (speed > maxSpeed)
     velocity *= maxSpeed / speed;

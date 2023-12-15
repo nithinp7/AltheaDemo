@@ -6,6 +6,9 @@
 // Need to reduce this...
 #define COLLISION_CHECKS 16
 
+#extension GL_KHR_shader_subgroup_basic : enable
+#extension GL_KHR_shader_subgroup_shuffle : enable
+#extension GL_KHR_shader_subgroup_arithmetic : enable 
 
 layout(local_size_x = LOCAL_SIZE_X) in;
 
@@ -73,7 +76,96 @@ void checkPair(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 par
   //   collidingParticlesCount++; // ??
 }
 
+// Assuming subgroup size of 32
+struct ThisParticle
+{
+  vec3 pos;
+  uint particleIdx;
+};
+shared ThisParticle thisParticle[32];
+
+struct TaskInput {
+  uint originalThreadId;
+  uint otherParticleIdx;
+};
+
+struct TaskOutput {
+  vec3 deltaPos;
+  uint collidingParticlesCount;
+};
+
+// TODO: Use a smaller size and refuse to process more than that many?
+// Or have a fallback??
+// 32 * 16 = 512
+shared TaskInput taskInputs[512];
+shared TaskOutput taskOutputs[512];
+
+void processTask(uint taskId)
+{
+  TaskInput inp = taskInputs[taskId];
+  ThisParticle particle = thisParticle[inp.originalThreadId];
+
+  vec3 otherParticlePos = getPosition(inp.otherParticleIdx);
+  
+  TaskOutput outp = TaskOutput(vec3(0.0), 0);
+  
+  if (particle.particleIdx != inp.otherParticleIdx)
+    checkPair(
+        outp.deltaPos, 
+        outp.collidingParticlesCount, 
+        particle.pos, 
+        particle.particleIdx, 
+        otherParticlePos, 
+        inp.otherParticleIdx);
+
+  taskOutputs[taskId] = outp;  
+}
+
 void checkBucket(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 particlePos, uint thisParticleIdx, uint bucketEnd)
+{
+  uint threadId = gl_SubgroupInvocationID;
+  uint test = subgroupExclusiveAdd(1);
+  // TODO: Can move this step to main function, is not bucket-specific
+  // Make this particle position visible to other threads
+  thisParticle[threadId] = ThisParticle(particlePos, thisParticleIdx);
+
+  uint bucketStart = bucketEnd & ~0xF;
+  uint particleCount = bucketEnd == INVALID_INDEX ? 0 : (bucketEnd & 0xF); // ??
+
+  // TODO: Just to be safe... try without this later...
+  subgroupBarrier();
+
+  uint taskStart = subgroupExclusiveAdd(particleCount);
+  uint taskEnd = taskStart + particleCount;
+  uint taskCount = subgroupShuffle(taskEnd, gl_SubgroupSize-1);
+
+  uint iters = (taskCount-1) / gl_SubgroupSize + 1;
+
+  for (uint i = 0; i < particleCount; ++i)
+  {
+    uint taskId = taskStart + i;
+    uint otherParticleIdx = bucketStart + i;
+    taskInputs[taskId] = TaskInput(threadId, otherParticleIdx);
+  }
+
+  subgroupBarrier();
+
+  for (uint taskId = threadId; taskId < taskCount; taskId += gl_SubgroupSize)
+  {
+    processTask(taskId);
+  }
+
+  subgroupBarrier();
+  
+  for (uint i = taskStart; i < taskEnd; ++i)
+  {
+    TaskOutput partialResult = taskOutputs[i];
+    deltaPos += partialResult.deltaPos;
+    collidingParticlesCount += partialResult.collidingParticlesCount;
+  }
+}
+
+void checkBucket2(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 particlePos, uint thisParticleIdx, uint bucketEnd)
 {
   uint bucketStart = bucketEnd & ~0xF;
   for (uint globalParticleIdx = bucketStart; globalParticleIdx < bucketEnd; ++globalParticleIdx)
@@ -94,7 +186,7 @@ void checkWallCollisions(inout vec3 deltaPos, inout uint collidingParticlesCount
   float wallBias = 1.0;
 
   vec3 gridLength = vec3(100.0);
-  gridLength[0] = 60.0 + 20.0 * sin(0.25 * time);// 5.0
+  // gridLength[0] = 60.0 + 20.0 * sin(0.25 * time);// 5.0
   vec3 minPos = vec3(particleRadius);
   vec3 maxPos = gridLength - vec3(particleRadius);
   for (int i = 0; i < 3; ++i)
@@ -161,9 +253,6 @@ void main() {
     return;
   }
 
-  // int uTime = int(1000.0 * time);
-  // uint randomParticleSwizzle = hashCoords(uTime, uTime+1, uTime+2);
-  // particleIdx = (particleIdx + randomParticleSwizzle) % particleCount;
   Particle particle = getParticle(particleIdx);
   
   uint globalParticleIdx = particle.globalIndex;
@@ -189,7 +278,8 @@ void main() {
   // check each one for potential collisions.
   for (int i = 0; i < 8; ++i) {
     uint bucketEnd = getSpatialHashSlot(gridCell.x + (i>>2), gridCell.y + ((i>>1)&1), gridCell.z + (i&1));
-    if (bucketEnd != INVALID_INDEX) {
+    //if (bucketEnd != INVALID_INDEX) 
+    {
       checkBucket(deltaPos, collidingParticlesCount, particlePos, globalParticleIdx, bucketEnd);
     }
   }
@@ -202,7 +292,7 @@ void main() {
   // deltaPos /= float(jacobiIters);
   if (collidingParticlesCount > 0)
   {
-    float k = 1.0;// oat(collidingParticlesCount);
+    float k = 1.;//5 / float(collidingParticlesCount);
     // k /= float(pushConstants.iteration + 1);
     // k = pow(1.0 - k, 1.0 / float(pushConstants.iteration + 1));
     particlePos += k * deltaPos;

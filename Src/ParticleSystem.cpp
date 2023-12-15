@@ -42,7 +42,7 @@ using namespace AltheaEngine;
 #define JACOBI_ITERS 2
 #define PARTICLE_RADIUS 0.1f
 
-#define LOCAL_SIZE_X 1024
+#define LOCAL_SIZE_X 32
 
 #define INSTANCED_MODE
 
