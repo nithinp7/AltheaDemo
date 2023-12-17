@@ -238,7 +238,7 @@ void BindlessDemo::_createGlobalResources(
       }
     }
 
-    this->_primitiveConstantsBuffer.upload();
+    this->_primitiveConstantsBuffer.upload(app, commandBuffer);
 
     this->_textureHeap = TextureHeap(this->_models);
   }

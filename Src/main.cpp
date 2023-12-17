@@ -3,6 +3,7 @@
 #include "RayTracedReflectionsDemo.h"
 #include "BindlessDemo.h"
 #include "PathTracing.h"
+#include "ParticleSystem.h"
 
 #include <Althea/Application.h>
 
@@ -17,6 +18,7 @@ int main() {
   // app.createGame<RayTracingDemo::RayTracingDemo>();
   // app.createGame<RayTracedReflectionsDemo::RayTracedReflectionsDemo>();
   // app.createGame<BindlessDemo::BindlessDemo>();
+  // app.createGame<ParticleSystem::ParticleSystem>();
   app.createGame<PathTracing::PathTracing>();
 
   try {
