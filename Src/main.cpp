@@ -2,6 +2,7 @@
 #include "RayTracingDemo.h"
 #include "RayTracedReflectionsDemo.h"
 #include "BindlessDemo.h"
+#include "ParticleSystem.h"
 
 #include <Althea/Application.h>
 
@@ -13,9 +14,10 @@ using namespace AltheaDemo;
 int main() {
   Application app("../..", "../../Extern/Althea");
   // app.createGame<DemoScene::DemoScene>();
-  app.createGame<RayTracingDemo::RayTracingDemo>();
+  // app.createGame<RayTracingDemo::RayTracingDemo>();
   // app.createGame<RayTracedReflectionsDemo::RayTracedReflectionsDemo>();
   // app.createGame<BindlessDemo::BindlessDemo>();
+  app.createGame<ParticleSystem::ParticleSystem>();
 
   try {
     app.run();
