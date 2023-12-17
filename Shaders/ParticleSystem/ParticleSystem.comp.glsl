@@ -26,7 +26,7 @@ void main() {
   // if (false)
   if (!newlyAdded)
   {
-    uint phase = 0;
+    uint phase = jacobiIters % 2;
     ParticleBucketEntry particleEntry = getParticleEntry(particle.globalIndex);
     vec3 nextPos = particleEntry.positions[phase].xyz;
     vec3 stabilization = nextPos - particleEntry.positions[1-phase].xyz;
@@ -35,16 +35,16 @@ void main() {
     vec3 diff = nextPos - particle.prevPosition - stabilization;
     velocity = diff / dt;
 
-    // float friction = 0.1;
-    // vec3 projection = dot(stabilization, velocity) * stabilization;
-    // vec3 rejection = velocity - projection;
-    // velocity -= rejection * friction * dt;
+    float friction = 2.0;
+    vec3 projection = dot(stabilization, velocity) * stabilization;
+    vec3 rejection = velocity - projection;
+    velocity -= rejection * friction * dt;
 
     particle.position = nextPos;
     particle.prevPosition = nextPos;
   }
 
-  float friction = .0;//5;
+  float friction = 0.;//4;//5;
   if (particle.position.y <= particleRadius * 1.5)
     velocity.xz -= friction * velocity.xz * dt;
 
@@ -60,12 +60,14 @@ void main() {
     velocity *= maxSpeed / speed;
 
   // Initial estimate of particle position
-  particle.position += velocity * dt;
+  // particle.position += velocity * dt;
 
   // setPosition(particleIdx, projectedPos, 0);
 
   vec3 gridPos = (worldToGrid * vec4(particle.position, 1.0)).xyz;
   ivec3 gridCell = ivec3(floor(gridPos));
+
+  particle.position += velocity * dt;
 
   // Store the particle grid cell hash
   particle.globalIndex = incrementCellParticleCount(gridCell.x, gridCell.y, gridCell.z);

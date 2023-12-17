@@ -1,6 +1,7 @@
 #pragma once
 
 #include <Althea/Allocator.h>
+#include <Althea/BufferHeap.h>
 #include <Althea/CameraController.h>
 #include <Althea/ComputePipeline.h>
 #include <Althea/DeferredRendering.h>
@@ -18,13 +19,12 @@
 #include <Althea/Sampler.h>
 #include <Althea/ScreenSpaceReflection.h>
 #include <Althea/StructuredBuffer.h>
-#include <Althea/BufferHeap.h>
 #include <Althea/Texture.h>
 #include <Althea/TransientUniforms.h>
 #include <glm/glm.hpp>
 
-#include <vector>
 #include <cstdint>
+#include <vector>
 
 using namespace AltheaEngine;
 
@@ -54,7 +54,8 @@ struct Particle {
 };
 
 struct ParticleEntry {
-  float positions[8]; // Don't need this to be particularly readable on the CPU anyways
+  float positions[8]; // Don't need this to be particularly readable on the CPU
+                      // anyways
 };
 
 struct ParticleBucket {
@@ -66,7 +67,7 @@ struct SimUniforms {
   // Uniform grid params
   glm::mat4 gridToWorld;
   glm::mat4 worldToGrid;
-  
+
   glm::mat4 inverseView;
 
   glm::vec3 interactionLocation;
@@ -116,7 +117,7 @@ private:
   std::unique_ptr<CameraController> _pCameraController;
 
   void _resetParticles(const Application& app, VkCommandBuffer commandBuffer);
-  
+
   void _createGlobalResources(
       Application& app,
       SingleTimeCommandBuffer& commandBuffer);
@@ -127,14 +128,15 @@ private:
   IBLResources _iblResources;
   GBufferResources _gBufferResources;
 
-  void _createSimResources(Application& app, SingleTimeCommandBuffer& commandBuffer);
+  void
+  _createSimResources(Application& app, SingleTimeCommandBuffer& commandBuffer);
   std::unique_ptr<PerFrameResources> _pSimResources;
-   // TODO: RENAME to spatialHashRegistration?
-  
+  // TODO: RENAME to spatialHashRegistration?
+
   std::vector<ComputePipeline> _computePasses;
 
   TransientUniforms<SimUniforms> _simUniforms;
-  
+
   StructuredBufferHeap<Particle> _particleBuffer;
   StructuredBufferHeap<uint32_t> _spatialHash;
   StructuredBuffer<uint32_t> _freeBucketCounter;
@@ -142,7 +144,7 @@ private:
 
   VertexBuffer<glm::vec3> _sphereVertices;
   IndexBuffer _sphereIndices;
-  
+
   void _createModels(Application& app, SingleTimeCommandBuffer& commandBuffer);
   std::vector<Model> _models;
 
@@ -155,6 +157,11 @@ private:
   SwapChainFrameBufferCollection _swapChainFrameBuffers;
   std::unique_ptr<DescriptorSetAllocator> _pDeferredMaterialAllocator;
   std::unique_ptr<Material> _pDeferredMaterial;
+
+  void _renderForwardPass(
+      Application& app,
+      VkCommandBuffer commandBuffer,
+      const FrameContext& frame);
 
   std::unique_ptr<ScreenSpaceReflection> _pSSR;
   float _exposure = 0.3f;

@@ -36,6 +36,11 @@ layout(push_constant) uniform PushConstants {
 void main() {
 #ifdef INSTANCED_MODE
   Particle particle = getParticle(gl_InstanceIndex);
+#elif COHERENT_INSTANCED_MODE
+  // subgroup coherent
+  
+  uint index = gl_SubgroupInvocationID
+  todo...
 #else
   uint instanceId = gl_VertexIndex / pushConstants.sphereIndexCount;
   Particle particle = getParticle(instanceId);

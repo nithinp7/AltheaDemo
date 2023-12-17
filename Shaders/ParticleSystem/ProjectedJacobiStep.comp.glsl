@@ -4,7 +4,8 @@
 #define PI 3.14159265359
 
 // Need to reduce this...
-#define COLLISION_CHECKS 16
+#define CAMERA_RADIUS 10.0
+#define CAMERA_STRENGTH -0.0001
 
 #extension GL_KHR_shader_subgroup_basic : enable
 #extension GL_KHR_shader_subgroup_shuffle : enable
@@ -124,10 +125,9 @@ void processTask(uint taskId)
 void checkBucket(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 particlePos, uint thisParticleIdx, uint bucketEnd)
 {
   uint threadId = gl_SubgroupInvocationID;
-  uint test = subgroupExclusiveAdd(1);
+  
   // TODO: Can move this step to main function, is not bucket-specific
   // Make this particle position visible to other threads
-  thisParticle[threadId] = ThisParticle(particlePos, thisParticleIdx);
 
   uint bucketStart = bucketEnd & ~0xF;
   uint particleCount = bucketEnd == INVALID_INDEX ? 0 : (bucketEnd & 0xF); // ??
@@ -150,8 +150,10 @@ void checkBucket(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 p
 
   subgroupBarrier();
 
-  for (uint taskId = threadId; taskId < taskCount; taskId += gl_SubgroupSize)
-  {
+  // for (uint taskId = threadId; taskId < taskCount; taskId += gl_SubgroupSize)
+  uint givenTaskStart = iters * threadId;
+  for (uint taskId = givenTaskStart; taskId < min(givenTaskStart + iters, taskCount); ++taskId)
+  {    
     processTask(taskId);
   }
 
@@ -185,12 +187,12 @@ void checkWallCollisions(inout vec3 deltaPos, inout uint collidingParticlesCount
 
   float wallBias = 1.0;
 
-  vec3 gridLength = vec3(100.0);
+  vec3 gridLength = vec3(60.0);
   // gridLength[0] = 60.0 + 20.0 * sin(0.25 * time);// 5.0
   vec3 minPos = vec3(particleRadius);
   vec3 maxPos = gridLength - vec3(particleRadius);
-  for (int i = 0; i < 3; ++i)
-  // int i = 1;
+  // for (int i = 0; i < 3; ++i)
+  int i = 1;
   {
     if (particlePos[i] <= minPos[i])
     {
@@ -213,7 +215,7 @@ if (bool(inputMask & INPUT_MASK_MOUSE_LEFT))
   // TODO: Create the projected cam position and upload in 
   // uniforms, there is more flexibility that way and is probably
   // more efficient
-  float camRadius = 3.;
+  float camRadius = CAMERA_RADIUS;
   float camRadiusSq = camRadius * camRadius;
 
   vec3 cameraPos = inverseView[3].xyz;
@@ -231,16 +233,28 @@ if (bool(inputMask & INPUT_MASK_MOUSE_LEFT))
 
   if (t < 0.0)
   {
-    return;
+    t = 10.0;
+    //return;
   }
 
-  vec3 userBallPos = cameraPos + t * dir;
+  t = clamp(t, 0.0, 10.0);
+
+  vec3 userBallPos = cameraPos + t * dir;// + vec3(0.0, 5.0, 0.0);
   vec3 camDiff = particlePos - userBallPos;
-  float camDistSq = dot(camDiff, camDiff);
+  float camDistSq = dot(camDiff, camDiff) + 0.01;
   if (camDistSq < camRadiusSq)
   {
     float camDist = sqrt(camDistSq);
-    deltaPos += 1.0 * camRadius * camDiff / camDist;
+    if (camDistSq > 0.25 * camRadiusSq)
+    {
+      // if (bool(inputMask & INPUT_MASK_MOUSE_LEFT))
+        deltaPos += - 1.* camDiff / camDist / camDistSq;
+    }
+    else 
+    {
+      deltaPos += 5.0 * CAMERA_STRENGTH * camDistSq * camDiff / camDist;
+    }
+    // deltaPos += CAMERA_STRENGTH * camRadius * camDiff / camDist;
     ++collidingParticlesCount;
   }
 }
@@ -258,6 +272,8 @@ void main() {
   uint globalParticleIdx = particle.globalIndex;
   vec3 particlePos = getPosition(globalParticleIdx);
   
+  thisParticle[gl_SubgroupInvocationID] = ThisParticle(particlePos, globalParticleIdx);
+
   vec3 gridPos = (worldToGrid * vec4(particlePos, 1.0)).xyz;
   vec3 gridCellF = floor(gridPos);
   ivec3 gridCell = ivec3(gridCellF);
@@ -292,7 +308,10 @@ void main() {
   // deltaPos /= float(jacobiIters);
   if (collidingParticlesCount > 0)
   {
-    float k = 1.;//5 / float(collidingParticlesCount);
+    float mag = length(deltaPos) + 0.0001;
+    float k = clamp(mag, 0.0, 0.25 * particleRadius) / mag;
+    // k *= 1.0 / mag;
+    // float k = 1./mag;//5 / float(collidingParticlesCount);
     // k /= float(pushConstants.iteration + 1);
     // k = pow(1.0 - k, 1.0 / float(pushConstants.iteration + 1));
     particlePos += k * deltaPos;

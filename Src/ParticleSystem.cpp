@@ -31,11 +31,11 @@ using namespace AltheaEngine;
 #define PARTICLE_COUNT 1000000      // 500000 // 200000
 #define PARTICLES_PER_BUFFER 100000 // 100000 // 50000
 
-#define SPATIAL_HASH_SIZE (PARTICLE_COUNT)
+#define SPATIAL_HASH_SIZE (3 * PARTICLE_COUNT)
 #define SPATIAL_HASH_ENTRIES_PER_BUFFER (PARTICLE_COUNT / 4)
 
 // TODO: Probably waaay too many
-#define PARTICLE_BUCKET_COUNT 1000000 //(PARTICLE_COUNT / 4)
+#define PARTICLE_BUCKET_COUNT 1000000      //(PARTICLE_COUNT / 4)
 #define PARTICLE_BUCKETS_PER_BUFFFER 10000 //(PARTICLE_BUCKET_COUNT)
 
 #define TIME_SUBSTEPS 2
@@ -45,6 +45,7 @@ using namespace AltheaEngine;
 #define LOCAL_SIZE_X 32
 
 #define INSTANCED_MODE
+// #define COHERENT_INSTANCED_MODE
 
 #define GEN_SHADER_DEBUG_INFO
 
@@ -288,7 +289,7 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   // can assume grid is world axis aligned and uniformly scaled on each dim
   // don't care how many cells there are, due to spatial hash
   simUniforms.gridToWorld =
-      glm::scale(glm::mat4(1.0f), glm::vec3(2.0f * PARTICLE_RADIUS));
+      glm::scale(glm::mat4(1.0f), glm::vec3(2.f * PARTICLE_RADIUS));
   // simUniforms.gridToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(0.05f));
   // simUniforms.gridToWorld[3] = glm::vec4(-100.0f, -100.0f, -100.0f, 1.0f);
   simUniforms.worldToGrid = glm::inverse(simUniforms.gridToWorld);
@@ -305,7 +306,7 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
     simUniforms.addedParticles = this->_activeParticleCount;
   } else if (this->_inputMask & INPUT_MASK_MOUSE_RIGHT) {
     simUniforms.addedParticles = 1000;
-    
+
     this->_activeParticleCount += simUniforms.addedParticles;
     if (this->_activeParticleCount > PARTICLE_COUNT) {
       simUniforms.addedParticles = PARTICLE_COUNT - this->_activeParticleCount;
@@ -611,6 +612,7 @@ void ParticleSystem::_createSimResources(
 void ParticleSystem::_createForwardPass(Application& app) {
   std::vector<SubpassBuilder> subpassBuilders;
 
+#if 0
   //  FORWARD GLTF PASS
   {
     SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
@@ -639,12 +641,17 @@ void ParticleSystem::_createForwardPass(Application& app) {
         // metallic-roughness, etc)
         .addDescriptorSet(this->_pGltfMaterialAllocator->getLayout());
   }
+#endif
 
   // Render particles
   {
     ShaderDefines defs{};
 #ifdef INSTANCED_MODE
     defs.emplace("INSTANCED_MODE", "");
+#else
+#ifdef COHERENT_INSTANCED_MODE
+    defs.emplace("COHERENT_INSTANCED_MODE", "");
+#endif
 #endif
 
     SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
@@ -698,7 +705,9 @@ void ParticleSystem::_createForwardPass(Application& app) {
       app,
       extent,
       std::move(attachments),
-      std::move(subpassBuilders));
+      std::move(subpassBuilders),
+      false,
+      false);
 
   this->_forwardFrameBuffer = FrameBuffer(
       app,
@@ -785,6 +794,71 @@ struct DrawableEnvMap {
   }
 };
 } // namespace
+
+void ParticleSystem::_renderForwardPass(
+    Application& app,
+    VkCommandBuffer commandBuffer,
+    const FrameContext& frame) {
+  VkDescriptorSet globalDescriptorSet =
+      this->_pGlobalResources->getCurrentDescriptorSet(frame);
+
+  // Draw point light shadow maps
+  // this->_pointLights.drawShadowMaps(app, commandBuffer, frame,
+  // this->_models);
+
+  // Forward pass
+  {
+    ActiveRenderPass pass = this->_pForwardPass->begin(
+        app,
+        commandBuffer,
+        frame,
+        this->_forwardFrameBuffer);
+    // Bind global descriptor sets
+    pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
+    // Draw models
+    // for (const Model& model : this->_models) {
+    //   pass.draw(model);
+    // }
+
+    VkDescriptorSet sets[2] = {
+        globalDescriptorSet,
+        this->_pSimResources->getCurrentDescriptorSet(frame)};
+
+    // Draw instanced particles
+    // pass.nextSubpass();
+    pass.getDrawContext().updatePushConstants<uint32_t>(
+        this->_sphereIndices.getIndexCount(),
+        0);
+    pass.setGlobalDescriptorSets(gsl::span(sets, 2));
+    pass.getDrawContext().bindDescriptorSets();
+#ifdef INSTANCED_MODE
+    pass.getDrawContext().bindIndexBuffer(this->_sphereIndices);
+    pass.getDrawContext().bindVertexBuffer(this->_sphereVertices);
+    pass.getDrawContext().drawIndexed(
+        this->_sphereIndices.getIndexCount(),
+        this->_activeParticleCount);
+#else
+#ifdef COHERENT_INSTANCED_MODE
+    uint32_t totalIndices =
+        this->_sphereIndices.getIndexCount() * this->_activeParticleCount;
+    uint32_t subgroupSize = 32;
+    uint32_t subgroupCount = (totalIndices - 1) / subgroupSize + 1;
+    pass.getDrawContext().draw(subgroupCount * subgroupSize);
+#else
+    pass.getDrawContext().draw(
+        this->_sphereIndices.getIndexCount() * this->_activeParticleCount);
+#endif
+#endif
+    // this->_sphereIndices.getIndexCount(),
+    // PARTICLE_COUNT);
+
+    // Draw floor
+    pass.nextSubpass();
+    pass.setGlobalDescriptorSets(gsl::span(sets, 1));
+    pass.getDrawContext().bindDescriptorSets();
+    pass.getDrawContext().draw(3);
+  }
+}
 
 void ParticleSystem::draw(
     Application& app,
@@ -1119,59 +1193,10 @@ void ParticleSystem::draw(
     }
   }
 
-  // this->_pointLights.updateResource(frame);
-  this->_gBufferResources.transitionToAttachment(commandBuffer);
-
   VkDescriptorSet globalDescriptorSet =
       this->_pGlobalResources->getCurrentDescriptorSet(frame);
 
-  // Draw point light shadow maps
-  this->_pointLights.drawShadowMaps(app, commandBuffer, frame, this->_models);
-
-  // Forward pass
-  {
-    ActiveRenderPass pass = this->_pForwardPass->begin(
-        app,
-        commandBuffer,
-        frame,
-        this->_forwardFrameBuffer);
-    // Bind global descriptor sets
-    pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
-    // Draw models
-    for (const Model& model : this->_models) {
-      pass.draw(model);
-    }
-
-    VkDescriptorSet sets[2] = {
-        globalDescriptorSet,
-        this->_pSimResources->getCurrentDescriptorSet(frame)};
-
-    // Draw instanced particles
-    pass.nextSubpass();
-    pass.getDrawContext().updatePushConstants<uint32_t>(
-        this->_sphereIndices.getIndexCount(),
-        0);
-    pass.setGlobalDescriptorSets(gsl::span(sets, 2));
-    pass.getDrawContext().bindDescriptorSets();
-#ifdef INSTANCED_MODE
-    pass.getDrawContext().bindIndexBuffer(this->_sphereIndices);
-    pass.getDrawContext().bindVertexBuffer(this->_sphereVertices);
-    pass.getDrawContext().drawIndexed(
-        this->_sphereIndices.getIndexCount(),
-        this->_activeParticleCount);
-#else
-    pass.getDrawContext().draw(
-        this->_sphereIndices.getIndexCount() * this->_activeParticleCount);
-#endif
-    // this->_sphereIndices.getIndexCount(),
-    // PARTICLE_COUNT);
-
-    // Draw floor
-    pass.nextSubpass();
-    pass.setGlobalDescriptorSets(gsl::span(sets, 1));
-    pass.getDrawContext().bindDescriptorSets();
-    pass.getDrawContext().draw(3);
-  }
+  this->_renderForwardPass(app, commandBuffer, frame);
 
   this->_gBufferResources.transitionToTextures(commandBuffer);
 
@@ -1201,6 +1226,9 @@ void ParticleSystem::draw(
     pass.nextSubpass();
     // pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
     // pass.draw(this->_pointLights);
+
+    // this->_pointLights.updateResource(frame);
+    this->_gBufferResources.transitionToAttachment(commandBuffer);
   }
 }
 } // namespace ParticleSystem
