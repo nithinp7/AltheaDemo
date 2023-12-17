@@ -337,7 +337,7 @@ void ParticleSystem::_createModels(
     SingleTimeCommandBuffer& /*commandBuffer*/) {}
 
 void ParticleSystem::_resetParticles(
-    const Application& app,
+    Application& app,
     VkCommandBuffer commandBuffer) {
   for (uint32_t particleIdx = 0; particleIdx < PARTICLE_COUNT; ++particleIdx) {
     uint32_t bufferIdx = particleIdx / PARTICLES_PER_BUFFER;
@@ -706,7 +706,6 @@ void ParticleSystem::_createForwardPass(Application& app) {
       extent,
       std::move(attachments),
       std::move(subpassBuilders),
-      false,
       false);
 
   this->_forwardFrameBuffer = FrameBuffer(

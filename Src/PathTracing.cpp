@@ -40,7 +40,8 @@ void PathTracing::initGame(Application& app) {
       90.0f,
       (float)windowDims.width / (float)windowDims.height);
   this->_pCameraController->setMaxSpeed(15.0f);
-  this->_pCameraController->getCamera().setPosition(glm::vec3(2.0f, 2.0f, 2.0f));
+  this->_pCameraController->getCamera().setPosition(
+      glm::vec3(2.0f, 2.0f, 2.0f));
 
   // TODO: need to unbind these at shutdown
   InputManager& input = app.getInputManager();
@@ -98,14 +99,10 @@ void PathTracing::initGame(Application& app) {
       });
   input.addKeyBinding(
       {GLFW_KEY_F, GLFW_PRESS, 0},
-      [&freezeCamera = this->_freezeCamera]() {
-        freezeCamera = false;
-      });
+      [&freezeCamera = this->_freezeCamera]() { freezeCamera = false; });
   input.addKeyBinding(
       {GLFW_KEY_F, GLFW_RELEASE, 0},
-      [&freezeCamera = this->_freezeCamera]() {
-        freezeCamera = true;
-      });
+      [&freezeCamera = this->_freezeCamera]() { freezeCamera = true; });
   input.addMousePositionCallback(
       [&adjustingExposure = this->_adjustingExposure,
        &exposure = this->_exposure](double x, double y, bool cursorHidden) {
@@ -168,7 +165,7 @@ void PathTracing::tick(Application& app, const FrameContext& frame) {
   // if (this->_freezeCamera) {
   //   ++this->_framesSinceCameraMoved;
   // } else {
-    // this->_framesSinceCameraMoved = 0;
+  // this->_framesSinceCameraMoved = 0;
   this->_framesSinceCameraMoved++; // TODO: Clean this up..
   this->_pCameraController->tick(frame.deltaTime);
   // }
@@ -266,7 +263,7 @@ void PathTracing::_createGlobalResources(
       }
     }
 
-    this->_primitiveConstantsBuffer.upload();
+    this->_primitiveConstantsBuffer.upload(app, commandBuffer);
 
     this->_textureHeap = TextureHeap(this->_models);
     this->_vertexBufferHeap = BufferHeap::CreateVertexBufferHeap(this->_models);
@@ -378,12 +375,12 @@ void PathTracing::_createRayTracingPass(
   SamplerOptions samplerOptions{};
   samplerOptions.minFilter = VK_FILTER_NEAREST;
   samplerOptions.magFilter = VK_FILTER_NEAREST;
-  
+
   this->_rayTracingTarget[0].image = Image(app, imageOptions);
   this->_rayTracingTarget[0].view =
       ImageView(app, this->_rayTracingTarget[0].image, viewOptions);
   this->_rayTracingTarget[0].sampler = Sampler(app, samplerOptions);
-  
+
   this->_rayTracingTarget[1].image = Image(app, imageOptions);
   this->_rayTracingTarget[1].view =
       ImageView(app, this->_rayTracingTarget[1].image, viewOptions);
@@ -392,22 +389,25 @@ void PathTracing::_createRayTracingPass(
   imageOptions.format = viewOptions.format = VK_FORMAT_R32_SFLOAT;
   this->_depthBuffer[0].image = Image(app, imageOptions);
   this->_depthBuffer[1].image = Image(app, imageOptions);
-  this->_depthBuffer[0].view = ImageView(app, this->_depthBuffer[0].image, viewOptions);
-  this->_depthBuffer[1].view = ImageView(app, this->_depthBuffer[1].image, viewOptions);
+  this->_depthBuffer[0].view =
+      ImageView(app, this->_depthBuffer[0].image, viewOptions);
+  this->_depthBuffer[1].view =
+      ImageView(app, this->_depthBuffer[1].image, viewOptions);
   this->_depthBuffer[0].sampler = Sampler(app, {});
   this->_depthBuffer[1].sampler = Sampler(app, {});
 
   // Material layout
   DescriptorSetLayoutBuilder matBuilder{};
-  matBuilder.addAccelerationStructureBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR);
+  matBuilder.addAccelerationStructureBinding(
+      VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR);
   // prev accum buffer
-  matBuilder.addTextureBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR); 
+  matBuilder.addTextureBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
   // current accumulation buffer
-  matBuilder.addStorageImageBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR); 
+  matBuilder.addStorageImageBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
   // prev depth buffer
   matBuilder.addTextureBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
   // depth buffer
-  matBuilder.addStorageImageBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR); 
+  matBuilder.addStorageImageBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
 
   this->_pRayTracingMaterialAllocator =
       std::make_unique<DescriptorSetAllocator>(app, matBuilder, 2);
@@ -416,7 +416,8 @@ void PathTracing::_createRayTracingPass(
   this->_pRayTracingMaterial[1] =
       std::make_unique<Material>(app, *this->_pRayTracingMaterialAllocator);
 
-  this->_pRayTracingMaterial[0]->assign()
+  this->_pRayTracingMaterial[0]
+      ->assign()
       .bindAccelerationStructure(this->_accelerationStructure.getTLAS())
       .bindTexture(
           this->_rayTracingTarget[1].view,
@@ -424,14 +425,13 @@ void PathTracing::_createRayTracingPass(
       .bindStorageImage(
           this->_rayTracingTarget[0].view,
           this->_rayTracingTarget[0].sampler)
-      .bindTexture(
-          this->_depthBuffer[1].view,
-          this->_depthBuffer[1].sampler)
+      .bindTexture(this->_depthBuffer[1].view, this->_depthBuffer[1].sampler)
       .bindStorageImage(
           this->_depthBuffer[0].view,
           this->_depthBuffer[0].sampler);
 
-  this->_pRayTracingMaterial[1]->assign()
+  this->_pRayTracingMaterial[1]
+      ->assign()
       .bindAccelerationStructure(this->_accelerationStructure.getTLAS())
       .bindTexture(
           this->_rayTracingTarget[0].view,
@@ -439,9 +439,7 @@ void PathTracing::_createRayTracingPass(
       .bindStorageImage(
           this->_rayTracingTarget[1].view,
           this->_rayTracingTarget[1].sampler)
-      .bindTexture(
-          this->_depthBuffer[0].view,
-          this->_depthBuffer[0].sampler)
+      .bindTexture(this->_depthBuffer[0].view, this->_depthBuffer[0].sampler)
       .bindStorageImage(
           this->_depthBuffer[1].view,
           this->_depthBuffer[1].sampler);
@@ -471,8 +469,7 @@ void PathTracing::_createRayTracingPass(
       GEngineDirectory + "/Shaders/PathTracing/DepthRay.chit.glsl",
       defs);
 
-  builder.layoutBuilder
-      .addDescriptorSet(this->_pGlobalResources->getLayout())
+  builder.layoutBuilder.addDescriptorSet(this->_pGlobalResources->getLayout())
       .addDescriptorSet(this->_pRayTracingMaterialAllocator->getLayout())
       .addPushConstants<uint32_t>(VK_SHADER_STAGE_ALL);
 
@@ -490,8 +487,10 @@ void PathTracing::_createRayTracingPass(
   this->_pDisplayPassMaterial[1] =
       std::make_unique<Material>(app, *this->_pDisplayPassMaterialAllocator);
 
-  this->_pDisplayPassMaterial[0]->assign().bindTexture(this->_rayTracingTarget[0]);
-  this->_pDisplayPassMaterial[1]->assign().bindTexture(this->_rayTracingTarget[1]);
+  this->_pDisplayPassMaterial[0]->assign().bindTexture(
+      this->_rayTracingTarget[0]);
+  this->_pDisplayPassMaterial[1]->assign().bindTexture(
+      this->_rayTracingTarget[1]);
 
   VkClearValue colorClear;
   colorClear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
@@ -551,15 +550,15 @@ void PathTracing::draw(
   this->_pointLights.updateResource(frame);
 
   // Draw point light shadow maps
-  this->_pointLights.drawShadowMaps(
-      app,
-      commandBuffer,
-      frame,
-      this->_models,
-      globalDescriptorSet);
+  // this->_pointLights.drawShadowMaps(
+  //     app,
+  //     commandBuffer,
+  //     frame,
+  //     this->_models,
+  //     globalDescriptorSet);
 
   uint32_t readIndex = this->_targetIndex ^ 1;
-  
+
   this->_rayTracingTarget[readIndex].image.transitionLayout(
       commandBuffer,
       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
@@ -590,7 +589,8 @@ void PathTracing::draw(
   {
     VkDescriptorSet sets[2] = {
         globalDescriptorSet,
-        this->_pRayTracingMaterial[this->_targetIndex]->getCurrentDescriptorSet(frame)};
+        this->_pRayTracingMaterial[this->_targetIndex]->getCurrentDescriptorSet(
+            frame)};
     vkCmdBindDescriptorSets(
         commandBuffer,
         VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
@@ -601,13 +601,15 @@ void PathTracing::draw(
         0,
         nullptr);
     vkCmdPushConstants(
-      commandBuffer,
-      this->_pRayTracingPipeline->getLayout(),
-      VK_SHADER_STAGE_ALL,
-      0,
-      sizeof(uint32_t),
-      &this->_framesSinceCameraMoved);
-    this->_pRayTracingPipeline->traceRays(app.getSwapChainExtent(), commandBuffer);
+        commandBuffer,
+        this->_pRayTracingPipeline->getLayout(),
+        VK_SHADER_STAGE_ALL,
+        0,
+        sizeof(uint32_t),
+        &this->_framesSinceCameraMoved);
+    this->_pRayTracingPipeline->traceRays(
+        app.getSwapChainExtent(),
+        commandBuffer);
   }
 
   this->_rayTracingTarget[this->_targetIndex].image.transitionLayout(
@@ -628,7 +630,8 @@ void PathTracing::draw(
 
     {
       const DrawContext& context = pass.getDrawContext();
-      context.bindDescriptorSets(*this->_pDisplayPassMaterial[this->_targetIndex]);
+      context.bindDescriptorSets(
+          *this->_pDisplayPassMaterial[this->_targetIndex]);
       context.draw(3);
     }
   }
