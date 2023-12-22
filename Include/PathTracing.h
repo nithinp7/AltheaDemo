@@ -53,6 +53,26 @@ struct GlobalUniforms {
   float exposure;
 };
 
+struct GlobalIlluminationUniforms {
+  uint32_t spatialHashSize;
+  uint32_t spatialHashSlotsPerBuffer;
+  uint32_t probeCount;
+  uint32_t probesPerBuffer;
+
+  float gridCellSize;
+  float padding1;
+  float padding2;
+  float padding3;
+};
+
+struct FreeList {
+  uint32_t counter;
+};
+
+struct Probe {
+  glm::vec4 samples[8];
+};
+
 class PathTracing : public IGameInstance {
 public:
   PathTracing();
@@ -78,8 +98,8 @@ private:
   void _createGlobalResources(
       Application& app,
       SingleTimeCommandBuffer& commandBuffer);
-  std::unique_ptr<PerFrameResources> _pGlobalResources;
-  std::unique_ptr<TransientUniforms<GlobalUniforms>> _pGlobalUniforms;
+  PerFrameResources _globalResources;
+  TransientUniforms<GlobalUniforms> _globalUniforms;
   PointLightCollection _pointLights;
   IBLResources _iblResources;
   StructuredBuffer<PrimitiveConstants> _primitiveConstantsBuffer; 
@@ -97,8 +117,16 @@ private:
    // ping-pong buffers
   ImageResource _rayTracingTarget[2];
   ImageResource _depthBuffer[2];
+  ImageResource _debugTarget;
+
+  ComputePipeline _probePass;
 
   AccelerationStructure _accelerationStructure;
+  TransientUniforms<GlobalIlluminationUniforms> _giUniforms;
+  StructuredBufferHeap<Probe> _probes;
+  StructuredBufferHeap<uint32_t> _spatialHash;
+  StructuredBuffer<FreeList> _freeList;
+
   std::unique_ptr<DescriptorSetAllocator> _pDisplayPassMaterialAllocator;
   std::unique_ptr<Material> _pDisplayPassMaterial[2];
   std::unique_ptr<RenderPass> _pDisplayPass;

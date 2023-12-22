@@ -28,6 +28,12 @@
 
 using namespace AltheaEngine;
 
+#define PROBE_COUNT 100000
+#define PROBES_PER_BUFFER (PROBE_COUNT)
+
+#define SPATIAL_HASH_SIZE (PROBES_PER_BUFFER)
+#define SPATIAL_HASH_SLOTS_PER_BUFFER (SPATIAL_HASH_SIZE)
+
 namespace AltheaDemo {
 namespace PathTracing {
 
@@ -71,6 +77,14 @@ void PathTracing::initGame(Application& app) {
                       << "\n";
           } else {
             that->_pRayTracingPipeline->recreatePipeline(app);
+          }
+        }
+
+        if (that->_probePass.recompileStaleShaders()) {
+          if (that->_probePass.hasShaderRecompileErrors()) {
+            std::cout << that->_probePass.getShaderRecompileErrors() << "\n";
+          } else {
+            that->_probePass.recreatePipeline(app);
           }
         }
 
@@ -135,18 +149,24 @@ void PathTracing::destroyRenderState(Application& app) {
   this->_rayTracingTarget[1] = {};
   this->_depthBuffer[0] = {};
   this->_depthBuffer[1] = {};
+  this->_debugTarget = {};
+  this->_giUniforms = {};
+  this->_probes = {};
+  this->_spatialHash = {};
+  this->_freeList = {};
   this->_pRayTracingMaterial[0].reset();
   this->_pRayTracingMaterial[1].reset();
   this->_pRayTracingMaterialAllocator.reset();
   this->_pRayTracingPipeline.reset();
+  this->_probePass = {};
   this->_pDisplayPassMaterial[0].reset();
   this->_pDisplayPassMaterial[1].reset();
   this->_pDisplayPassMaterialAllocator.reset();
   this->_pDisplayPass.reset();
   this->_displayPassSwapChainFrameBuffers = {};
 
-  this->_pGlobalResources.reset();
-  this->_pGlobalUniforms.reset();
+  this->_globalResources = {};
+  this->_globalUniforms = {};
   this->_pointLights = {};
   this->_textureHeap = {};
   this->_vertexBufferHeap = {};
@@ -178,7 +198,7 @@ void PathTracing::tick(Application& app, const FrameContext& frame) {
   globalUniforms.time = static_cast<float>(frame.currentTime);
   globalUniforms.exposure = this->_exposure;
 
-  this->_pGlobalUniforms->updateUniforms(globalUniforms, frame);
+  this->_globalUniforms.updateUniforms(globalUniforms, frame);
 
   // TODO: Allow lights to move again :)
   // for (uint32_t i = 0; i < this->_pointLights.getCount(); ++i) {
@@ -196,6 +216,16 @@ void PathTracing::tick(Application& app, const FrameContext& frame) {
   // }
 
   this->_pointLights.updateResource(frame);
+
+  GlobalIlluminationUniforms giUniforms{};
+  giUniforms.probeCount = PROBE_COUNT;
+  giUniforms.probesPerBuffer = PROBES_PER_BUFFER;
+  giUniforms.spatialHashSize = SPATIAL_HASH_SIZE;
+  giUniforms.spatialHashSlotsPerBuffer = SPATIAL_HASH_SLOTS_PER_BUFFER;
+
+  giUniforms.gridCellSize = 0.1f;
+
+  this->_giUniforms.updateUniforms(giUniforms, frame);
 }
 
 void PathTracing::_createModels(
@@ -298,17 +328,15 @@ void PathTracing::_createGlobalResources(
             this->_indexBufferHeap.getSize(),
             VK_SHADER_STAGE_ALL); // 10
 
-    this->_pGlobalResources =
-        std::make_unique<PerFrameResources>(app, globalResourceLayout);
-    this->_pGlobalUniforms =
-        std::make_unique<TransientUniforms<GlobalUniforms>>(app);
+    this->_globalResources = PerFrameResources(app, globalResourceLayout);
+    this->_globalUniforms = TransientUniforms<GlobalUniforms>(app);
 
     this->_pointLights = PointLightCollection(
         app,
         commandBuffer,
         9,
         true,
-        this->_pGlobalResources->getLayout(),
+        this->_globalResources.getLayout(),
         true,
         8,
         7,
@@ -330,13 +358,13 @@ void PathTracing::_createGlobalResources(
       }
     }
 
-    ResourcesAssignment assignment = this->_pGlobalResources->assign();
+    ResourcesAssignment assignment = this->_globalResources.assign();
 
     // Bind IBL resources
     this->_iblResources.bind(assignment);
 
     // Bind global uniforms
-    assignment.bindTransientUniforms(*this->_pGlobalUniforms);
+    assignment.bindTransientUniforms(this->_globalUniforms);
     assignment.bindStorageBuffer(
         this->_pointLights.getAllocation(),
         this->_pointLights.getByteSize(),
@@ -360,6 +388,31 @@ void PathTracing::_createRayTracingPass(
 
   this->_accelerationStructure =
       AccelerationStructure(app, commandBuffer, this->_models);
+
+  this->_giUniforms = TransientUniforms<GlobalIlluminationUniforms>(app);
+
+  std::vector<StructuredBuffer<Probe>> bucketBuffers;
+  uint32_t probeBufferCount = (PROBE_COUNT - 1) / PROBES_PER_BUFFER + 1;
+  bucketBuffers.reserve(probeBufferCount);
+  for (uint32_t i = 0; i < probeBufferCount; ++i) {
+    bucketBuffers.emplace_back(app, PROBES_PER_BUFFER);
+  }
+  this->_probes = StructuredBufferHeap<Probe>(std::move(bucketBuffers));
+
+  std::vector<StructuredBuffer<uint32_t>> hashBuffers;
+  uint32_t hashBufferCount =
+      (SPATIAL_HASH_SIZE - 1) / SPATIAL_HASH_SLOTS_PER_BUFFER + 1;
+  hashBuffers.reserve(hashBufferCount);
+  for (uint32_t i = 0; i < hashBufferCount; ++i) {
+    hashBuffers.emplace_back(app, SPATIAL_HASH_SLOTS_PER_BUFFER);
+  }
+  this->_spatialHash = StructuredBufferHeap<uint32_t>(std::move(hashBuffers));
+
+  this->_freeList = StructuredBuffer<FreeList>(app, 1);
+  this->_freeList.setElement({0}, 0);
+  this->_freeList.upload(app, commandBuffer);
+
+  // this->_probes = StructuredBufferHeap<ProbeBucket>()
 
   //DescriptorSetLayoutBuilder rayTracingMaterialLayout{};
   // TODO: Use ray queries in deferred pass instead
@@ -396,10 +449,16 @@ void PathTracing::_createRayTracingPass(
   this->_depthBuffer[0].sampler = Sampler(app, {});
   this->_depthBuffer[1].sampler = Sampler(app, {});
 
+  imageOptions.format = viewOptions.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+  imageOptions.width = imageOptions.height = 128;
+  this->_debugTarget.image = Image(app, imageOptions);
+  this->_debugTarget.view =
+      ImageView(app, this->_debugTarget.image, viewOptions);
+  this->_debugTarget.sampler = Sampler(app, {});
+
   // Material layout
   DescriptorSetLayoutBuilder matBuilder{};
-  matBuilder.addAccelerationStructureBinding(
-      VK_SHADER_STAGE_RAYGEN_BIT_KHR | VK_SHADER_STAGE_CLOSEST_HIT_BIT_KHR);
+  matBuilder.addAccelerationStructureBinding(VK_SHADER_STAGE_ALL);
   // prev accum buffer
   matBuilder.addTextureBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
   // current accumulation buffer
@@ -408,6 +467,16 @@ void PathTracing::_createRayTracingPass(
   matBuilder.addTextureBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
   // depth buffer
   matBuilder.addStorageImageBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
+  // GI uniforms
+  matBuilder.addUniformBufferBinding(VK_SHADER_STAGE_ALL);
+  // Probe bucket buffers
+  matBuilder.addBufferHeapBinding(probeBufferCount, VK_SHADER_STAGE_ALL);
+  // Spatial hash buffers
+  matBuilder.addBufferHeapBinding(hashBufferCount, VK_SHADER_STAGE_ALL);
+  // Free list
+  matBuilder.addStorageBufferBinding(VK_SHADER_STAGE_ALL);
+  // Debug buffer
+  matBuilder.addStorageImageBinding(VK_SHADER_STAGE_ALL);
 
   this->_pRayTracingMaterialAllocator =
       std::make_unique<DescriptorSetAllocator>(app, matBuilder, 2);
@@ -428,7 +497,15 @@ void PathTracing::_createRayTracingPass(
       .bindTexture(this->_depthBuffer[1].view, this->_depthBuffer[1].sampler)
       .bindStorageImage(
           this->_depthBuffer[0].view,
-          this->_depthBuffer[0].sampler);
+          this->_depthBuffer[0].sampler)
+      .bindTransientUniforms(this->_giUniforms)
+      .bindBufferHeap(this->_probes)
+      .bindBufferHeap(this->_spatialHash)
+      .bindStorageBuffer(
+          this->_freeList.getAllocation(),
+          this->_freeList.getSize(),
+          false)
+      .bindStorageImage(this->_debugTarget.view, this->_debugTarget.sampler);
 
   this->_pRayTracingMaterial[1]
       ->assign()
@@ -442,18 +519,17 @@ void PathTracing::_createRayTracingPass(
       .bindTexture(this->_depthBuffer[0].view, this->_depthBuffer[0].sampler)
       .bindStorageImage(
           this->_depthBuffer[1].view,
-          this->_depthBuffer[1].sampler);
+          this->_depthBuffer[1].sampler)
+      .bindTransientUniforms(this->_giUniforms)
+      .bindBufferHeap(this->_probes)
+      .bindBufferHeap(this->_spatialHash)
+      .bindStorageBuffer(
+          this->_freeList.getAllocation(),
+          this->_freeList.getSize(),
+          false)
+      .bindStorageImage(this->_debugTarget.view, this->_debugTarget.sampler);
 
   ShaderDefines defs;
-  defs.emplace(
-      "TEXTURE_HEAP_COUNT",
-      std::to_string(this->_textureHeap.getSize()));
-  defs.emplace(
-      "VERTEX_BUFFER_HEAP_COUNT",
-      std::to_string(this->_vertexBufferHeap.getSize()));
-  defs.emplace(
-      "INDEX_BUFFER_HEAP_COUNT",
-      std::to_string(this->_indexBufferHeap.getSize()));
 
   RayTracingPipelineBuilder builder{};
   builder.setRayGenShader(
@@ -469,15 +545,30 @@ void PathTracing::_createRayTracingPass(
       GEngineDirectory + "/Shaders/PathTracing/DepthRay.chit.glsl",
       defs);
 
-  builder.layoutBuilder.addDescriptorSet(this->_pGlobalResources->getLayout())
+  builder.layoutBuilder.addDescriptorSet(this->_globalResources.getLayout())
       .addDescriptorSet(this->_pRayTracingMaterialAllocator->getLayout())
       .addPushConstants<uint32_t>(VK_SHADER_STAGE_ALL);
 
   this->_pRayTracingPipeline =
       std::make_unique<RayTracingPipeline>(app, std::move(builder));
 
+  {
+    ComputePipelineBuilder computeBuilder{};
+    computeBuilder.layoutBuilder
+        .addDescriptorSet(this->_globalResources.getLayout())
+        .addDescriptorSet(this->_pRayTracingMaterialAllocator->getLayout())
+        .addPushConstants<uint32_t>(VK_SHADER_STAGE_ALL);
+
+    computeBuilder.setComputeShader(
+        GEngineDirectory + "/Shaders/GlobalIllumination/UpdateProbe.comp.glsl",
+        defs);
+
+    this->_probePass = ComputePipeline(app, std::move(computeBuilder));
+  }
+
   // Display Pass
   DescriptorSetLayoutBuilder displayPassMatLayout{};
+  displayPassMatLayout.addTextureBinding();
   displayPassMatLayout.addTextureBinding();
 
   this->_pDisplayPassMaterialAllocator =
@@ -487,10 +578,14 @@ void PathTracing::_createRayTracingPass(
   this->_pDisplayPassMaterial[1] =
       std::make_unique<Material>(app, *this->_pDisplayPassMaterialAllocator);
 
-  this->_pDisplayPassMaterial[0]->assign().bindTexture(
-      this->_rayTracingTarget[0]);
-  this->_pDisplayPassMaterial[1]->assign().bindTexture(
-      this->_rayTracingTarget[1]);
+  this->_pDisplayPassMaterial[0]
+      ->assign()
+      .bindTexture(this->_rayTracingTarget[0])
+      .bindTexture(this->_debugTarget);
+  this->_pDisplayPassMaterial[1]
+      ->assign()
+      .bindTexture(this->_rayTracingTarget[1])
+      .bindTexture(this->_debugTarget);
 
   VkClearValue colorClear;
   colorClear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
@@ -521,12 +616,12 @@ void PathTracing::_createRayTracingPass(
         .addVertexShader(GEngineDirectory + "/Shaders/Misc/FullScreenQuad.vert")
         // Fragment shader
         .addFragmentShader(
-            GEngineDirectory + "/Shaders/Misc/FullScreenTexture.frag")
+            GEngineDirectory + "/Shaders/PathTracing/DisplayPass.frag")
 
         // Pipeline resource layouts
         .layoutBuilder
         // Global resources (view, projection, environment map)
-        .addDescriptorSet(this->_pGlobalResources->getLayout())
+        .addDescriptorSet(this->_globalResources.getLayout())
         .addDescriptorSet(this->_pDisplayPassMaterialAllocator->getLayout());
   }
 
@@ -545,7 +640,7 @@ void PathTracing::draw(
     VkCommandBuffer commandBuffer,
     const FrameContext& frame) {
   VkDescriptorSet globalDescriptorSet =
-      this->_pGlobalResources->getCurrentDescriptorSet(frame);
+      this->_globalResources.getCurrentDescriptorSet(frame);
 
   this->_pointLights.updateResource(frame);
 
@@ -569,6 +664,12 @@ void PathTracing::draw(
       VK_IMAGE_LAYOUT_GENERAL,
       VK_ACCESS_SHADER_WRITE_BIT,
       VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
+  this->_debugTarget.image.transitionLayout(
+      commandBuffer,
+      VK_IMAGE_LAYOUT_GENERAL,
+      VK_ACCESS_SHADER_WRITE_BIT,
+      VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR |
+          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
   this->_depthBuffer[readIndex].image.transitionLayout(
       commandBuffer,
@@ -581,16 +682,16 @@ void PathTracing::draw(
       VK_ACCESS_SHADER_WRITE_BIT,
       VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
 
-  vkCmdBindPipeline(
-      commandBuffer,
-      VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
-      *this->_pRayTracingPipeline);
   // VkDescriptorSet rtDescSets = { globalDescriptorSet, this?}
   {
     VkDescriptorSet sets[2] = {
         globalDescriptorSet,
         this->_pRayTracingMaterial[this->_targetIndex]->getCurrentDescriptorSet(
             frame)};
+    vkCmdBindPipeline(
+        commandBuffer,
+        VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
+        *this->_pRayTracingPipeline);
     vkCmdBindDescriptorSets(
         commandBuffer,
         VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
@@ -610,9 +711,38 @@ void PathTracing::draw(
     this->_pRayTracingPipeline->traceRays(
         app.getSwapChainExtent(),
         commandBuffer);
+
+    vkCmdBindPipeline(
+        commandBuffer,
+        VK_PIPELINE_BIND_POINT_COMPUTE,
+        this->_probePass.getPipeline());
+    vkCmdBindDescriptorSets(
+        commandBuffer,
+        VK_PIPELINE_BIND_POINT_COMPUTE,
+        this->_probePass.getLayout(),
+        0,
+        2,
+        sets,
+        0,
+        nullptr);
+    vkCmdPushConstants(
+        commandBuffer,
+        this->_probePass.getLayout(),
+        VK_SHADER_STAGE_ALL,
+        0,
+        sizeof(uint32_t),
+        &this->_framesSinceCameraMoved);
+    uint32_t pxCount = 128 * 128;
+    uint32_t groupCount = pxCount / 32;
+    vkCmdDispatch(commandBuffer, groupCount, 1, 1);
   }
 
   this->_rayTracingTarget[this->_targetIndex].image.transitionLayout(
+      commandBuffer,
+      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+      VK_ACCESS_SHADER_READ_BIT,
+      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+  this->_debugTarget.image.transitionLayout(
       commandBuffer,
       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
       VK_ACCESS_SHADER_READ_BIT,
