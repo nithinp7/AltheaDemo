@@ -69,8 +69,19 @@ struct FreeList {
   uint32_t counter;
 };
 
+// 32 bytes
+struct ProbeSlot {
+  glm::vec4 irradiance;
+  int gridX;
+  int gridY;
+  int gridZ;
+  int dbg;
+};
+
+// 128 bytes
+// fits perfectly into cache line (hopefully)
 struct Probe {
-  glm::vec4 samples[8];
+  ProbeSlot slots[4];
 };
 
 class PathTracing : public IGameInstance {

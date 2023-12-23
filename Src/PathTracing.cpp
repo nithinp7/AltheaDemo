@@ -732,8 +732,7 @@ void PathTracing::draw(
         0,
         sizeof(uint32_t),
         &this->_framesSinceCameraMoved);
-    uint32_t pxCount = 128 * 128;
-    uint32_t groupCount = pxCount / 32;
+    uint32_t groupCount = PROBE_COUNT / 32;
     vkCmdDispatch(commandBuffer, groupCount, 1, 1);
   }
 
