@@ -248,7 +248,6 @@ void ParticleSystem::destroyRenderState(Application& app) {
 void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   // Use fixed delta time
 
-  this->_pCameraController->tick(frame.deltaTime);
   const Camera& camera = this->_pCameraController->getCamera();
 
   // Use fixed timestep for physics
@@ -257,11 +256,16 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   const glm::mat4& projection = camera.getProjection();
 
   GlobalUniforms globalUniforms;
+  globalUniforms.prevView = camera.computeView();
+  globalUniforms.prevInverseView = glm::inverse(globalUniforms.prevView);
+
+  this->_pCameraController->tick(frame.deltaTime);
+  
   globalUniforms.projection = camera.getProjection();
   globalUniforms.inverseProjection = glm::inverse(globalUniforms.projection);
   globalUniforms.view = camera.computeView();
   globalUniforms.inverseView = glm::inverse(globalUniforms.view);
-  globalUniforms.lightCount = static_cast<int>(this->_pointLights.getCount());
+  globalUniforms.lightCount = 0;//static_cast<int>(this->_pointLights.getCount());
   globalUniforms.time = static_cast<float>(frame.currentTime);
   globalUniforms.exposure = this->_exposure;
 
@@ -436,6 +440,9 @@ void ParticleSystem::_createGlobalResources(
       }
     }
 
+    // TODO: Just a hack since we don't use point lights
+    this->_pointLights.getShadowMapImage().transitionLayout(commandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+    
     ResourcesAssignment assignment = this->_pGlobalResources->assign();
 
     // Bind IBL resources
@@ -705,8 +712,7 @@ void ParticleSystem::_createForwardPass(Application& app) {
       app,
       extent,
       std::move(attachments),
-      std::move(subpassBuilders),
-      false);
+      std::move(subpassBuilders));
 
   this->_forwardFrameBuffer = FrameBuffer(
       app,
@@ -767,11 +773,11 @@ void ParticleSystem::_createDeferredPass(Application& app) {
   // TODO: Really light objects should be rendered in the forward
   // pass as well and an emissive channel should be added to the
   // G-Buffer
-  this->_pointLights.setupPointLightMeshSubpass(
-      subpassBuilders.emplace_back(),
-      0,
-      1,
-      this->_pGlobalResources->getLayout());
+  // this->_pointLights.setupPointLightMeshSubpass(
+  //     subpassBuilders.emplace_back(),
+  //     0,
+  //     1,
+  //     this->_pGlobalResources->getLayout());
 
   this->_pDeferredPass = std::make_unique<RenderPass>(
       app,
@@ -1195,6 +1201,8 @@ void ParticleSystem::draw(
   VkDescriptorSet globalDescriptorSet =
       this->_pGlobalResources->getCurrentDescriptorSet(frame);
 
+  this->_gBufferResources.transitionToAttachment(commandBuffer);
+
   this->_renderForwardPass(app, commandBuffer, frame);
 
   this->_gBufferResources.transitionToTextures(commandBuffer);
@@ -1222,12 +1230,11 @@ void ParticleSystem::draw(
       context.draw(3);
     }
 
-    pass.nextSubpass();
+    // pass.nextSubpass();
     // pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
     // pass.draw(this->_pointLights);
 
     // this->_pointLights.updateResource(frame);
-    this->_gBufferResources.transitionToAttachment(commandBuffer);
   }
 }
 } // namespace ParticleSystem

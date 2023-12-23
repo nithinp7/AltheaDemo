@@ -40,11 +40,14 @@ struct GlobalUniforms {
   glm::mat4 projection;
   glm::mat4 inverseProjection;
   glm::mat4 view;
+  glm::mat4 prevView;
   glm::mat4 inverseView;
+  glm::mat4 prevInverseView;
   int lightCount;
   float time;
   float exposure;
 };
+
 
 struct Particle {
   alignas(16) glm::vec3 position;
@@ -167,7 +170,7 @@ private:
   float _exposure = 0.3f;
 
   bool _flagReset = false;
-  uint32_t _activeParticleCount = 1000000;
+  uint32_t _activeParticleCount = 100000;//0;
   uint32_t _inputMask = 0;
 };
 } // namespace ParticleSystem
