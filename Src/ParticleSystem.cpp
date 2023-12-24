@@ -161,7 +161,7 @@ void ParticleSystem::initGame(Application& app) {
           }
         }
 
-        for (Subpass& subpass : that->_pForwardPass->getSubpasses()) {
+        for (Subpass& subpass : that->_forwardPass.getSubpasses()) {
           GraphicsPipeline& pipeline = subpass.getPipeline();
           if (pipeline.recompileStaleShaders()) {
             if (pipeline.hasShaderRecompileErrors()) {
@@ -172,7 +172,7 @@ void ParticleSystem::initGame(Application& app) {
           }
         }
 
-        for (Subpass& subpass : that->_pDeferredPass->getSubpasses()) {
+        for (Subpass& subpass : that->_deferredPass.getSubpasses()) {
           GraphicsPipeline& pipeline = subpass.getPipeline();
           if (pipeline.recompileStaleShaders()) {
             if (pipeline.hasShaderRecompileErrors()) {
@@ -216,7 +216,7 @@ void ParticleSystem::createRenderState(Application& app) {
 void ParticleSystem::destroyRenderState(Application& app) {
   this->_models.clear();
 
-  this->_pForwardPass.reset();
+  this->_forwardPass = {};
   this->_gBufferResources = {};
   this->_forwardFrameBuffer = {};
 
@@ -231,13 +231,13 @@ void ParticleSystem::destroyRenderState(Application& app) {
   this->_sphereVertices = {};
   this->_sphereIndices = {};
 
-  this->_pDeferredPass.reset();
+  this->_deferredPass = {};
   this->_swapChainFrameBuffers = {};
   this->_pDeferredMaterial.reset();
   this->_pDeferredMaterialAllocator.reset();
 
-  this->_pGlobalResources.reset();
-  this->_pGlobalUniforms.reset();
+  this->_globalResources = {};
+  this->_globalUniforms = {};
   this->_pointLights = {};
   this->_pGltfMaterialAllocator.reset();
   this->_iblResources = {};
@@ -260,16 +260,17 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   globalUniforms.prevInverseView = glm::inverse(globalUniforms.prevView);
 
   this->_pCameraController->tick(frame.deltaTime);
-  
+
   globalUniforms.projection = camera.getProjection();
   globalUniforms.inverseProjection = glm::inverse(globalUniforms.projection);
   globalUniforms.view = camera.computeView();
   globalUniforms.inverseView = glm::inverse(globalUniforms.view);
-  globalUniforms.lightCount = 0;//static_cast<int>(this->_pointLights.getCount());
+  globalUniforms.lightCount =
+      0; // static_cast<int>(this->_pointLights.getCount());
   globalUniforms.time = static_cast<float>(frame.currentTime);
   globalUniforms.exposure = this->_exposure;
 
-  this->_pGlobalUniforms->updateUniforms(globalUniforms, frame);
+  this->_globalUniforms.updateUniforms(globalUniforms, frame);
 
   // for (uint32_t i = 0; i < this->_pointLights.getCount(); ++i) {
   //   PointLight light = this->_pointLights.getLight(i);
@@ -412,10 +413,8 @@ void ParticleSystem::_createGlobalResources(
         // Sphere verts
         .addStorageBufferBinding(VK_SHADER_STAGE_VERTEX_BIT);
 
-    this->_pGlobalResources =
-        std::make_unique<PerFrameResources>(app, globalResourceLayout);
-    this->_pGlobalUniforms =
-        std::make_unique<TransientUniforms<GlobalUniforms>>(app);
+    this->_globalResources = PerFrameResources(app, globalResourceLayout);
+    this->_globalUniforms = TransientUniforms<GlobalUniforms>(app);
 
     this->_pointLights = PointLightCollection(
         app,
@@ -441,15 +440,19 @@ void ParticleSystem::_createGlobalResources(
     }
 
     // TODO: Just a hack since we don't use point lights
-    this->_pointLights.getShadowMapImage().transitionLayout(commandBuffer, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-    
-    ResourcesAssignment assignment = this->_pGlobalResources->assign();
+    this->_pointLights.getShadowMapImage().transitionLayout(
+        commandBuffer,
+        VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+        VK_ACCESS_SHADER_READ_BIT,
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+
+    ResourcesAssignment assignment = this->_globalResources.assign();
 
     // Bind IBL resources
     this->_iblResources.bind(assignment);
 
     // Bind global uniforms
-    assignment.bindTransientUniforms(*this->_pGlobalUniforms);
+    assignment.bindTransientUniforms(this->_globalUniforms);
     assignment.bindStorageBuffer(
         this->_pointLights.getAllocation(),
         this->_pointLights.getByteSize(),
@@ -471,7 +474,7 @@ void ParticleSystem::_createGlobalResources(
   this->_pSSR = std::make_unique<ScreenSpaceReflection>(
       app,
       commandBuffer,
-      this->_pGlobalResources->getLayout(),
+      this->_globalResources.getLayout(),
       this->_gBufferResources);
 
   // Deferred pass resources (GBuffer)
@@ -681,7 +684,7 @@ void ParticleSystem::_createForwardPass(Application& app) {
             defs)
         .addFragmentShader(
             GProjectDirectory + "/Shaders/ParticleSystem/Particles.frag")
-        .layoutBuilder.addDescriptorSet(this->_pGlobalResources->getLayout())
+        .layoutBuilder.addDescriptorSet(this->_globalResources.getLayout())
         .addDescriptorSet(this->_pSimResources->getLayout())
         .addPushConstants<uint32_t>(
             VK_SHADER_STAGE_VERTEX_BIT); // sphere index count
@@ -702,13 +705,13 @@ void ParticleSystem::_createForwardPass(Application& app) {
         .setCullMode(VK_CULL_MODE_FRONT_BIT)
         .addVertexShader(GEngineDirectory + "/Shaders/Misc/FullScreenQuad.vert")
         .addFragmentShader(GEngineDirectory + "/Shaders/Misc/Floor.frag")
-        .layoutBuilder.addDescriptorSet(this->_pGlobalResources->getLayout());
+        .layoutBuilder.addDescriptorSet(this->_globalResources.getLayout());
   }
 
   std::vector<Attachment> attachments =
       this->_gBufferResources.getAttachmentDescriptions();
   const VkExtent2D& extent = app.getSwapChainExtent();
-  this->_pForwardPass = std::make_unique<RenderPass>(
+  this->_forwardPass = RenderPass(
       app,
       extent,
       std::move(attachments),
@@ -716,7 +719,7 @@ void ParticleSystem::_createForwardPass(Application& app) {
 
   this->_forwardFrameBuffer = FrameBuffer(
       app,
-      *this->_pForwardPass,
+      this->_forwardPass,
       extent,
       this->_gBufferResources.getAttachmentViews());
 }
@@ -763,7 +766,7 @@ void ParticleSystem::_createDeferredPass(Application& app) {
         // Pipeline resource layouts
         .layoutBuilder
         // Global resources (view, projection, environment map)
-        .addDescriptorSet(this->_pGlobalResources->getLayout())
+        .addDescriptorSet(this->_globalResources.getLayout())
         // GBuffer material (position, normal, albedo,
         // metallic-roughness-occlusion)
         .addDescriptorSet(this->_pDeferredMaterialAllocator->getLayout());
@@ -779,7 +782,7 @@ void ParticleSystem::_createDeferredPass(Application& app) {
   //     1,
   //     this->_pGlobalResources->getLayout());
 
-  this->_pDeferredPass = std::make_unique<RenderPass>(
+  this->_deferredPass = RenderPass(
       app,
       app.getSwapChainExtent(),
       std::move(attachments),
@@ -787,7 +790,7 @@ void ParticleSystem::_createDeferredPass(Application& app) {
 
   this->_swapChainFrameBuffers = SwapChainFrameBufferCollection(
       app,
-      *this->_pDeferredPass,
+      this->_deferredPass,
       {app.getDepthImageView()});
 }
 
@@ -805,7 +808,7 @@ void ParticleSystem::_renderForwardPass(
     VkCommandBuffer commandBuffer,
     const FrameContext& frame) {
   VkDescriptorSet globalDescriptorSet =
-      this->_pGlobalResources->getCurrentDescriptorSet(frame);
+      this->_globalResources.getCurrentDescriptorSet(frame);
 
   // Draw point light shadow maps
   // this->_pointLights.drawShadowMaps(app, commandBuffer, frame,
@@ -813,7 +816,7 @@ void ParticleSystem::_renderForwardPass(
 
   // Forward pass
   {
-    ActiveRenderPass pass = this->_pForwardPass->begin(
+    ActiveRenderPass pass = this->_forwardPass.begin(
         app,
         commandBuffer,
         frame,
@@ -1199,7 +1202,7 @@ void ParticleSystem::draw(
   }
 
   VkDescriptorSet globalDescriptorSet =
-      this->_pGlobalResources->getCurrentDescriptorSet(frame);
+      this->_globalResources.getCurrentDescriptorSet(frame);
 
   this->_gBufferResources.transitionToAttachment(commandBuffer);
 
@@ -1216,7 +1219,7 @@ void ParticleSystem::draw(
 
   // Deferred pass
   {
-    ActiveRenderPass pass = this->_pDeferredPass->begin(
+    ActiveRenderPass pass = this->_deferredPass.begin(
         app,
         commandBuffer,
         frame,
