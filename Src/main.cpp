@@ -17,8 +17,8 @@ int main() {
   // app.createGame<DemoScene::DemoScene>();
   // app.createGame<RayTracingDemo::RayTracingDemo>();
   // app.createGame<RayTracedReflectionsDemo::RayTracedReflectionsDemo>();
-  // app.createGame<BindlessDemo::BindlessDemo>();
-  app.createGame<ParticleSystem::ParticleSystem>();
+  app.createGame<BindlessDemo::BindlessDemo>();
+  // app.createGame<ParticleSystem::ParticleSystem>();
   // app.createGame<PathTracing::PathTracing>();
 
   try {

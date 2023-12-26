@@ -21,6 +21,8 @@
 #include <Althea/Texture.h>
 #include <Althea/TransientUniforms.h>
 #include <Althea/TextureHeap.h>
+#include <Althea/GlobalHeap.h>
+#include <Althea/GlobalUniforms.h>
 #include <glm/glm.hpp>
 
 #include <vector>
@@ -33,17 +35,6 @@ class Application;
 
 namespace AltheaDemo {
 namespace BindlessDemo {
-
-// TODO: move this into engine
-struct GlobalUniforms {
-  glm::mat4 projection;
-  glm::mat4 inverseProjection;
-  glm::mat4 view;
-  glm::mat4 inverseView;
-  int lightCount;
-  float time;
-  float exposure;
-};
 
 class BindlessDemo : public IGameInstance {
 public:
@@ -70,8 +61,9 @@ private:
   void _createGlobalResources(
       Application& app,
       SingleTimeCommandBuffer& commandBuffer);
+  GlobalHeap _globalHeap;
+  GlobalUniformsResource _globalUniforms;
   std::unique_ptr<PerFrameResources> _pGlobalResources;
-  std::unique_ptr<TransientUniforms<GlobalUniforms>> _pGlobalUniforms;
   PointLightCollection _pointLights;
   IBLResources _iblResources;
   GBufferResources _gBufferResources;
@@ -81,7 +73,6 @@ private:
 
   void _createForwardPass(Application& app);
   StructuredBuffer<PrimitiveConstants> _primitiveConstantsBuffer; 
-  TextureHeap _textureHeap;
   std::unique_ptr<RenderPass> _pForwardPass;
   FrameBuffer _forwardFrameBuffer;
 

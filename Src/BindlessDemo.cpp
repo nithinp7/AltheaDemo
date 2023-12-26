@@ -124,7 +124,6 @@ void BindlessDemo::destroyRenderState(Application& app) {
   this->_gBufferResources = {};
   this->_forwardFrameBuffer = {};
   this->_primitiveConstantsBuffer = {};
-  this->_textureHeap = {};
 
   this->_pDeferredPass.reset();
   this->_swapChainFrameBuffers = {};
@@ -132,11 +131,13 @@ void BindlessDemo::destroyRenderState(Application& app) {
   this->_pDeferredMaterialAllocator.reset();
 
   this->_pGlobalResources.reset();
-  this->_pGlobalUniforms.reset();
   this->_pointLights = {};
   this->_iblResources = {};
 
   this->_pSSR.reset();
+  this->_globalUniforms = {};
+
+  this->_globalHeap = {};
 }
 
 void BindlessDemo::tick(Application& app, const FrameContext& frame) {
@@ -154,7 +155,8 @@ void BindlessDemo::tick(Application& app, const FrameContext& frame) {
   globalUniforms.time = static_cast<float>(frame.currentTime);
   globalUniforms.exposure = this->_exposure;
 
-  this->_pGlobalUniforms->updateUniforms(globalUniforms, frame);
+  this->_globalUniforms.getCurrentUniformBuffer(frame).updateUniforms(
+      globalUniforms);
 
   for (uint32_t i = 0; i < this->_pointLights.getCount(); ++i) {
     PointLight light = this->_pointLights.getLight(i);
@@ -213,15 +215,24 @@ void BindlessDemo::_createModels(
 void BindlessDemo::_createGlobalResources(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
+  this->_globalHeap = GlobalHeap(app);
+  this->_globalUniforms = GlobalUniformsResource(app, this->_globalHeap);
+
   this->_iblResources = ImageBasedLighting::createResources(
       app,
       commandBuffer,
       "NeoclassicalInterior");
+  this->_iblResources.registerToHeap(this->_globalHeap);
+
   this->_gBufferResources = GBufferResources(app);
 
   // Create GLTF resource heaps
   {
     this->_createModels(app, commandBuffer);
+
+    for (Model& model : this->_models) {
+      model.registerToHeap(this->_globalHeap);
+    }
 
     uint32_t primCount = 0;
     for (const Model& model : this->_models)
@@ -238,48 +249,41 @@ void BindlessDemo::_createGlobalResources(
       }
     }
 
+    // The primitive constant buffers contain all the bindless
+    // indices for the primitive texture resources
     this->_primitiveConstantsBuffer.upload(app, commandBuffer);
+    this->_primitiveConstantsBuffer.registerToHeap(this->_globalHeap);
 
-    this->_textureHeap = TextureHeap(this->_models);
+    // this->_textureHeap = TextureHeap(this->_models);
   }
 
   // Global resources
   {
-    DescriptorSetLayoutBuilder globalResourceLayout;
+    // DescriptorSetLayoutBuilder globalResourceLayout;
 
     // Add textures for IBL
-    ImageBasedLighting::buildLayout(globalResourceLayout);
-    globalResourceLayout
-        // Global uniforms.
-        .addUniformBufferBinding()
-        // Point light buffer.
-        .addStorageBufferBinding(
-            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
-        // Shadow map texture.
-        .addTextureBinding()
-        // Texture heap.
-        .addTextureHeapBinding(
-            this->_textureHeap.getSize(),
-            VK_SHADER_STAGE_FRAGMENT_BIT)
-        // Primitive constants heap.
-        .addStorageBufferBinding(
-            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
-
-    this->_pGlobalResources =
-        std::make_unique<PerFrameResources>(app, globalResourceLayout);
-    this->_pGlobalUniforms =
-        std::make_unique<TransientUniforms<GlobalUniforms>>(app);
+    // ImageBasedLighting::buildLayout(globalResourceLayout);
+    // globalResourceLayout
+    //     // Point light buffer.
+    //     .addStorageBufferBinding(
+    //         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
+    //     // Shadow map texture.
+    //     .addTextureBinding()
+    //     // Texture heap.
+    //     .addTextureHeapBinding(
+    //         this->_textureHeap.getSize(),
+    //         VK_SHADER_STAGE_FRAGMENT_BIT)
+    //     // Primitive constants heap.
+    //     .addStorageBufferBinding(
+    //         VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
 
     this->_pointLights = PointLightCollection(
         app,
         commandBuffer,
+        this->_globalHeap,
         9,
         true,
-        this->_pGlobalResources->getLayout(),
-        true,
-        8,
-        7,
-        this->_textureHeap.getSize());
+        this->_primitiveConstantsBuffer.getHandle());
     for (uint32_t i = 0; i < 3; ++i) {
       for (uint32_t j = 0; j < 3; ++j) {
         PointLight light;
@@ -296,26 +300,6 @@ void BindlessDemo::_createGlobalResources(
         this->_pointLights.setLight(i * 3 + j, light);
       }
     }
-
-    ResourcesAssignment assignment = this->_pGlobalResources->assign();
-
-    // Bind IBL resources
-    this->_iblResources.bind(assignment);
-
-    // Bind global uniforms
-    assignment.bindTransientUniforms(*this->_pGlobalUniforms);
-    assignment.bindStorageBuffer(
-        this->_pointLights.getAllocation(),
-        this->_pointLights.getByteSize(),
-        true);
-    assignment.bindTexture(
-        this->_pointLights.getShadowMapArrayView(),
-        this->_pointLights.getShadowMapSampler());
-    assignment.bindTextureHeap(this->_textureHeap);
-    assignment.bindStorageBuffer(
-        this->_primitiveConstantsBuffer.getAllocation(),
-        this->_primitiveConstantsBuffer.getSize(),
-        false);
   }
 
   // Set up SSR resources
@@ -364,14 +348,14 @@ void BindlessDemo::_createForwardPass(Application& app) {
     Primitive::buildPipeline(subpassBuilder.pipelineBuilder);
 
     ShaderDefines defs;
-    defs.emplace(
-        "TEXTURE_HEAP_COUNT",
-        std::to_string(this->_textureHeap.getSize()));
+    defs.emplace("BINDLESS_SET", "1");
 
     subpassBuilder
         .pipelineBuilder
         // Vertex shader
-        .addVertexShader(GEngineDirectory + "/Shaders/GltfForwardBindless.vert")
+        .addVertexShader(
+            GEngineDirectory + "/Shaders/GltfForwardBindless.vert",
+            defs)
         // Fragment shader
         .addFragmentShader(
             GEngineDirectory + "/Shaders/GltfForwardBindless.frag",
@@ -380,7 +364,8 @@ void BindlessDemo::_createForwardPass(Application& app) {
         // Pipeline resource layouts
         .layoutBuilder
         // Global resources (view, projection, environment map)
-        .addDescriptorSet(this->_pGlobalResources->getLayout());
+        .addDescriptorSet(this->_pGlobalResources->getLayout())
+        .addDescriptorSet(this->_globalHeap.getDescriptorSetLayout());
   }
 
   std::vector<Attachment> attachments =
@@ -430,13 +415,18 @@ void BindlessDemo::_createDeferredPass(Application& app) {
     SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
     subpassBuilder.colorAttachments.push_back(0);
 
+    ShaderDefines defs;
+    defs.emplace("BINDLESS_SET", "2");
+
     subpassBuilder.pipelineBuilder.setCullMode(VK_CULL_MODE_FRONT_BIT)
         .setDepthTesting(false)
 
         // Vertex shader
-        .addVertexShader(GProjectDirectory + "/Shaders/DeferredPass.vert")
+        .addVertexShader(GProjectDirectory + "/Shaders/DeferredPass.vert", defs)
         // Fragment shader
-        .addFragmentShader(GProjectDirectory + "/Shaders/DeferredPass.frag")
+        .addFragmentShader(
+            GProjectDirectory + "/Shaders/DeferredPass.frag",
+            defs)
 
         // Pipeline resource layouts
         .layoutBuilder
@@ -444,7 +434,8 @@ void BindlessDemo::_createDeferredPass(Application& app) {
         .addDescriptorSet(this->_pGlobalResources->getLayout())
         // GBuffer material (position, normal, albedo,
         // metallic-roughness-occlusion)
-        .addDescriptorSet(this->_pDeferredMaterialAllocator->getLayout());
+        .addDescriptorSet(this->_pDeferredMaterialAllocator->getLayout())
+        .addDescriptorSet(this->_globalHeap.getDescriptorSetLayout());
   }
 
   // SHOW POINT LIGHTS (kinda hacky)
@@ -488,9 +479,15 @@ void BindlessDemo::draw(
 
   VkDescriptorSet globalDescriptorSet =
       this->_pGlobalResources->getCurrentDescriptorSet(frame);
+  VkDescriptorSet heapDescriptorSet = this->_globalHeap.getDescriptorSet();
 
   // Draw point light shadow maps
-  this->_pointLights.drawShadowMaps(app, commandBuffer, frame, this->_models, globalDescriptorSet);
+  this->_pointLights.drawShadowMaps(
+      app,
+      commandBuffer,
+      frame,
+      this->_models,
+      globalDescriptorSet);
 
   // Forward pass
   {

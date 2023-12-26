@@ -8,20 +8,19 @@ layout(location=1) in vec2 uv;
 
 layout(location=0) out vec4 outColor;
 
+#include <Bindless/GlobalHeap.glsl>
+#include <GlobalUniforms.glsl>
+
 layout(set=0, binding=0) uniform sampler2D environmentMap; 
 layout(set=0, binding=1) uniform sampler2D prefilteredMap; 
 layout(set=0, binding=2) uniform sampler2D irradianceMap;
 layout(set=0, binding=3) uniform sampler2D brdfLut;
 
-#define GLOBAL_UNIFORMS_SET 0
-#define GLOBAL_UNIFORMS_BINDING 4
-#include <GlobalUniforms.glsl>
-
 #define POINT_LIGHTS_SET 0
-#define POINT_LIGHTS_BINDING 5
+#define POINT_LIGHTS_BINDING 4
 #include <PointLights.glsl>
 
-layout(set=0, binding=6) uniform samplerCubeArray shadowMapArray;
+layout(set=0, binding=5) uniform samplerCubeArray shadowMapArray;
 
 // GBuffer textures
 layout(set=1, binding=0) uniform sampler2D gBufferPosition;
@@ -46,6 +45,8 @@ vec3 sampleEnvMap(vec3 dir) {
 vec4 sampleReflection(float roughness) {
   return textureLod(reflectionBuffer, uv, 4.0 * roughness).rgba;
 } 
+
+GlobalUniforms globals;
 
 // Random number generator and sample warping
 // from ShaderToy https://www.shadertoy.com/view/4tXyWN
@@ -125,6 +126,9 @@ float computeSSAO(vec2 currentUV, vec3 worldPos, vec3 normal) {
 #endif
 
 void main() {
+  uint globalsHandle = 0;
+  globals = RESOURCE(globalUniforms, globalsHandle);
+  
   seed = uvec2(gl_FragCoord.xy);
 
   vec4 position = texture(gBufferPosition, uv).rgba;
