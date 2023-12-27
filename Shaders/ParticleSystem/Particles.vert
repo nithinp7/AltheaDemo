@@ -5,7 +5,7 @@
 
 #define GLOBAL_UNIFORMS_SET 0
 #define GLOBAL_UNIFORMS_BINDING 4
-#include <GlobalUniforms.glsl>
+#include <Global/GlobalUniforms.glsl>
 
 #ifdef INSTANCED_MODE
 // Per-vertex attributes

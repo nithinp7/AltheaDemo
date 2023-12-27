@@ -23,6 +23,7 @@
 #include <Althea/TextureHeap.h>
 #include <Althea/GlobalHeap.h>
 #include <Althea/GlobalUniforms.h>
+#include <Althea/GlobalResources.h>
 #include <glm/glm.hpp>
 
 #include <vector>
@@ -63,10 +64,8 @@ private:
       SingleTimeCommandBuffer& commandBuffer);
   GlobalHeap _globalHeap;
   GlobalUniformsResource _globalUniforms;
-  std::unique_ptr<PerFrameResources> _pGlobalResources;
+  GlobalResources _globalResources;
   PointLightCollection _pointLights;
-  IBLResources _iblResources;
-  GBufferResources _gBufferResources;
 
   void _createModels(Application& app, SingleTimeCommandBuffer& commandBuffer);
   std::vector<Model> _models;
@@ -79,10 +78,8 @@ private:
   void _createDeferredPass(Application& app);
   std::unique_ptr<RenderPass> _pDeferredPass;
   SwapChainFrameBufferCollection _swapChainFrameBuffers;
-  std::unique_ptr<DescriptorSetAllocator> _pDeferredMaterialAllocator;
-  std::unique_ptr<Material> _pDeferredMaterial;
 
-  std::unique_ptr<ScreenSpaceReflection> _pSSR;
+  std::unique_ptr<ScreenSpaceReflection> _SSR;
   float _exposure = 0.3f;
 };
 } // namespace BindlessDemo

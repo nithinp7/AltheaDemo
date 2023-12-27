@@ -9,7 +9,7 @@ layout(location=1) in vec2 uv;
 layout(location=0) out vec4 outColor;
 
 #include <Bindless/GlobalHeap.glsl>
-#include <GlobalUniforms.glsl>
+#include <Global/GlobalUniforms.glsl>
 
 layout(set=0, binding=0) uniform sampler2D environmentMap; 
 layout(set=0, binding=1) uniform sampler2D prefilteredMap; 

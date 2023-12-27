@@ -4,7 +4,7 @@ layout(location=0) smooth out vec3 direction;
 layout(location=1) out vec2 uv;
 
 #include <GlobalHeap.glsl>
-#include <GlobalUniforms.glsl>
+#include <Global/GlobalUniforms.glsl>
 
 void main() {
   // Get global uniforms

@@ -3,7 +3,7 @@
 
 #define GLOBAL_UNIFORMS_SET 0
 #define GLOBAL_UNIFORMS_BINDING 4
-#include <GlobalUniforms.glsl>
+#include <Global/GlobalUniforms.glsl>
 
 layout(location=0) in vec3 worldPos;
 layout(location=1) in vec3 normal;
