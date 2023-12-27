@@ -292,8 +292,7 @@ void BindlessDemo::_createGlobalResources(
       app,
       commandBuffer,
       this->_globalHeap,
-      this->_primitiveConstantsBuffer.getHandle(),
-      this->_pointLights.getConstantsHandle());
+      this->_primitiveConstantsBuffer.getHandle());
 
   // Set up SSR resources
   this->_SSR = ScreenSpaceReflection(
@@ -470,10 +469,19 @@ void BindlessDemo::draw(
         this->_forwardFrameBuffer);
     // Bind global descriptor sets
     pass.setGlobalDescriptorSets(gsl::span(&heapDescriptorSet, 1));
-    pass.getDrawContext().updatePushConstants(push, 0);
+    pass.getDrawContext().bindDescriptorSets();
+
     // Draw models
     for (const Model& model : this->_models) {
-      pass.draw(model);
+      for (const Primitive& primitive : model.getPrimitives()) {
+        push.model = primitive.computeWorldTransform();
+        push.primitiveIdx =
+            static_cast<uint32_t>(primitive.getPrimitiveIndex());
+        pass.getDrawContext().updatePushConstants(push, 0);
+        pass.getDrawContext().drawIndexed(
+            primitive.getVertexBuffer(),
+            primitive.getIndexBuffer());
+      }
     }
   }
 
@@ -488,9 +496,11 @@ void BindlessDemo::draw(
   // Deferred pass
   {
     DeferredPassPushConstants push{};
-    push.globalResources = this->_globalResources.getConstants().getHandle().index;
-    push.globalUniforms = this->_globalUniforms.getCurrentBindlessHandle(frame).index;
-    push.lightPositions = this->_pointLights.getConstantsHandle();
+    push.globalResources =
+        this->_globalResources.getConstants().getHandle().index;
+    push.globalUniforms =
+        this->_globalUniforms.getCurrentBindlessHandle(frame).index;
+    push.lightPositions = this->_pointLights.getConstantsHandle().index;
     push.reflectionBuffer = this->_SSR.getReflectionBuffer().getHandle().index;
 
     ActiveRenderPass pass = this->_pDeferredPass->begin(
@@ -500,15 +510,15 @@ void BindlessDemo::draw(
         this->_swapChainFrameBuffers.getCurrentFrameBuffer(frame));
     // Bind global descriptor sets
     pass.setGlobalDescriptorSets(gsl::span(&heapDescriptorSet, 1));
-    
+
     {
       const DrawContext& context = pass.getDrawContext();
-      context.bindDescriptorSets(*this->_pDeferredMaterial);
+      context.bindDescriptorSets();
       context.draw(3);
     }
 
     pass.nextSubpass();
-    pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
+    pass.setGlobalDescriptorSets(gsl::span(&heapDescriptorSet, 1));
     pass.draw(this->_pointLights);
   }
 }

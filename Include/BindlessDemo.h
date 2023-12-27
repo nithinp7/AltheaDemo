@@ -79,7 +79,7 @@ private:
   std::unique_ptr<RenderPass> _pDeferredPass;
   SwapChainFrameBufferCollection _swapChainFrameBuffers;
 
-  std::unique_ptr<ScreenSpaceReflection> _SSR;
+  ScreenSpaceReflection _SSR;
   float _exposure = 0.3f;
 };
 } // namespace BindlessDemo

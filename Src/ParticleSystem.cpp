@@ -416,12 +416,12 @@ void ParticleSystem::_createGlobalResources(
     this->_globalResources = PerFrameResources(app, globalResourceLayout);
     this->_globalUniforms = TransientUniforms<GlobalUniforms>(app);
 
-    this->_pointLights = PointLightCollection(
-        app,
-        commandBuffer,
-        9,
-        true,
-        this->_pGltfMaterialAllocator->getLayout());
+    // this->_pointLights = PointLightCollection(
+    //     app,
+    //     commandBuffer,
+    //     9,
+    //     true,
+    //     this->_pGltfMaterialAllocator->getLayout());
     for (uint32_t i = 0; i < 3; ++i) {
       for (uint32_t j = 0; j < 3; ++j) {
         PointLight light;
@@ -474,8 +474,7 @@ void ParticleSystem::_createGlobalResources(
   this->_pSSR = std::make_unique<ScreenSpaceReflection>(
       app,
       commandBuffer,
-      this->_globalResources.getLayout(),
-      this->_gBufferResources);
+      this->_globalResources.getLayout());
 
   // Deferred pass resources (GBuffer)
   {

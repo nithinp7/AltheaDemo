@@ -252,12 +252,13 @@ void DemoScene::_createGlobalResources(
     this->_pGlobalUniforms =
         std::make_unique<TransientUniforms<GlobalUniforms>>(app);
 
-    this->_pointLights = PointLightCollection(
-        app,
-        commandBuffer,
-        9,
-        true,
-        this->_pGltfMaterialAllocator->getLayout());
+    // this->_pointLights 
+    // = PointLightCollection(
+    //     app,
+    //     commandBuffer,
+    //     9,
+    //     true,
+    //     this->_pGltfMaterialAllocator->getLayout());
     for (uint32_t i = 0; i < 3; ++i) {
       for (uint32_t j = 0; j < 3; ++j) {
         PointLight light;
@@ -295,8 +296,7 @@ void DemoScene::_createGlobalResources(
   this->_pSSR = std::make_unique<ScreenSpaceReflection>(
       app,
       commandBuffer,
-      this->_pGlobalResources->getLayout(),
-      this->_gBufferResources);
+      this->_pGlobalResources->getLayout());
 
   // Deferred pass resources (GBuffer)
   {
