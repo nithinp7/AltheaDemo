@@ -33,7 +33,7 @@ layout(push_constant) uniform PushConstants {
 #define gBufferPosition RESOURCE(textureHeap, resources.gBuffer.positionHandle)
 #define gBufferNormal RESOURCE(textureHeap, resources.gBuffer.normalHandle)
 #define gBufferAlbedo RESOURCE(textureHeap, resources.gBuffer.albedoHandle)
-#define gBufferMetallicRoughnessOcclusion RESOURCE(textureHeap, resources.ibl.environmentMapHandle)
+#define gBufferMetallicRoughnessOcclusion RESOURCE(textureHeap, resources.gBuffer.metallicRoughnessOcclusionHandle)
 
 #define reflectionBuffer RESOURCE(textureHeap, pushConstants.reflectionBuffer)
 
@@ -177,4 +177,7 @@ void main() {
 #endif
 
   outColor = vec4(material, 1.0);
+  // outColor = vec4(metallicRoughnessOcclusion.rgb, 1.0);
+  // outColor = vec4(irradianceColor, 1.0);
+  // outColor = vec4(reflectedColor.rgb, 1.0);
 }
