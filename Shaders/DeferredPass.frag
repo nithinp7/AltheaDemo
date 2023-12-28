@@ -1,5 +1,5 @@
 
-#version 450
+#version 460 core
 
 #define PI 3.14159265359
 
@@ -10,29 +10,34 @@ layout(location=0) out vec4 outColor;
 
 #include <Bindless/GlobalHeap.glsl>
 #include <Global/GlobalUniforms.glsl>
+#include <Global/GlobalResources.glsl>
 
-layout(set=0, binding=0) uniform sampler2D environmentMap; 
-layout(set=0, binding=1) uniform sampler2D prefilteredMap; 
-layout(set=0, binding=2) uniform sampler2D irradianceMap;
-layout(set=0, binding=3) uniform sampler2D brdfLut;
+#include <Misc/Sampling.glsl>
 
-#define POINT_LIGHTS_SET 0
-#define POINT_LIGHTS_BINDING 4
-#include <PointLights.glsl>
+SAMPLER2D(textureHeap);
 
-layout(set=0, binding=5) uniform samplerCubeArray shadowMapArray;
+layout(push_constant) uniform PushConstants {
+  uint globalResources;
+  uint globalUniforms;
+  uint lightPositions;
+  uint reflectionBuffer;
+} pushConstants;
 
-// GBuffer textures
-layout(set=1, binding=0) uniform sampler2D gBufferPosition;
-layout(set=1, binding=1) uniform sampler2D gBufferNormal;
-layout(set=1, binding=2) uniform sampler2D gBufferAlbedo;
-layout(set=1, binding=3) uniform sampler2D gBufferMetallicRoughnessOcclusion;
+#define globals RESOURCE(globalUniforms, pushConstants.globalUniforms)
+#define resources RESOURCE(globalResources, pushConstants.globalResources)
+#define environmentMap RESOURCE(textureHeap, resources.ibl.environmentMapHandle)
+#define prefilteredMap RESOURCE(textureHeap, resources.ibl.prefilteredMapHandle)
+#define irradianceMap RESOURCE(textureHeap, resources.ibl.irradianceMapHandle)
+#define brdfLut RESOURCE(textureHeap, resources.ibl.brdfLutHandle)
 
-// Prefiltered reflection buffer
-layout(set=1, binding=4) uniform sampler2D reflectionBuffer;
+#define gBufferPosition RESOURCE(textureHeap, resources.gBuffer.positionHandle)
+#define gBufferNormal RESOURCE(textureHeap, resources.gBuffer.normalHandle)
+#define gBufferAlbedo RESOURCE(textureHeap, resources.gBuffer.albedoHandle)
+#define gBufferMetallicRoughnessOcclusion RESOURCE(textureHeap, resources.ibl.environmentMapHandle)
+
+#define reflectionBuffer RESOURCE(textureHeap, pushConstants.reflectionBuffer)
 
 #include <PBR/PBRMaterial.glsl>
-#include <Misc/Sampling.glsl>
 
 vec3 sampleEnvMap(vec3 dir) {
   float yaw = atan(dir.z, dir.x);
@@ -45,8 +50,6 @@ vec3 sampleEnvMap(vec3 dir) {
 vec4 sampleReflection(float roughness) {
   return textureLod(reflectionBuffer, uv, 4.0 * roughness).rgba;
 } 
-
-GlobalUniforms globals;
 
 // Random number generator and sample warping
 // from ShaderToy https://www.shadertoy.com/view/4tXyWN
@@ -126,9 +129,6 @@ float computeSSAO(vec2 currentUV, vec3 worldPos, vec3 normal) {
 #endif
 
 void main() {
-  uint globalsHandle = 0;
-  globals = RESOURCE(globalUniforms, globalsHandle);
-  
   seed = uvec2(gl_FragCoord.xy);
 
   vec4 position = texture(gBufferPosition, uv).rgba;

@@ -457,7 +457,7 @@ void RayTracingDemo::draw(
   this->_pointLights.updateResource(frame);
 
   // Draw point light shadow maps
-  this->_pointLights.drawShadowMaps(app, commandBuffer, frame, this->_models, globalDescriptorSet);
+  // this->_pointLights.drawShadowMaps(app, commandBuffer, frame, this->_models, globalDescriptorSet);
 
   this->_rayTracingTarget.image.transitionLayout(
       commandBuffer,

@@ -514,7 +514,7 @@ void RayTracedReflectionsDemo::draw(
       this->_pGlobalResources->getCurrentDescriptorSet(frame);
 
   // Draw point light shadow maps
-  this->_pointLights.drawShadowMaps(app, commandBuffer, frame, this->_models, globalDescriptorSet);
+  // this->_pointLights.drawShadowMaps(app, commandBuffer, frame, this->_models, globalDescriptorSet);
 
   // Forward pass
   {
@@ -557,7 +557,7 @@ void RayTracedReflectionsDemo::draw(
 
     pass.nextSubpass();
     pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
-    pass.draw(this->_pointLights);
+    // pass.draw(this->_pointLights);
   }
 }
 } // namespace RayTracedReflectionsDemo

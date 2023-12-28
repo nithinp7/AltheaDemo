@@ -1212,7 +1212,7 @@ void ParticleSystem::draw(
   // Reflection buffer and convolution
   {
     this->_pSSR
-        ->captureReflection(app, commandBuffer, globalDescriptorSet, frame);
+        ->captureReflection(app, commandBuffer, globalDescriptorSet, frame, {}, {});
     this->_pSSR->convolveReflectionBuffer(app, commandBuffer, frame);
   }
 

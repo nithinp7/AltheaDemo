@@ -452,7 +452,8 @@ void BindlessDemo::draw(
       commandBuffer,
       frame,
       this->_models,
-      heapDescriptorSet);
+      heapDescriptorSet,
+      this->_globalResources.getHandle());
 
   // Forward pass
   {
@@ -477,6 +478,8 @@ void BindlessDemo::draw(
         push.model = primitive.computeWorldTransform();
         push.primitiveIdx =
             static_cast<uint32_t>(primitive.getPrimitiveIndex());
+
+        pass.getDrawContext().setFrontFaceDynamic(primitive.getFrontFace());
         pass.getDrawContext().updatePushConstants(push, 0);
         pass.getDrawContext().drawIndexed(
             primitive.getVertexBuffer(),
@@ -489,7 +492,13 @@ void BindlessDemo::draw(
 
   // Reflection buffer and convolution
   {
-    this->_SSR.captureReflection(app, commandBuffer, heapDescriptorSet, frame);
+    this->_SSR.captureReflection(
+        app,
+        commandBuffer,
+        heapDescriptorSet,
+        frame,
+        this->_globalUniforms.getCurrentBindlessHandle(frame),
+        this->_globalResources.getHandle());
     this->_SSR.convolveReflectionBuffer(app, commandBuffer, frame);
   }
 
@@ -510,6 +519,7 @@ void BindlessDemo::draw(
         this->_swapChainFrameBuffers.getCurrentFrameBuffer(frame));
     // Bind global descriptor sets
     pass.setGlobalDescriptorSets(gsl::span(&heapDescriptorSet, 1));
+    pass.getDrawContext().updatePushConstants(push, 0);
 
     {
       const DrawContext& context = pass.getDrawContext();
@@ -519,7 +529,9 @@ void BindlessDemo::draw(
 
     pass.nextSubpass();
     pass.setGlobalDescriptorSets(gsl::span(&heapDescriptorSet, 1));
-    pass.draw(this->_pointLights);
+    this->_pointLights.draw(
+        pass.getDrawContext(),
+        this->_globalUniforms.getCurrentBindlessHandle(frame));
   }
 }
 } // namespace BindlessDemo

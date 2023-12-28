@@ -459,7 +459,7 @@ void DemoScene::draw(
       this->_pGlobalResources->getCurrentDescriptorSet(frame);
 
   // Draw point light shadow maps
-  this->_pointLights.drawShadowMaps(app, commandBuffer, frame, this->_models);
+  // this->_pointLights.drawShadowMaps(app, commandBuffer, frame, this->_models);
 
   // Forward pass
   {
@@ -481,7 +481,7 @@ void DemoScene::draw(
   // Reflection buffer and convolution
   {
     this->_pSSR
-        ->captureReflection(app, commandBuffer, globalDescriptorSet, frame);
+        ->captureReflection(app, commandBuffer, globalDescriptorSet, frame, {}, {});
     this->_pSSR->convolveReflectionBuffer(app, commandBuffer, frame);
   }
 
@@ -503,7 +503,7 @@ void DemoScene::draw(
 
     pass.nextSubpass();
     pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
-    pass.draw(this->_pointLights);
+    // pass.draw(this->_pointLights);
   }
 }
 } // namespace DemoScene
