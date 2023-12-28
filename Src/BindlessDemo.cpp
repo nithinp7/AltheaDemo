@@ -134,6 +134,8 @@ void BindlessDemo::createRenderState(Application& app) {
 }
 
 void BindlessDemo::destroyRenderState(Application& app) {
+  Primitive::resetPrimitiveIndexCount();
+  
   this->_models.clear();
 
   this->_pForwardPass.reset();
@@ -506,7 +508,7 @@ void BindlessDemo::draw(
   {
     DeferredPassPushConstants push{};
     push.globalResources =
-        this->_globalResources.getConstants().getHandle().index;
+        this->_globalResources.getHandle().index;
     push.globalUniforms =
         this->_globalUniforms.getCurrentBindlessHandle(frame).index;
     push.lightPositions = this->_pointLights.getConstantsHandle().index;
