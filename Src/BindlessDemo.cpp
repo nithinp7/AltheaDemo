@@ -39,7 +39,6 @@ struct ForwardPassPushConstants {
 struct DeferredPassPushConstants {
   uint32_t globalResources;
   uint32_t globalUniforms;
-  uint32_t lightPositions;
   uint32_t reflectionBuffer;
 };
 } // namespace
@@ -135,7 +134,7 @@ void BindlessDemo::createRenderState(Application& app) {
 
 void BindlessDemo::destroyRenderState(Application& app) {
   Primitive::resetPrimitiveIndexCount();
-  
+
   this->_models.clear();
 
   this->_pForwardPass.reset();
@@ -166,6 +165,8 @@ void BindlessDemo::tick(Application& app, const FrameContext& frame) {
   globalUniforms.view = camera.computeView();
   globalUniforms.inverseView = glm::inverse(globalUniforms.view);
   globalUniforms.lightCount = static_cast<int>(this->_pointLights.getCount());
+  globalUniforms.lightBufferHandle =
+      this->_pointLights.getCurrentLightBufferHandle(frame).index;
   globalUniforms.time = static_cast<float>(frame.currentTime);
   globalUniforms.exposure = this->_exposure;
 
@@ -294,6 +295,7 @@ void BindlessDemo::_createGlobalResources(
       app,
       commandBuffer,
       this->_globalHeap,
+      this->_pointLights.getShadowMapHandle(),
       this->_primitiveConstantsBuffer.getHandle());
 
   // Set up SSR resources
@@ -507,11 +509,9 @@ void BindlessDemo::draw(
   // Deferred pass
   {
     DeferredPassPushConstants push{};
-    push.globalResources =
-        this->_globalResources.getHandle().index;
+    push.globalResources = this->_globalResources.getHandle().index;
     push.globalUniforms =
         this->_globalUniforms.getCurrentBindlessHandle(frame).index;
-    push.lightPositions = this->_pointLights.getConstantsHandle().index;
     push.reflectionBuffer = this->_SSR.getReflectionBuffer().getHandle().index;
 
     ActiveRenderPass pass = this->_pDeferredPass->begin(

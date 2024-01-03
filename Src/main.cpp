@@ -4,6 +4,7 @@
 #include "BindlessDemo.h"
 #include "PathTracing.h"
 #include "ParticleSystem.h"
+#include "SphericalHarmonics.h"
 
 #include <Althea/Application.h>
 
@@ -17,9 +18,10 @@ int main() {
   // app.createGame<DemoScene::DemoScene>();
   // app.createGame<RayTracingDemo::RayTracingDemo>();
   // app.createGame<RayTracedReflectionsDemo::RayTracedReflectionsDemo>();
-  app.createGame<BindlessDemo::BindlessDemo>();
+  // app.createGame<BindlessDemo::BindlessDemo>();
   // app.createGame<ParticleSystem::ParticleSystem>();
   // app.createGame<PathTracing::PathTracing>();
+  app.createGame<SphericalHarmonics::SphericalHarmonics>();
 
   try {
     app.run();

@@ -10,6 +10,7 @@ layout(push_constant) uniform PushConstants {
   uint globalResourcesHandle;
   uint globalUniformsHandle;
   uint lightPositionsHandle;
+  uint shadowMap;
   uint reflectionBufferHandle;
 } pushConstants;
 

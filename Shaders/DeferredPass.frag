@@ -11,6 +11,7 @@ layout(location=0) out vec4 outColor;
 #include <Bindless/GlobalHeap.glsl>
 #include <Global/GlobalUniforms.glsl>
 #include <Global/GlobalResources.glsl>
+#include <PointLights.glsl>
 
 #include <Misc/Sampling.glsl>
 
@@ -19,7 +20,6 @@ SAMPLER2D(textureHeap);
 layout(push_constant) uniform PushConstants {
   uint globalResources;
   uint globalUniforms;
-  uint lightPositions;
   uint reflectionBuffer;
 } pushConstants;
 
@@ -36,6 +36,10 @@ layout(push_constant) uniform PushConstants {
 #define gBufferMetallicRoughnessOcclusion RESOURCE(textureHeap, resources.gBuffer.metallicRoughnessOcclusionHandle)
 
 #define reflectionBuffer RESOURCE(textureHeap, pushConstants.reflectionBuffer)
+
+SAMPLERCUBEARRAY(cubemapHeap);
+#define shadowMapArray RESOURCE(cubemapHeap, resources.shadowMapArray)
+#define pointLightArr RESOURCE(pointLights, globals.lightBufferHandle).pointLightArr
 
 #include <PBR/PBRMaterial.glsl>
 
