@@ -5,6 +5,7 @@
 #include <Althea/Cubemap.h>
 #include <Althea/DescriptorSet.h>
 #include <Althea/GraphicsPipeline.h>
+#include <Althea/Gui.h>
 #include <Althea/InputManager.h>
 #include <Althea/ModelViewProjection.h>
 #include <Althea/Primitive.h>
@@ -370,7 +371,8 @@ void BindlessDemo::_createDeferredPass(Application& app) {
           ATTACHMENT_FLAG_COLOR,
           app.getSwapChainImageFormat(),
           colorClear,
-          true,
+          false, // forPresent is false since the imGUI pass follows the
+                 // deferred pass
           false,
           true},
 
@@ -535,6 +537,8 @@ void BindlessDemo::draw(
         pass.getDrawContext(),
         this->_globalUniforms.getCurrentBindlessHandle(frame));
   }
+
+  Gui::draw(app, frame, commandBuffer);
 }
 } // namespace BindlessDemo
 } // namespace AltheaDemo
