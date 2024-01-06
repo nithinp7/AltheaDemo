@@ -18,10 +18,10 @@ int main() {
   // app.createGame<DemoScene::DemoScene>();
   // app.createGame<RayTracingDemo::RayTracingDemo>();
   // app.createGame<RayTracedReflectionsDemo::RayTracedReflectionsDemo>();
-  app.createGame<BindlessDemo::BindlessDemo>();
+  // app.createGame<BindlessDemo::BindlessDemo>();
   // app.createGame<ParticleSystem::ParticleSystem>();
   // app.createGame<PathTracing::PathTracing>();
-  // app.createGame<SphericalHarmonics::SphericalHarmonics>();
+  app.createGame<SphericalHarmonics::SphericalHarmonics>();
 
   try {
     app.run();

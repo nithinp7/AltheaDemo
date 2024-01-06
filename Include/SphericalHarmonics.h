@@ -6,6 +6,9 @@
 #include <Althea/DeferredRendering.h>
 #include <Althea/DescriptorSet.h>
 #include <Althea/FrameBuffer.h>
+#include <Althea/GlobalHeap.h>
+#include <Althea/GlobalResources.h>
+#include <Althea/GlobalUniforms.h>
 #include <Althea/IGameInstance.h>
 #include <Althea/Image.h>
 #include <Althea/ImageBasedLighting.h>
@@ -19,12 +22,8 @@
 #include <Althea/ScreenSpaceReflection.h>
 #include <Althea/StructuredBuffer.h>
 #include <Althea/Texture.h>
-#include <Althea/TransientUniforms.h>
 #include <Althea/TextureHeap.h>
-#include <Althea/GlobalHeap.h>
-#include <Althea/GlobalUniforms.h>
-#include <Althea/GlobalResources.h>
-#include <Althea/ImageBasedLighting.h>
+#include <Althea/TransientUniforms.h>
 #include <glm/glm.hpp>
 
 #include <vector>
@@ -37,6 +36,19 @@ class Application;
 
 namespace AltheaDemo {
 namespace SphericalHarmonics {
+
+struct SHCoeffs {
+  float w[4];
+};
+
+struct SHUniforms {
+  SHCoeffs coeffs; // ???
+  glm::vec4 color = glm::vec4(1.f);
+  uint32_t graphHandle;
+  uint32_t padding1;
+  uint32_t padding2;
+  uint32_t padding3;
+};
 
 class SphericalHarmonics : public IGameInstance {
 public:
@@ -56,13 +68,7 @@ public:
       const FrameContext& frame) override;
 
 private:
-  bool _adjustingExposure = false;
-
   std::unique_ptr<CameraController> _pCameraController;
-
-  struct SHCoeffs {
-    float w[4];
-  };
 
   void _createGlobalResources(
       Application& app,
@@ -70,7 +76,14 @@ private:
   GlobalHeap _globalHeap;
   GlobalUniformsResource _globalUniforms;
   IBLResources _ibl;
-  StructuredBuffer<SHCoeffs> _shCoeffs;  
+  StructuredBuffer<SHCoeffs> _shCoeffs;
+  TransientUniforms<SHUniforms> _shUniforms;
+
+  void _createGraph(Application& app);
+  RenderPass _graphPass;
+  FrameBuffer _graphFrameBuffer;
+  ImageResource _graph;
+  ImageHandle _graphHandle;
 
   void _createComputePass(Application& app);
   ComputePipeline _shPass;
@@ -79,7 +92,8 @@ private:
   RenderPass _renderPass;
   SwapChainFrameBufferCollection _swapChainFrameBuffers;
 
+  SHUniforms _shUniformValues;
   float _exposure = 0.3f;
 };
-} // namespace BindlessDemo
+} // namespace SphericalHarmonics
 } // namespace AltheaDemo

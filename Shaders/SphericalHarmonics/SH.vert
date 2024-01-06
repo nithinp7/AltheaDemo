@@ -14,8 +14,8 @@ struct IBLHandles {
 
 layout(push_constant) uniform PushConstants {
   IBLHandles ibl;
-  uint shCoeffs;
   uint globalUniforms;
+  uint shUniforms;
 } pushConstants;
 
 #define globals RESOURCE(globalUniforms, pushConstants.globalUniforms)
