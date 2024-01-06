@@ -127,6 +127,8 @@ void BindlessDemo::createRenderState(Application& app) {
   this->_pCameraController->getCamera().setAspectRatio(
       (float)extent.width / (float)extent.height);
 
+  Gui::createRenderState(app);
+
   SingleTimeCommandBuffer commandBuffer(app);
   this->_createGlobalResources(app, commandBuffer);
   this->_createForwardPass(app);
@@ -135,6 +137,8 @@ void BindlessDemo::createRenderState(Application& app) {
 
 void BindlessDemo::destroyRenderState(Application& app) {
   Primitive::resetPrimitiveIndexCount();
+
+  Gui::destroyRenderState(app);
 
   this->_models.clear();
 
@@ -155,6 +159,26 @@ void BindlessDemo::destroyRenderState(Application& app) {
 }
 
 void BindlessDemo::tick(Application& app, const FrameContext& frame) {
+  {
+    Gui::startRecordingImgui();
+    const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(
+        ImVec2(main_viewport->WorkPos.x + 650, main_viewport->WorkPos.y + 20),
+        ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(220, 100), ImGuiCond_FirstUseEver);
+
+    if (ImGui::Begin("Debug Options")) {
+      if (ImGui::CollapsingHeader("Lighting")) {
+        ImGui::Text("Exposure:");
+        ImGui::SliderFloat("##exposure", &this->_exposure, 0.0f, 1.0f);
+      }
+    }
+
+    ImGui::End();
+
+    Gui::finishRecordingImgui();
+  }
+
   this->_pCameraController->tick(frame.deltaTime);
   const Camera& camera = this->_pCameraController->getCamera();
 
