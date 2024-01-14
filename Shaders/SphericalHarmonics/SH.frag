@@ -45,11 +45,6 @@ vec3 sampleEnvMap(vec3 dir) {
 } 
 
 void main() {
-  vec3 envSample = sampleEnvMap(direction);
-  // envSample = vec3(1.0) - exp(-envSample * globals.exposure);
-  // color = envSample;
-  // vec4 graphColor = texture(graph, screenUV);
-  // color = locals.color * vec4(envSample, 1.0);
   uint inputMask = globals.inputMask;
   vec3 inputViz = 
       vec3(
@@ -61,22 +56,21 @@ void main() {
 
   uint inputCount = bitCount(inputMask);
 
-  if (bool(inputMask & INPUT_BIT_LEFT_MOUSE))
-    color = vec4(0.0, 1.0, 0.0, 1.0);
-  else if (bool(inputMask & INPUT_BIT_RIGHT_MOUSE))  
-    color = vec4(0.0, 0.0, 1.0, 1.0);
-  else if (bool(inputMask & INPUT_BIT_A))
-    color = vec4(1.0, 0.0, 0.0, 1.0);
-  else 
-    color = vec4(0.0, 0.0, 0.0, 1.0);
+  // if (bool(inputMask & INPUT_BIT_LEFT_MOUSE))
+  //   color = vec4(0.0, 1.0, 0.0, 1.0);
+  // else if (bool(inputMask & INPUT_BIT_RIGHT_MOUSE))  
+  //   color = vec4(0.0, 0.0, 1.0, 1.0);
+  // else if (bool(inputMask & INPUT_BIT_A))
+  //   color = vec4(1.0, 0.0, 0.0, 1.0);
+  // else 
+  //   color = vec4(0.0, 0.0, 0.0, 1.0);
 
-  if (length(screenUV - globals.mouseUV) < 0.05)
-    color = vec4(1.0);
-
-  // if (screenUV.x > 0.75 && screenUV.y > 0.75) {
-  //   vec2 uv = (screenUV - vec2(0.75)) / 0.25;
-  //   color = texture(graph, uv);
-  // } else {
-  //   color = locals.color * vec4(envSample, 1.0);
-  // }
+  if (locals.displayMode == DISPLAY_MODE_GRAPH) {
+    color = texture(graph, screenUV);
+  } else {
+    vec3 envSample = sampleEnvMap(direction);
+    envSample = vec3(1.0) - exp(-envSample * globals.exposure);
+  
+    color = vec4(envSample, 1.0);
+  }
 }

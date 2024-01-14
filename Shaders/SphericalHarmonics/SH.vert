@@ -22,10 +22,10 @@ layout(push_constant) uniform PushConstants {
 
 void main() {
   vec2 screenPos = vec2((gl_VertexIndex << 1) & 2, gl_VertexIndex & 2);
-  screenUV = screenPos;
   vec4 pos = vec4(screenPos * 2.0 - 1.0, 0.0, 1.0);
-
   direction = mat3(globals.inverseView) * (globals.inverseProjection * pos).xyz;
+  
+  screenUV = vec2(screenPos.x, 1.0 - screenPos.y);
 
   gl_Position = pos;
 }

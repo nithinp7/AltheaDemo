@@ -37,17 +37,22 @@ class Application;
 namespace AltheaDemo {
 namespace SphericalHarmonics {
 
-struct SHCoeffs {
-  float w[4];
+struct CoeffSet {
+  float coeffs[16]{};
 };
 
 struct SHUniforms {
-  SHCoeffs coeffs; // ???
-  glm::vec4 color = glm::vec4(1.f);
-  uint32_t graphHandle;
-  uint32_t padding1;
-  uint32_t padding2;
-  uint32_t padding3;
+  float coeffs[16]{};
+  uint32_t graphHandle{};
+  int displayMode = 2;
+  uint32_t padding2{};
+  uint32_t padding3{};
+};
+
+struct LegendreUniforms {
+  glm::vec2 samples[10]{};
+  uint32_t sampleCount{};
+  uint32_t coeffBuffer{};
 };
 
 class SphericalHarmonics : public IGameInstance {
@@ -76,8 +81,10 @@ private:
   GlobalHeap _globalHeap;
   GlobalUniformsResource _globalUniforms;
   IBLResources _ibl;
-  StructuredBuffer<SHCoeffs> _shCoeffs;
+  StructuredBuffer<CoeffSet> _shCoeffs;
+  StructuredBuffer<CoeffSet> _legendreCoeffs;
   TransientUniforms<SHUniforms> _shUniforms;
+  TransientUniforms<LegendreUniforms> _legendreUniforms;
 
   void _createGraph(Application& app);
   RenderPass _graphPass;
@@ -86,6 +93,7 @@ private:
   ImageHandle _graphHandle;
 
   void _createComputePass(Application& app);
+  ComputePipeline _fitLegendre;
   ComputePipeline _shPass;
 
   void _createRenderPass(Application& app);
@@ -93,6 +101,7 @@ private:
   SwapChainFrameBufferCollection _swapChainFrameBuffers;
 
   SHUniforms _shUniformValues;
+  LegendreUniforms _legendreUniformValues;
   float _exposure = 0.3f;
 };
 } // namespace SphericalHarmonics
