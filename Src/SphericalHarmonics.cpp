@@ -150,42 +150,42 @@ void SphericalHarmonics::tick(Application& app, const FrameContext& frame) {
           this->_legendreUniformValues.sampleCount = 0;
         }
         
-        if (ImGui::Button("Reset Coeffs")) {
-          for (uint32_t i = 0; i < 16; ++i)
-            this->_shUniformValues.coeffs[i] = 0.0f;
-        }
+        // if (ImGui::Button("Reset Coeffs")) {
+        //   for (uint32_t i = 0; i < 16; ++i)
+        //     this->_shUniformValues.coeffs[i] = 0.0f;
+        // }
 
-        COEFF_SLIDER(0);
-        ImGui::SameLine();
-        COEFF_SLIDER(1);
-        ImGui::SameLine();
-        COEFF_SLIDER(2);
-        ImGui::SameLine();
-        COEFF_SLIDER(3);
+        // COEFF_SLIDER(0);
+        // ImGui::SameLine();
+        // COEFF_SLIDER(1);
+        // ImGui::SameLine();
+        // COEFF_SLIDER(2);
+        // ImGui::SameLine();
+        // COEFF_SLIDER(3);
 
-        COEFF_SLIDER(4);
-        ImGui::SameLine();
-        COEFF_SLIDER(5);
-        ImGui::SameLine();
-        COEFF_SLIDER(6);
-        ImGui::SameLine();
-        COEFF_SLIDER(7);
+        // COEFF_SLIDER(4);
+        // ImGui::SameLine();
+        // COEFF_SLIDER(5);
+        // ImGui::SameLine();
+        // COEFF_SLIDER(6);
+        // ImGui::SameLine();
+        // COEFF_SLIDER(7);
 
-        COEFF_SLIDER(8);
-        ImGui::SameLine();
-        COEFF_SLIDER(9);
-        ImGui::SameLine();
-        COEFF_SLIDER(10);
-        ImGui::SameLine();
-        COEFF_SLIDER(11);
+        // COEFF_SLIDER(8);
+        // ImGui::SameLine();
+        // COEFF_SLIDER(9);
+        // ImGui::SameLine();
+        // COEFF_SLIDER(10);
+        // ImGui::SameLine();
+        // COEFF_SLIDER(11);
 
-        COEFF_SLIDER(12);
-        ImGui::SameLine();
-        COEFF_SLIDER(13);
-        ImGui::SameLine();
-        COEFF_SLIDER(14);
-        ImGui::SameLine();
-        COEFF_SLIDER(15);
+        // COEFF_SLIDER(12);
+        // ImGui::SameLine();
+        // COEFF_SLIDER(13);
+        // ImGui::SameLine();
+        // COEFF_SLIDER(14);
+        // ImGui::SameLine();
+        // COEFF_SLIDER(15);
       }
 
       if (ImGui::CollapsingHeader("Lighting")) {

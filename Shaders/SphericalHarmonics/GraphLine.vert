@@ -17,18 +17,6 @@ layout(push_constant) uniform PushConstants {
 #define lgLocals RESOURCE(legendreUniforms, pushConstants.legendreUniformsHandle)
 #define coeffs legendreCoeffs(lgLocals.coeffBuffer)
 
-// example function
-float f(float x, float mean) {
-  float var = 0.01;
-  float p = x - mean;
-  p *= p;
-  p /= var;
-  p *= 0.5;
-
-  float c = 1.0;//.0;/// sqrt(var * TWO_PI); 
-  return c * exp(-p);
-}
-
 void main() {
   float x;
 
@@ -66,22 +54,10 @@ void main() {
   for (uint i = 0; i < 16; ++i) {
     y += coeffs[i] * P(x, i);
   }
-  // if (gl_InstanceIndex > 0) {
-  //   y = coeffs[gl_InstanceIndex] * P(x, gl_InstanceIndex);
-  // } 
-  // else 
-  // {
-  //   for (uint i = 0; i < 8; ++i)
-  //   {
-  //     // y += coeffs[i] * P(x, i);
-  //     float mean = -1.0 + 1.0 / 4.0 * i;
-  //     y += f(x, mean) / 8.0;
-  //   }
-  // }
-
-  // y = f(x, 0.0);
-
+ 
   // convert from uv space to ndc
+  // x *= 0.01; 
+  // y *= 0.001;
   gl_Position = vec4(x, y, 0.0, 1.0);
 
   uint randCol = gl_InstanceIndex * 0x123ab678;

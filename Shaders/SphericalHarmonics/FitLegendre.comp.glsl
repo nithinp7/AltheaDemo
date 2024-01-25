@@ -15,14 +15,10 @@ layout(push_constant) uniform PushConstants {
 layout(local_size_x=16) in;
 
 float f(float x, float mean) {
-  float var = 0.01;
-  float p = x - mean;
-  p *= p;
-  p /= var;
-  p *= 0.5;
-
-  float c = 1.0;/// sqrt(var * TWO_PI); 
-  return c * exp(-p);
+  if (abs(x - mean) < 0.15)
+    return 1.0;
+  else 
+    return 0.0;
 }
 
 void main() {
@@ -44,20 +40,14 @@ void main() {
       fSample.x = 2.0 * fSample.x - 1.0;
       fSample.y = 1.0 - 2.0 * fSample.y;
 
-      f_x += f(x, fSample.x) * fSample.y / locals.sampleCount;
+      // f_x += f(x, fSample.x) * fSample.y / locals.sampleCount;
+      f_x += f(x, fSample.x) * fSample.y;// / locals.sampleCount;
     }
 
-    // f_x = clamp(f_x, -1.0, 1.0);
-
-    float w = (1.0 - x * x);
-    w *= w;
-    w = max(w, 0.01);
-    w = 1.0;// / w;
-
-    // c += P(x, coeffIdx) * stepSize * 0.1;
-    c += w * f_x * P(x, coeffIdx) * stepSize;
+    float p = P(x, coeffIdx);
+    c += f_x * p * stepSize;
     x += stepSize;
   }
 
-  coeffs[coeffIdx] = c;//0.01 *c;
+  coeffs[coeffIdx] = c;
 }
