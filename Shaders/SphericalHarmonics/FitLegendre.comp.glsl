@@ -44,6 +44,7 @@ void main() {
       f_x += f(x, fSample.x) * fSample.y;// / locals.sampleCount;
     }
 
+    f_x = clamp(f_x, -1.0, 1.0);
     float p = P(x, coeffIdx);
     c += f_x * p * stepSize;
     x += stepSize;

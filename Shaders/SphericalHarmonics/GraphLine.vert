@@ -56,8 +56,6 @@ void main() {
   }
  
   // convert from uv space to ndc
-  // x *= 0.01; 
-  // y *= 0.001;
   gl_Position = vec4(x, y, 0.0, 1.0);
 
   uint randCol = gl_InstanceIndex * 0x123ab678;

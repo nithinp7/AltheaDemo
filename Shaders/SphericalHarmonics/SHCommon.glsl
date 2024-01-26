@@ -2,6 +2,9 @@
 #define _SHCOMMON_
 
 #include <Bindless/GlobalHeap.glsl>
+#include <Misc/Constants.glsl>
+
+#include "Legendre.glsl"
 
 #define DISPLAY_MODE_DEFAULT 0
 #define DISPLAY_MODE_SH 1
@@ -32,11 +35,22 @@ UNIFORM_BUFFER(shUniforms, SHUniforms{
   uint padding2;
 });
 
-// legendre polynomial eval (up to order 4)
-// #define P0 1.0
-// #define P1(x) x
-// float P2(float x) {
+float K(int l, int m) {
+  int f = 1;
+  for (i = l-m+1; i <= l+m; i++)
+    f *= i;
+  return sqrt(float(2 * l + 1) / (4.0 * PI) / float(f));
+}
 
-// }
-
+// SH functions
+float Y(int l, int m, float theta, float phi) {
+  float cosTheta = cos(theta);
+  if (m < 0) {
+    return sqrt(2.0) * K(l, -m) * P(l, -m, cosTheta) * sin(-m * phi);
+  } else if (m == 0) {
+    return K(l, 0) * P(l, 0, cosTheta);
+  } else {
+    return sqrt(2.0) * K(l, m) * P(l, m, cosTheta) * cos(m * phi);
+  }
+}
 #endif // _SHCOMMON_
