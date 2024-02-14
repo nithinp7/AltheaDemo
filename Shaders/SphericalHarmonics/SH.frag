@@ -22,6 +22,8 @@ layout(push_constant) uniform PushConstants {
   IBLHandles ibl;
   uint globalUniforms;
   uint shUniforms;
+  uint displayMode;
+  uint graphHandle;
 } pushConstants;
 
 SAMPLER2D(textureHeap);
@@ -34,7 +36,7 @@ SAMPLER2D(textureHeap);
 
 #define locals RESOURCE(shUniforms, pushConstants.shUniforms)
 
-#define graph RESOURCE(textureHeap, locals.graphHandle)
+#define graph RESOURCE(textureHeap, pushConstants.graphHandle)
 
 vec3 sampleEnvMap(vec3 dir) {
   float yaw = atan(dir.z, dir.x);
@@ -65,7 +67,7 @@ void main() {
   // else 
   //   color = vec4(0.0, 0.0, 0.0, 1.0);
 
-  if (locals.displayMode == DISPLAY_MODE_GRAPH) {
+  if (pushConstants.displayMode == DISPLAY_MODE_GRAPH) {
     color = texture(graph, screenUV);
   } else {
     vec3 envSample = sampleEnvMap(direction);

@@ -14,12 +14,23 @@ struct CoeffSet {
   float coeffs[16];
 };
 
-BUFFER_RW(_legendreCoeffs, LEGENDRE_COEFFS {
-  CoeffSet legendreCoeffsArr[];
+BUFFER_RW(_coeffSets, COEFF_SETS {
+  CoeffSet arr[];
 });
 
+struct RadianceSample {
+  vec3 radiance;
+  float theta;
+  float phi;
+  float padding1;
+};
+struct RadianceSampleSet {
+  RadianceSample samples[8];
+};
+
 // TODO: There has got to be a better way...
-#define legendreCoeffs(idx) RESOURCE(_legendreCoeffs, idx).legendreCoeffsArr[0].coeffs
+#define legendreCoeffs(idx) RESOURCE(_coeffSets, idx).arr[0].coeffs
+#define shCoeffs(handle,i) RESOURCE(_coeffSets, handle).arr[i].coeffs
 
 UNIFORM_BUFFER(legendreUniforms, LegendreUniforms{
   vec2 samples[10];
@@ -28,8 +39,7 @@ UNIFORM_BUFFER(legendreUniforms, LegendreUniforms{
 });
 
 UNIFORM_BUFFER(shUniforms, SHUniforms{
-  float coeffs[16];
-  uint graphHandle;
+  uint coeffBuffer;
   int displayMode;
   uint padding1;
   uint padding2;
@@ -37,7 +47,7 @@ UNIFORM_BUFFER(shUniforms, SHUniforms{
 
 float K(int l, int m) {
   int f = 1;
-  for (i = l-m+1; i <= l+m; i++)
+  for (int i = l-m+1; i <= l+m; i++)
     f *= i;
   return sqrt(float(2 * l + 1) / (4.0 * PI) / float(f));
 }
@@ -52,5 +62,27 @@ float Y(int l, int m, float theta, float phi) {
   } else {
     return sqrt(2.0) * K(l, m) * P(l, m, cosTheta) * cos(m * phi);
   }
+}
+
+float Y(int i, float theta, float phi) {
+  int l = 0;
+  int m = 0;
+  if (i == 0) {
+    l = 0;
+    m = 0; 
+  } else if (i < 4) {
+    l = 1;
+    m = i-2;
+  } else if (i < 9) {
+    l = 2;
+    m = i-6;
+  } else if (i < 16) {
+    l = 3;
+    m = i-12;
+  } else {
+    return 0.0;
+  }
+
+  return Y(l, m, theta, phi);
 }
 #endif // _SHCOMMON_

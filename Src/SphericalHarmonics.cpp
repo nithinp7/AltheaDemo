@@ -45,6 +45,12 @@ struct GraphPushConstants {
   uint32_t shUniforms;
   uint32_t legendreUniforms;
 };
+
+struct SHPushConstants {
+  uint32_t seed;
+  uint32_t coeffsHandle;
+  uint32_t envMapHandle;
+};
 } // namespace
 
 SphericalHarmonics::SphericalHarmonics() {}
@@ -386,6 +392,18 @@ void SphericalHarmonics::_createComputePass(Application& app) {
     builder.setComputeShader(
         GProjectDirectory +
         "/Shaders/SphericalHarmonics/FitLegendre.comp.glsl");
+    builder.layoutBuilder.addDescriptorSet(
+        this->_globalHeap.getDescriptorSetLayout());
+    builder.layoutBuilder.addPushConstants<uint32_t>(VK_SHADER_STAGE_ALL);
+
+    this->_fitLegendre = ComputePipeline(app, std::move(builder));
+  }
+
+  {
+    ComputePipelineBuilder builder{};
+    builder.setComputeShader(
+        GProjectDirectory +
+        "/Shaders/SphericalHarmonics/UpdateSH.comp.glsl");
     builder.layoutBuilder.addDescriptorSet(
         this->_globalHeap.getDescriptorSetLayout());
     builder.layoutBuilder.addPushConstants<uint32_t>(VK_SHADER_STAGE_ALL);
