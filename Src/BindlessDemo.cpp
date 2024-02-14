@@ -5,6 +5,7 @@
 #include <Althea/Cubemap.h>
 #include <Althea/DescriptorSet.h>
 #include <Althea/GraphicsPipeline.h>
+#include <Althea/Gui.h>
 #include <Althea/InputManager.h>
 #include <Althea/ModelViewProjection.h>
 #include <Althea/Primitive.h>
@@ -27,6 +28,21 @@ using namespace AltheaEngine;
 
 namespace AltheaDemo {
 namespace BindlessDemo {
+namespace {
+struct ForwardPassPushConstants {
+  glm::mat4 model;
+  uint32_t primitiveIdx;
+
+  uint32_t globalResources;
+  uint32_t globalUniforms;
+};
+
+struct DeferredPassPushConstants {
+  uint32_t globalResources;
+  uint32_t globalUniforms;
+  uint32_t reflectionBuffer;
+};
+} // namespace
 
 BindlessDemo::BindlessDemo() {}
 
@@ -111,6 +127,8 @@ void BindlessDemo::createRenderState(Application& app) {
   this->_pCameraController->getCamera().setAspectRatio(
       (float)extent.width / (float)extent.height);
 
+  Gui::createRenderState(app);
+
   SingleTimeCommandBuffer commandBuffer(app);
   this->_createGlobalResources(app, commandBuffer);
   this->_createForwardPass(app);
@@ -118,28 +136,49 @@ void BindlessDemo::createRenderState(Application& app) {
 }
 
 void BindlessDemo::destroyRenderState(Application& app) {
+  Primitive::resetPrimitiveIndexCount();
+
+  Gui::destroyRenderState(app);
+
   this->_models.clear();
 
   this->_pForwardPass.reset();
-  this->_gBufferResources = {};
   this->_forwardFrameBuffer = {};
   this->_primitiveConstantsBuffer = {};
-  this->_textureHeap = {};
 
   this->_pDeferredPass.reset();
   this->_swapChainFrameBuffers = {};
-  this->_pDeferredMaterial.reset();
-  this->_pDeferredMaterialAllocator.reset();
 
-  this->_pGlobalResources.reset();
-  this->_pGlobalUniforms.reset();
   this->_pointLights = {};
-  this->_iblResources = {};
 
-  this->_pSSR.reset();
+  this->_SSR = {};
+  this->_globalUniforms = {};
+
+  this->_globalResources = {};
+  this->_globalHeap = {};
 }
 
 void BindlessDemo::tick(Application& app, const FrameContext& frame) {
+  {
+    Gui::startRecordingImgui();
+    const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(
+        ImVec2(main_viewport->WorkPos.x + 650, main_viewport->WorkPos.y + 20),
+        ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(220, 100), ImGuiCond_FirstUseEver);
+
+    if (ImGui::Begin("Debug Options")) {
+      if (ImGui::CollapsingHeader("Lighting")) {
+        ImGui::Text("Exposure:");
+        ImGui::SliderFloat("##exposure", &this->_exposure, 0.0f, 1.0f);
+      }
+    }
+
+    ImGui::End();
+
+    Gui::finishRecordingImgui();
+  }
+
   this->_pCameraController->tick(frame.deltaTime);
   const Camera& camera = this->_pCameraController->getCamera();
 
@@ -151,10 +190,13 @@ void BindlessDemo::tick(Application& app, const FrameContext& frame) {
   globalUniforms.view = camera.computeView();
   globalUniforms.inverseView = glm::inverse(globalUniforms.view);
   globalUniforms.lightCount = static_cast<int>(this->_pointLights.getCount());
+  globalUniforms.lightBufferHandle =
+      this->_pointLights.getCurrentLightBufferHandle(frame).index;
   globalUniforms.time = static_cast<float>(frame.currentTime);
   globalUniforms.exposure = this->_exposure;
 
-  this->_pGlobalUniforms->updateUniforms(globalUniforms, frame);
+  this->_globalUniforms.getCurrentUniformBuffer(frame).updateUniforms(
+      globalUniforms);
 
   for (uint32_t i = 0; i < this->_pointLights.getCount(); ++i) {
     PointLight light = this->_pointLights.getLight(i);
@@ -213,15 +255,16 @@ void BindlessDemo::_createModels(
 void BindlessDemo::_createGlobalResources(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
-  this->_iblResources = ImageBasedLighting::createResources(
-      app,
-      commandBuffer,
-      "NeoclassicalInterior");
-  this->_gBufferResources = GBufferResources(app);
+  this->_globalHeap = GlobalHeap(app);
+  this->_globalUniforms = GlobalUniformsResource(app, this->_globalHeap);
 
   // Create GLTF resource heaps
   {
     this->_createModels(app, commandBuffer);
+
+    for (Model& model : this->_models) {
+      model.registerToHeap(this->_globalHeap);
+    }
 
     uint32_t primCount = 0;
     for (const Model& model : this->_models)
@@ -238,48 +281,23 @@ void BindlessDemo::_createGlobalResources(
       }
     }
 
+    // The primitive constant buffers contain all the bindless
+    // indices for the primitive texture resources
     this->_primitiveConstantsBuffer.upload(app, commandBuffer);
+    this->_primitiveConstantsBuffer.registerToHeap(this->_globalHeap);
 
-    this->_textureHeap = TextureHeap(this->_models);
+    // this->_textureHeap = TextureHeap(this->_models);
   }
 
   // Global resources
   {
-    DescriptorSetLayoutBuilder globalResourceLayout;
-
-    // Add textures for IBL
-    ImageBasedLighting::buildLayout(globalResourceLayout);
-    globalResourceLayout
-        // Global uniforms.
-        .addUniformBufferBinding()
-        // Point light buffer.
-        .addStorageBufferBinding(
-            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT)
-        // Shadow map texture.
-        .addTextureBinding()
-        // Texture heap.
-        .addTextureHeapBinding(
-            this->_textureHeap.getSize(),
-            VK_SHADER_STAGE_FRAGMENT_BIT)
-        // Primitive constants heap.
-        .addStorageBufferBinding(
-            VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT);
-
-    this->_pGlobalResources =
-        std::make_unique<PerFrameResources>(app, globalResourceLayout);
-    this->_pGlobalUniforms =
-        std::make_unique<TransientUniforms<GlobalUniforms>>(app);
-
     this->_pointLights = PointLightCollection(
         app,
         commandBuffer,
+        this->_globalHeap,
         9,
         true,
-        this->_pGlobalResources->getLayout(),
-        true,
-        8,
-        7,
-        this->_textureHeap.getSize());
+        this->_primitiveConstantsBuffer.getHandle());
     for (uint32_t i = 0; i < 3; ++i) {
       for (uint32_t j = 0; j < 3; ++j) {
         PointLight light;
@@ -296,55 +314,21 @@ void BindlessDemo::_createGlobalResources(
         this->_pointLights.setLight(i * 3 + j, light);
       }
     }
-
-    ResourcesAssignment assignment = this->_pGlobalResources->assign();
-
-    // Bind IBL resources
-    this->_iblResources.bind(assignment);
-
-    // Bind global uniforms
-    assignment.bindTransientUniforms(*this->_pGlobalUniforms);
-    assignment.bindStorageBuffer(
-        this->_pointLights.getAllocation(),
-        this->_pointLights.getByteSize(),
-        true);
-    assignment.bindTexture(
-        this->_pointLights.getShadowMapArrayView(),
-        this->_pointLights.getShadowMapSampler());
-    assignment.bindTextureHeap(this->_textureHeap);
-    assignment.bindStorageBuffer(
-        this->_primitiveConstantsBuffer.getAllocation(),
-        this->_primitiveConstantsBuffer.getSize(),
-        false);
   }
 
-  // Set up SSR resources
-  this->_pSSR = std::make_unique<ScreenSpaceReflection>(
+  this->_globalResources = GlobalResources(
       app,
       commandBuffer,
-      this->_pGlobalResources->getLayout(),
-      this->_gBufferResources);
+      this->_globalHeap,
+      this->_pointLights.getShadowMapHandle(),
+      this->_primitiveConstantsBuffer.getHandle());
 
-  // Deferred pass resources (GBuffer)
-  {
-    DescriptorSetLayoutBuilder deferredMaterialLayout{};
-    this->_gBufferResources.buildMaterial(deferredMaterialLayout);
-    // Roughness-filtered reflection buffer
-    deferredMaterialLayout.addTextureBinding();
-
-    this->_pDeferredMaterialAllocator =
-        std::make_unique<DescriptorSetAllocator>(
-            app,
-            deferredMaterialLayout,
-            1);
-    this->_pDeferredMaterial =
-        std::make_unique<Material>(app, *this->_pDeferredMaterialAllocator);
-
-    // Bind G-Buffer resources as textures in the deferred pass
-    ResourcesAssignment& assignment = this->_pDeferredMaterial->assign();
-    this->_gBufferResources.bindTextures(assignment);
-    this->_pSSR->bindTexture(assignment);
-  }
+  // Set up SSR resources
+  this->_SSR = ScreenSpaceReflection(
+      app,
+      commandBuffer,
+      this->_globalHeap.getDescriptorSetLayout());
+  this->_SSR.getReflectionBuffer().registerToHeap(this->_globalHeap);
 }
 
 void BindlessDemo::_createForwardPass(Application& app) {
@@ -364,14 +348,14 @@ void BindlessDemo::_createForwardPass(Application& app) {
     Primitive::buildPipeline(subpassBuilder.pipelineBuilder);
 
     ShaderDefines defs;
-    defs.emplace(
-        "TEXTURE_HEAP_COUNT",
-        std::to_string(this->_textureHeap.getSize()));
+    defs.emplace("BINDLESS_SET", "0");
 
     subpassBuilder
         .pipelineBuilder
         // Vertex shader
-        .addVertexShader(GEngineDirectory + "/Shaders/GltfForwardBindless.vert")
+        .addVertexShader(
+            GEngineDirectory + "/Shaders/GltfForwardBindless.vert",
+            defs)
         // Fragment shader
         .addFragmentShader(
             GEngineDirectory + "/Shaders/GltfForwardBindless.frag",
@@ -380,11 +364,12 @@ void BindlessDemo::_createForwardPass(Application& app) {
         // Pipeline resource layouts
         .layoutBuilder
         // Global resources (view, projection, environment map)
-        .addDescriptorSet(this->_pGlobalResources->getLayout());
+        .addDescriptorSet(this->_globalHeap.getDescriptorSetLayout())
+        .addPushConstants<ForwardPassPushConstants>(VK_SHADER_STAGE_ALL);
   }
 
-  std::vector<Attachment> attachments =
-      this->_gBufferResources.getAttachmentDescriptions();
+  const GBufferResources& gBuffer = this->_globalResources.getGBuffer();
+  std::vector<Attachment> attachments = gBuffer.getAttachmentDescriptions();
   const VkExtent2D& extent = app.getSwapChainExtent();
   this->_pForwardPass = std::make_unique<RenderPass>(
       app,
@@ -396,7 +381,7 @@ void BindlessDemo::_createForwardPass(Application& app) {
       app,
       *this->_pForwardPass,
       extent,
-      this->_gBufferResources.getAttachmentViews());
+      gBuffer.getAttachmentViews());
 }
 
 void BindlessDemo::_createDeferredPass(Application& app) {
@@ -410,7 +395,8 @@ void BindlessDemo::_createDeferredPass(Application& app) {
           ATTACHMENT_FLAG_COLOR,
           app.getSwapChainImageFormat(),
           colorClear,
-          true,
+          false, // forPresent is false since the imGUI pass follows the
+                 // deferred pass
           false,
           true},
 
@@ -430,21 +416,23 @@ void BindlessDemo::_createDeferredPass(Application& app) {
     SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
     subpassBuilder.colorAttachments.push_back(0);
 
+    ShaderDefines defs;
+    defs.emplace("BINDLESS_SET", "0");
+
     subpassBuilder.pipelineBuilder.setCullMode(VK_CULL_MODE_FRONT_BIT)
         .setDepthTesting(false)
 
         // Vertex shader
-        .addVertexShader(GProjectDirectory + "/Shaders/DeferredPass.vert")
+        .addVertexShader(GProjectDirectory + "/Shaders/DeferredPass.vert", defs)
         // Fragment shader
-        .addFragmentShader(GProjectDirectory + "/Shaders/DeferredPass.frag")
+        .addFragmentShader(
+            GProjectDirectory + "/Shaders/DeferredPass.frag",
+            defs)
 
         // Pipeline resource layouts
         .layoutBuilder
-        // Global resources (view, projection, environment map)
-        .addDescriptorSet(this->_pGlobalResources->getLayout())
-        // GBuffer material (position, normal, albedo,
-        // metallic-roughness-occlusion)
-        .addDescriptorSet(this->_pDeferredMaterialAllocator->getLayout());
+        .addDescriptorSet(this->_globalHeap.getDescriptorSetLayout())
+        .addPushConstants<DeferredPassPushConstants>(VK_SHADER_STAGE_ALL);
   }
 
   // SHOW POINT LIGHTS (kinda hacky)
@@ -455,7 +443,7 @@ void BindlessDemo::_createDeferredPass(Application& app) {
       subpassBuilders.emplace_back(),
       0,
       1,
-      this->_pGlobalResources->getLayout());
+      this->_globalHeap.getDescriptorSetLayout());
 
   this->_pDeferredPass = std::make_unique<RenderPass>(
       app,
@@ -484,58 +472,97 @@ void BindlessDemo::draw(
     const FrameContext& frame) {
 
   this->_pointLights.updateResource(frame);
-  this->_gBufferResources.transitionToAttachment(commandBuffer);
+  this->_globalResources.getGBuffer().transitionToAttachment(commandBuffer);
 
-  VkDescriptorSet globalDescriptorSet =
-      this->_pGlobalResources->getCurrentDescriptorSet(frame);
+  VkDescriptorSet heapDescriptorSet = this->_globalHeap.getDescriptorSet();
 
   // Draw point light shadow maps
-  this->_pointLights.drawShadowMaps(app, commandBuffer, frame, this->_models, globalDescriptorSet);
+  this->_pointLights.drawShadowMaps(
+      app,
+      commandBuffer,
+      frame,
+      this->_models,
+      heapDescriptorSet,
+      this->_globalResources.getHandle());
 
   // Forward pass
   {
+    ForwardPassPushConstants push{};
+    push.globalResources =
+        this->_globalResources.getConstants().getHandle().index;
+    push.globalUniforms =
+        this->_globalUniforms.getCurrentBindlessHandle(frame).index;
+
     ActiveRenderPass pass = this->_pForwardPass->begin(
         app,
         commandBuffer,
         frame,
         this->_forwardFrameBuffer);
     // Bind global descriptor sets
-    pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
+    pass.setGlobalDescriptorSets(gsl::span(&heapDescriptorSet, 1));
+    pass.getDrawContext().bindDescriptorSets();
+
     // Draw models
     for (const Model& model : this->_models) {
-      pass.draw(model);
+      for (const Primitive& primitive : model.getPrimitives()) {
+        push.model = primitive.computeWorldTransform();
+        push.primitiveIdx =
+            static_cast<uint32_t>(primitive.getPrimitiveIndex());
+
+        pass.getDrawContext().setFrontFaceDynamic(primitive.getFrontFace());
+        pass.getDrawContext().updatePushConstants(push, 0);
+        pass.getDrawContext().drawIndexed(
+            primitive.getVertexBuffer(),
+            primitive.getIndexBuffer());
+      }
     }
   }
 
-  this->_gBufferResources.transitionToTextures(commandBuffer);
+  this->_globalResources.getGBuffer().transitionToTextures(commandBuffer);
 
   // Reflection buffer and convolution
   {
-    this->_pSSR
-        ->captureReflection(app, commandBuffer, globalDescriptorSet, frame);
-    this->_pSSR->convolveReflectionBuffer(app, commandBuffer, frame);
+    this->_SSR.captureReflection(
+        app,
+        commandBuffer,
+        heapDescriptorSet,
+        frame,
+        this->_globalUniforms.getCurrentBindlessHandle(frame),
+        this->_globalResources.getHandle());
+    this->_SSR.convolveReflectionBuffer(app, commandBuffer, frame);
   }
 
   // Deferred pass
   {
+    DeferredPassPushConstants push{};
+    push.globalResources = this->_globalResources.getHandle().index;
+    push.globalUniforms =
+        this->_globalUniforms.getCurrentBindlessHandle(frame).index;
+    push.reflectionBuffer = this->_SSR.getReflectionBuffer().getHandle().index;
+
     ActiveRenderPass pass = this->_pDeferredPass->begin(
         app,
         commandBuffer,
         frame,
         this->_swapChainFrameBuffers.getCurrentFrameBuffer(frame));
     // Bind global descriptor sets
-    pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
+    pass.setGlobalDescriptorSets(gsl::span(&heapDescriptorSet, 1));
+    pass.getDrawContext().updatePushConstants(push, 0);
 
     {
       const DrawContext& context = pass.getDrawContext();
-      context.bindDescriptorSets(*this->_pDeferredMaterial);
+      context.bindDescriptorSets();
       context.draw(3);
     }
 
     pass.nextSubpass();
-    pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
-    pass.draw(this->_pointLights);
+    pass.setGlobalDescriptorSets(gsl::span(&heapDescriptorSet, 1));
+    this->_pointLights.draw(
+        pass.getDrawContext(),
+        this->_globalUniforms.getCurrentBindlessHandle(frame));
   }
+
+  Gui::draw(app, frame, commandBuffer);
 }
 } // namespace BindlessDemo
 } // namespace AltheaDemo

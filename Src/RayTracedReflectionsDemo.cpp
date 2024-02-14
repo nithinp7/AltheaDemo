@@ -280,16 +280,16 @@ void RayTracedReflectionsDemo::_createGlobalResources(
     this->_pGlobalUniforms =
         std::make_unique<TransientUniforms<GlobalUniforms>>(app);
 
-    this->_pointLights = PointLightCollection(
-        app,
-        commandBuffer,
-        9,
-        true,
-        this->_pGlobalResources->getLayout(),
-        true,
-        8,
-        7,
-        this->_textureHeap.getSize());
+    // this->_pointLights = PointLightCollection(
+    //     app,
+    //     commandBuffer,
+    //     9,
+    //     true,
+    //     this->_pGlobalResources->getLayout(),
+    //     true,
+    //     8,
+    //     7,
+    //     this->_textureHeap.getSize());
     for (uint32_t i = 0; i < 3; ++i) {
       for (uint32_t j = 0; j < 3; ++j) {
         PointLight light;
@@ -514,7 +514,7 @@ void RayTracedReflectionsDemo::draw(
       this->_pGlobalResources->getCurrentDescriptorSet(frame);
 
   // Draw point light shadow maps
-  this->_pointLights.drawShadowMaps(app, commandBuffer, frame, this->_models, globalDescriptorSet);
+  // this->_pointLights.drawShadowMaps(app, commandBuffer, frame, this->_models, globalDescriptorSet);
 
   // Forward pass
   {
@@ -557,7 +557,7 @@ void RayTracedReflectionsDemo::draw(
 
     pass.nextSubpass();
     pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
-    pass.draw(this->_pointLights);
+    // pass.draw(this->_pointLights);
   }
 }
 } // namespace RayTracedReflectionsDemo

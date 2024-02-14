@@ -1,5 +1,5 @@
 
-#version 450
+#version 460 core
 
 #define PI 3.14159265359
 
@@ -8,29 +8,38 @@ layout(location=1) in vec2 uv;
 
 layout(location=0) out vec4 outColor;
 
-layout(set=0, binding=0) uniform sampler2D environmentMap; 
-layout(set=0, binding=1) uniform sampler2D prefilteredMap; 
-layout(set=0, binding=2) uniform sampler2D irradianceMap;
-layout(set=0, binding=3) uniform sampler2D brdfLut;
-
-#define GLOBAL_UNIFORMS_SET 0
-#define GLOBAL_UNIFORMS_BINDING 4
-#include <GlobalUniforms.glsl>
-
-#define POINT_LIGHTS_SET 0
-#define POINT_LIGHTS_BINDING 5
+#include <Bindless/GlobalHeap.glsl>
+#include <Global/GlobalUniforms.glsl>
+#include <Global/GlobalResources.glsl>
 #include <PointLights.glsl>
 
-layout(set=0, binding=6) uniform samplerCubeArray shadowMapArray;
+#include <Misc/Sampling.glsl>
 
-// GBuffer textures
-layout(set=1, binding=0) uniform sampler2D gBufferPosition;
-layout(set=1, binding=1) uniform sampler2D gBufferNormal;
-layout(set=1, binding=2) uniform sampler2D gBufferAlbedo;
-layout(set=1, binding=3) uniform sampler2D gBufferMetallicRoughnessOcclusion;
+SAMPLER2D(textureHeap);
 
-// Prefiltered reflection buffer
-layout(set=1, binding=4) uniform sampler2D reflectionBuffer;
+layout(push_constant) uniform PushConstants {
+  uint globalResources;
+  uint globalUniforms;
+  uint reflectionBuffer;
+} pushConstants;
+
+#define globals RESOURCE(globalUniforms, pushConstants.globalUniforms)
+#define resources RESOURCE(globalResources, pushConstants.globalResources)
+#define environmentMap RESOURCE(textureHeap, resources.ibl.environmentMapHandle)
+#define prefilteredMap RESOURCE(textureHeap, resources.ibl.prefilteredMapHandle)
+#define irradianceMap RESOURCE(textureHeap, resources.ibl.irradianceMapHandle)
+#define brdfLut RESOURCE(textureHeap, resources.ibl.brdfLutHandle)
+
+#define gBufferPosition RESOURCE(textureHeap, resources.gBuffer.positionHandle)
+#define gBufferNormal RESOURCE(textureHeap, resources.gBuffer.normalHandle)
+#define gBufferAlbedo RESOURCE(textureHeap, resources.gBuffer.albedoHandle)
+#define gBufferMetallicRoughnessOcclusion RESOURCE(textureHeap, resources.gBuffer.metallicRoughnessOcclusionHandle)
+
+#define reflectionBuffer RESOURCE(textureHeap, pushConstants.reflectionBuffer)
+
+SAMPLERCUBEARRAY(cubemapHeap);
+#define shadowMapArray RESOURCE(cubemapHeap, resources.shadowMapArray)
+#define pointLightArr RESOURCE(pointLights, globals.lightBufferHandle).pointLightArr
 
 #include <PBR/PBRMaterial.glsl>
 
@@ -50,62 +59,6 @@ vec4 sampleReflection(float roughness) {
 // from ShaderToy https://www.shadertoy.com/view/4tXyWN
 // TODO: Find better alternative??
 uvec2 seed;
-float rng() {
-    seed += uvec2(1);
-    uvec2 q = 1103515245U * ( (seed >> 1U) ^ (seed.yx) );
-    uint  n = 1103515245U * ( (q.x) ^ (q.y >> 3U) );
-    return float(n) * (1.0 / float(0xffffffffU));
-}
-
-
-// Useful functions for transforming directions
-// TODO: check if the exact tangent, bitangent coords matter
-void coordinateSystem(in vec3 v1, out vec3 v2, out vec3 v3) {
-    if (abs(v1.x) > abs(v1.y))
-            v2 = vec3(-v1.z, 0, v1.x) / sqrt(v1.x * v1.x + v1.z * v1.z);
-        else
-            v2 = vec3(0, v1.z, -v1.y) / sqrt(v1.y * v1.y + v1.z * v1.z);
-        v3 = cross(v1, v2);
-}
-
-mat3 LocalToWorld(vec3 nor) {
-    vec3 tan, bit;
-    coordinateSystem(nor, tan, bit);
-    return mat3(tan, bit, nor);
-}
-
-
-vec3 squareToDiskConcentric(vec2 xi) {
-  vec2 remappedRange = 2.0 * xi - 1.0;
-
-  if (remappedRange.x == 0.0 && remappedRange.y == 0.0) {
-    return vec3(0.0);
-  }
-
-  float theta;
-  float r;
-  if (abs(remappedRange.x) > abs(remappedRange.y)) {
-    r = remappedRange.x;
-    theta = 0.25 * PI * remappedRange.y / remappedRange.x;
-  } else {
-    r = remappedRange.y;
-    theta = 0.5 * PI - 0.25 * PI * remappedRange.x / remappedRange.y;
-  }
-
-  return r * vec3(cos(theta), sin(theta), 0.0);
-}
-
-vec3 squareToHemisphereCosine(vec2 xi) {
-    vec3 diskSample = squareToDiskConcentric(xi);
-    return vec3(
-        diskSample.x, 
-        diskSample.y, 
-        sqrt(clamp(1.0 - length(diskSample), 0.0, 1.0)));
-}
-
-vec3 sampleHemisphereCosine() {
-  return squareToHemisphereCosine(vec2(rng(), rng()));
-}
 
 #define ENABLE_SSAO
 #ifdef ENABLE_SSAO 
@@ -128,7 +81,7 @@ float computeSSAO(vec2 currentUV, vec3 worldPos, vec3 normal) {
 
     vec3 currentRayPos = worldPos;
 
-    vec3 rayDir = normalize(LocalToWorld(normal) * sampleHemisphereCosine());
+    vec3 rayDir = normalize(LocalToWorld(normal) * sampleHemisphereCosine(seed));
     // vec3 rayDir = normalize(2.0 * vec3(rng(), rng(), rng()) - vec3(1.0) + normal);
 
     vec3 perpRef = cross(rayDir, normal);
@@ -227,8 +180,8 @@ void main() {
   material = vec3(1.0) - exp(-material * globals.exposure);
 #endif
 
-  // outColor = vec4(0.5 * direction + vec3(0.5), 1.0);
-
   outColor = vec4(material, 1.0);
-  //outColor = vec4(reflectedColor, 1.0);
+  // outColor = vec4(metallicRoughnessOcclusion.rgb, 1.0);
+  // outColor = vec4(irradianceColor, 1.0);
+  // outColor = vec4(reflectedColor.rgb, 1.0);
 }

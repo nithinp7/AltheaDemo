@@ -331,16 +331,16 @@ void PathTracing::_createGlobalResources(
     this->_globalResources = PerFrameResources(app, globalResourceLayout);
     this->_globalUniforms = TransientUniforms<GlobalUniforms>(app);
 
-    this->_pointLights = PointLightCollection(
-        app,
-        commandBuffer,
-        9,
-        true,
-        this->_globalResources.getLayout(),
-        true,
-        8,
-        7,
-        this->_textureHeap.getSize());
+    // this->_pointLights = PointLightCollection(
+    //     app,
+    //     commandBuffer,
+    //     9,
+    //     true,
+    //     this->_globalResources.getLayout(),
+    //     true,
+    //     8,
+    //     7,
+    //     this->_textureHeap.getSize());
     for (uint32_t i = 0; i < 3; ++i) {
       for (uint32_t j = 0; j < 3; ++j) {
         PointLight light;

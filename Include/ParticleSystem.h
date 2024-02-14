@@ -40,11 +40,14 @@ struct GlobalUniforms {
   glm::mat4 projection;
   glm::mat4 inverseProjection;
   glm::mat4 view;
+  glm::mat4 prevView;
   glm::mat4 inverseView;
+  glm::mat4 prevInverseView;
   int lightCount;
   float time;
   float exposure;
 };
+
 
 struct Particle {
   alignas(16) glm::vec3 position;
@@ -121,8 +124,8 @@ private:
   void _createGlobalResources(
       Application& app,
       SingleTimeCommandBuffer& commandBuffer);
-  std::unique_ptr<PerFrameResources> _pGlobalResources;
-  std::unique_ptr<TransientUniforms<GlobalUniforms>> _pGlobalUniforms;
+  PerFrameResources _globalResources;
+  TransientUniforms<GlobalUniforms> _globalUniforms;
   PointLightCollection _pointLights;
   std::unique_ptr<DescriptorSetAllocator> _pGltfMaterialAllocator;
   IBLResources _iblResources;
@@ -149,11 +152,11 @@ private:
   std::vector<Model> _models;
 
   void _createForwardPass(Application& app);
-  std::unique_ptr<RenderPass> _pForwardPass;
+  RenderPass _forwardPass;
   FrameBuffer _forwardFrameBuffer;
 
   void _createDeferredPass(Application& app);
-  std::unique_ptr<RenderPass> _pDeferredPass;
+  RenderPass _deferredPass;
   SwapChainFrameBufferCollection _swapChainFrameBuffers;
   std::unique_ptr<DescriptorSetAllocator> _pDeferredMaterialAllocator;
   std::unique_ptr<Material> _pDeferredMaterial;
@@ -167,7 +170,7 @@ private:
   float _exposure = 0.3f;
 
   bool _flagReset = false;
-  uint32_t _activeParticleCount = 1000000;
+  uint32_t _activeParticleCount = 100000;//0;
   uint32_t _inputMask = 0;
 };
 } // namespace ParticleSystem

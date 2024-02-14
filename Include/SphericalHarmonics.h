@@ -6,6 +6,9 @@
 #include <Althea/DeferredRendering.h>
 #include <Althea/DescriptorSet.h>
 #include <Althea/FrameBuffer.h>
+#include <Althea/GlobalHeap.h>
+#include <Althea/GlobalResources.h>
+#include <Althea/GlobalUniforms.h>
 #include <Althea/IGameInstance.h>
 #include <Althea/Image.h>
 #include <Althea/ImageBasedLighting.h>
@@ -19,11 +22,8 @@
 #include <Althea/ScreenSpaceReflection.h>
 #include <Althea/StructuredBuffer.h>
 #include <Althea/Texture.h>
-#include <Althea/TransientUniforms.h>
 #include <Althea/TextureHeap.h>
-#include <Althea/GlobalHeap.h>
-#include <Althea/GlobalUniforms.h>
-#include <Althea/GlobalResources.h>
+#include <Althea/TransientUniforms.h>
 #include <glm/glm.hpp>
 
 #include <vector>
@@ -35,12 +35,30 @@ class Application;
 } // namespace AltheaEngine
 
 namespace AltheaDemo {
-namespace BindlessDemo {
+namespace SphericalHarmonics {
 
-class BindlessDemo : public IGameInstance {
+struct CoeffSet {
+  float coeffs[16]{};
+};
+
+struct SHUniforms {
+  float coeffs[16]{};
+  uint32_t graphHandle{};
+  int displayMode = 2;
+  uint32_t padding2{};
+  uint32_t padding3{};
+};
+
+struct LegendreUniforms {
+  glm::vec2 samples[10]{};
+  uint32_t sampleCount{};
+  uint32_t coeffBuffer{};
+};
+
+class SphericalHarmonics : public IGameInstance {
 public:
-  BindlessDemo();
-  // virtual ~BindlessDemo();
+  SphericalHarmonics();
+  // virtual ~SphericalHarmonics();
 
   void initGame(Application& app) override;
   void shutdownGame(Application& app) override;
@@ -55,8 +73,6 @@ public:
       const FrameContext& frame) override;
 
 private:
-  bool _adjustingExposure = false;
-
   std::unique_ptr<CameraController> _pCameraController;
 
   void _createGlobalResources(
@@ -64,23 +80,29 @@ private:
       SingleTimeCommandBuffer& commandBuffer);
   GlobalHeap _globalHeap;
   GlobalUniformsResource _globalUniforms;
-  GlobalResources _globalResources;
-  PointLightCollection _pointLights;
+  IBLResources _ibl;
+  StructuredBuffer<CoeffSet> _shCoeffs;
+  StructuredBuffer<CoeffSet> _legendreCoeffs;
+  TransientUniforms<SHUniforms> _shUniforms;
+  TransientUniforms<LegendreUniforms> _legendreUniforms;
 
-  void _createModels(Application& app, SingleTimeCommandBuffer& commandBuffer);
-  std::vector<Model> _models;
+  void _createGraph(Application& app);
+  RenderPass _graphPass;
+  FrameBuffer _graphFrameBuffer;
+  ImageResource _graph;
+  ImageHandle _graphHandle;
 
-  void _createForwardPass(Application& app);
-  StructuredBuffer<PrimitiveConstants> _primitiveConstantsBuffer; 
-  std::unique_ptr<RenderPass> _pForwardPass;
-  FrameBuffer _forwardFrameBuffer;
+  void _createComputePass(Application& app);
+  ComputePipeline _fitLegendre;
+  ComputePipeline _shPass;
 
-  void _createDeferredPass(Application& app);
-  std::unique_ptr<RenderPass> _pDeferredPass;
+  void _createRenderPass(Application& app);
+  RenderPass _renderPass;
   SwapChainFrameBufferCollection _swapChainFrameBuffers;
 
-  ScreenSpaceReflection _SSR;
+  SHUniforms _shUniformValues;
+  LegendreUniforms _legendreUniformValues;
   float _exposure = 0.3f;
 };
-} // namespace BindlessDemo
+} // namespace SphericalHarmonics
 } // namespace AltheaDemo
