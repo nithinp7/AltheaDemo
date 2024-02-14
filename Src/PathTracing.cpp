@@ -37,30 +37,41 @@ using namespace AltheaEngine;
 namespace AltheaDemo {
 namespace PathTracing {
 
+namespace {
+struct RTPush {
+  GlobalResourcesConstants globalResourceHandles;
+  uint32_t globalUniformsHandle;
+  uint32_t tlasHandle;
+};
+
+struct ProbePush {};
+
+struct DisplayPush {};
+} // namespace
+
 PathTracing::PathTracing() {}
 
 void PathTracing::initGame(Application& app) {
   const VkExtent2D& windowDims = app.getSwapChainExtent();
-  this->_pCameraController = std::make_unique<CameraController>(
+  m_pCameraController = std::make_unique<CameraController>(
       app.getInputManager(),
       90.0f,
       (float)windowDims.width / (float)windowDims.height);
-  this->_pCameraController->setMaxSpeed(15.0f);
-  this->_pCameraController->getCamera().setPosition(
-      glm::vec3(2.0f, 2.0f, 2.0f));
+  m_pCameraController->setMaxSpeed(15.0f);
+  m_pCameraController->getCamera().setPosition(glm::vec3(2.0f, 2.0f, 2.0f));
 
   // TODO: need to unbind these at shutdown
   InputManager& input = app.getInputManager();
   input.addKeyBinding(
       {GLFW_KEY_L, GLFW_PRESS, 0},
-      [&adjustingExposure = this->_adjustingExposure, &input]() {
+      [&adjustingExposure = m_adjustingExposure, &input]() {
         adjustingExposure = true;
         input.setMouseCursorHidden(false);
       });
 
   input.addKeyBinding(
       {GLFW_KEY_L, GLFW_RELEASE, 0},
-      [&adjustingExposure = this->_adjustingExposure, &input]() {
+      [&adjustingExposure = m_adjustingExposure, &input]() {
         adjustingExposure = false;
         input.setMouseCursorHidden(true);
       });
@@ -69,57 +80,23 @@ void PathTracing::initGame(Application& app) {
   input.addKeyBinding(
       {GLFW_KEY_R, GLFW_PRESS, GLFW_MOD_CONTROL},
       [&app, that = this]() {
-        that->_framesSinceCameraMoved = 0;
+        that->m_framesSinceCameraMoved = 0;
 
-        if (that->_pRayTracingPipeline->recompileStaleShaders()) {
-          if (that->_pRayTracingPipeline->hasShaderRecompileErrors()) {
-            std::cout << that->_pRayTracingPipeline->getShaderRecompileErrors()
-                      << "\n";
-          } else {
-            that->_pRayTracingPipeline->recreatePipeline(app);
-          }
-        }
-
-        if (that->_probePass.recompileStaleShaders()) {
-          if (that->_probePass.hasShaderRecompileErrors()) {
-            std::cout << that->_probePass.getShaderRecompileErrors() << "\n";
-          } else {
-            that->_probePass.recreatePipeline(app);
-          }
-        }
-
-        for (Subpass& subpass :
-             that->_pointLights.getShadowMapPass().getSubpasses()) {
-          GraphicsPipeline& pipeline = subpass.getPipeline();
-          if (pipeline.recompileStaleShaders()) {
-            if (pipeline.hasShaderRecompileErrors()) {
-              std::cout << pipeline.getShaderRecompileErrors() << "\n";
-            } else {
-              pipeline.recreatePipeline(app);
-            }
-          }
-        }
-
-        for (Subpass& subpass : that->_pDisplayPass->getSubpasses()) {
-          GraphicsPipeline& pipeline = subpass.getPipeline();
-          if (pipeline.recompileStaleShaders()) {
-            if (pipeline.hasShaderRecompileErrors()) {
-              std::cout << pipeline.getShaderRecompileErrors() << "\n";
-            } else {
-              pipeline.recreatePipeline(app);
-            }
-          }
-        }
+        that->m_rtPass.tryRecompile(app);
+        that->m_probePass.tryRecompile(app);
+        that->m_pointLights.getShadowMapPass().tryRecompile(app);
+        that->m_displayPass.tryRecompile(app);
       });
+
   input.addKeyBinding(
       {GLFW_KEY_F, GLFW_PRESS, 0},
-      [&freezeCamera = this->_freezeCamera]() { freezeCamera = false; });
+      [&freezeCamera = m_freezeCamera]() { freezeCamera = false; });
   input.addKeyBinding(
       {GLFW_KEY_F, GLFW_RELEASE, 0},
-      [&freezeCamera = this->_freezeCamera]() { freezeCamera = true; });
+      [&freezeCamera = m_freezeCamera]() { freezeCamera = true; });
   input.addMousePositionCallback(
-      [&adjustingExposure = this->_adjustingExposure,
-       &exposure = this->_exposure](double x, double y, bool cursorHidden) {
+      [&adjustingExposure = m_adjustingExposure,
+       &exposure = m_exposure](double x, double y, bool cursorHidden) {
         if (adjustingExposure) {
           exposure = static_cast<float>(y);
         }
@@ -127,82 +104,92 @@ void PathTracing::initGame(Application& app) {
 }
 
 void PathTracing::shutdownGame(Application& app) {
-  this->_pCameraController.reset();
+  m_pCameraController.reset();
 }
 
 void PathTracing::createRenderState(Application& app) {
   const VkExtent2D& extent = app.getSwapChainExtent();
-  this->_pCameraController->getCamera().setAspectRatio(
+  m_pCameraController->getCamera().setAspectRatio(
       (float)extent.width / (float)extent.height);
 
   SingleTimeCommandBuffer commandBuffer(app);
-  this->_createGlobalResources(app, commandBuffer);
-  this->_createRayTracingPass(app, commandBuffer);
+  createGlobalResources(app, commandBuffer);
+  createRayTracingPass(app, commandBuffer);
 }
 
 void PathTracing::destroyRenderState(Application& app) {
-  this->_models.clear();
+  m_models.clear();
   Primitive::resetPrimitiveIndexCount();
 
-  this->_accelerationStructure = {};
-  this->_rayTracingTarget[0] = {};
-  this->_rayTracingTarget[1] = {};
-  this->_depthBuffer[0] = {};
-  this->_depthBuffer[1] = {};
-  this->_debugTarget = {};
-  this->_giUniforms = {};
-  this->_probes = {};
-  this->_spatialHash = {};
-  this->_freeList = {};
-  this->_pRayTracingMaterial[0].reset();
-  this->_pRayTracingMaterial[1].reset();
-  this->_pRayTracingMaterialAllocator.reset();
-  this->_pRayTracingPipeline.reset();
-  this->_probePass = {};
-  this->_pDisplayPassMaterial[0].reset();
-  this->_pDisplayPassMaterial[1].reset();
-  this->_pDisplayPassMaterialAllocator.reset();
-  this->_pDisplayPass.reset();
-  this->_displayPassSwapChainFrameBuffers = {};
+  m_accelerationStructure = {};
+  m_rtTarget[0] = {};
+  m_rtTarget[1] = {};
+  m_depthBuffer[0] = {};
+  m_depthBuffer[1] = {};
+  m_debugTarget = {};
+  m_giUniforms = {};
+  m_probes = {};
+  m_spatialHash = {};
+  m_freeList = {};
 
-  this->_globalResources = {};
-  this->_globalUniforms = {};
-  this->_pointLights = {};
-  this->_textureHeap = {};
-  this->_vertexBufferHeap = {};
-  this->_indexBufferHeap = {};
-  this->_primitiveConstantsBuffer = {};
-  this->_iblResources = {};
+  m_rtPass = {};
+  m_probePass = {};
+  m_displayPass = {};
+  m_displayPassSwapChainFrameBuffers = {};
+
+  m_globalResources = {};
+  m_globalUniforms = {};
+  m_pointLights = {};
+  m_primitiveConstantsBuffer = {};
+
+  m_heap = {};
 }
 
 void PathTracing::tick(Application& app, const FrameContext& frame) {
-  const Camera& camera = this->_pCameraController->getCamera();
+  const Camera& camera = m_pCameraController->getCamera();
 
   GlobalUniforms globalUniforms;
   globalUniforms.prevView = camera.computeView();
   globalUniforms.prevInverseView = glm::inverse(globalUniforms.prevView);
 
-  // if (this->_freezeCamera) {
-  //   ++this->_framesSinceCameraMoved;
+  // if (m_freezeCamera) {
+  //   ++m_framesSinceCameraMoved;
   // } else {
-  // this->_framesSinceCameraMoved = 0;
-  this->_framesSinceCameraMoved++; // TODO: Clean this up..
-  this->_pCameraController->tick(frame.deltaTime);
+  // m_framesSinceCameraMoved = 0;
+  m_framesSinceCameraMoved++; // TODO: Clean this up..
+  m_pCameraController->tick(frame.deltaTime);
   // }
+
+  uint32_t inputMask = app.getInputManager().getCurrentInputMask();
 
   globalUniforms.projection = camera.getProjection();
   globalUniforms.inverseProjection = glm::inverse(globalUniforms.projection);
   globalUniforms.view = camera.computeView();
   globalUniforms.inverseView = glm::inverse(globalUniforms.view);
-  globalUniforms.lightCount = static_cast<int>(this->_pointLights.getCount());
+  globalUniforms.lightCount = static_cast<int>(m_pointLights.getCount());
   globalUniforms.time = static_cast<float>(frame.currentTime);
-  globalUniforms.exposure = this->_exposure;
+  globalUniforms.exposure = m_exposure;
 
-  this->_globalUniforms.updateUniforms(globalUniforms, frame);
+  globalUniforms.inputMask = inputMask;
+
+  InputManager::MousePos mPos = app.getInputManager().getCurrentMousePos();
+  VkExtent2D extent = app.getSwapChainExtent();
+  glm::vec2 mouseUV(
+      static_cast<float>(mPos.x / extent.width),
+      static_cast<float>(mPos.y / extent.height));
+
+  globalUniforms.mouseUV = mouseUV;
+
+  globalUniforms.lightBufferHandle =
+      m_pointLights.getCurrentLightBufferHandle(frame).index;
+  globalUniforms.lightCount = m_pointLights.getCount();
+
+  m_globalUniforms.getCurrentUniformBuffer(frame).updateUniforms(
+      globalUniforms);
 
   // TODO: Allow lights to move again :)
-  // for (uint32_t i = 0; i < this->_pointLights.getCount(); ++i) {
-  //   PointLight light = this->_pointLights.getLight(i);
+  // for (uint32_t i = 0; i < m_pointLights.getCount(); ++i) {
+  //   PointLight light = m_pointLights.getLight(i);
 
   //   light.position = 40.0f * glm::vec3(
   //                                static_cast<float>(i / 3),
@@ -212,10 +199,10 @@ void PathTracing::tick(Application& app, const FrameContext& frame) {
   //   light.position.x += 5.5f * cos(1.5f * frame.currentTime + i);
   //   light.position.z += 5.5f * sin(1.5 * frame.currentTime + i);
 
-  //   this->_pointLights.setLight(i, light);
+  //   m_pointLights.setLight(i, light);
   // }
 
-  this->_pointLights.updateResource(frame);
+  m_pointLights.updateResource(frame);
 
   GlobalIlluminationUniforms giUniforms{};
   giUniforms.probeCount = PROBE_COUNT;
@@ -225,122 +212,91 @@ void PathTracing::tick(Application& app, const FrameContext& frame) {
 
   giUniforms.gridCellSize = 0.1f;
 
-  this->_giUniforms.updateUniforms(giUniforms, frame);
+  m_giUniforms.updateUniforms(giUniforms, frame);
 }
 
-void PathTracing::_createModels(
+void PathTracing::createModels(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
 
   // TODO: BINDLESS!!
-  this->_models.emplace_back(
+  m_models.emplace_back(
       app,
       commandBuffer,
       GEngineDirectory + "/Content/Models/DamagedHelmet.glb");
-  this->_models.back().setModelTransform(glm::scale(
+  m_models.back().setModelTransform(glm::scale(
       glm::translate(glm::mat4(1.0f), glm::vec3(36.0f, 0.0f, 0.0f)),
       glm::vec3(4.0f)));
 
-  this->_models.emplace_back(
+  m_models.emplace_back(
       app,
       commandBuffer,
       GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf");
-  this->_models.back().setModelTransform(glm::scale(
+  m_models.back().setModelTransform(glm::scale(
       glm::translate(glm::mat4(1.0f), glm::vec3(50.0f, -1.0f, 0.0f)),
       glm::vec3(8.0f)));
 
-  this->_models.emplace_back(
+  m_models.emplace_back(
       app,
       commandBuffer,
       GEngineDirectory + "/Content/Models/MetalRoughSpheres.glb");
-  this->_models.back().setModelTransform(glm::scale(
+  m_models.back().setModelTransform(glm::scale(
       glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f)),
       glm::vec3(4.0f)));
 
-  this->_models.emplace_back(
+  m_models.emplace_back(
       app,
       commandBuffer,
       GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf");
-  this->_models.back().setModelTransform(glm::translate(
+  m_models.back().setModelTransform(glm::translate(
       glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)),
       glm::vec3(0.0f, -8.0f, 0.0f)));
 }
 
-void PathTracing::_createGlobalResources(
+void PathTracing::createGlobalResources(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
-  this->_iblResources = ImageBasedLighting::createResources(
-      app,
-      commandBuffer,
-      "NeoclassicalInterior");
+
+  m_heap = GlobalHeap(app);
 
   // Create GLTF resource heaps
   {
-    this->_createModels(app, commandBuffer);
+    createModels(app, commandBuffer);
+
+    for (Model& model : m_models)
+      model.registerToHeap(m_heap);
 
     uint32_t primCount = 0;
-    for (const Model& model : this->_models)
+    for (const Model& model : m_models)
       primCount += static_cast<uint32_t>(model.getPrimitivesCount());
 
-    this->_primitiveConstantsBuffer =
+    m_primitiveConstantsBuffer =
         StructuredBuffer<PrimitiveConstants>(app, primCount);
 
-    for (const Model& model : this->_models) {
+    for (const Model& model : m_models) {
       for (const Primitive& primitive : model.getPrimitives()) {
-        this->_primitiveConstantsBuffer.setElement(
+        m_primitiveConstantsBuffer.setElement(
             primitive.getConstants(),
             primitive.getPrimitiveIndex());
       }
     }
 
-    this->_primitiveConstantsBuffer.upload(app, commandBuffer);
-
-    this->_textureHeap = TextureHeap(this->_models);
-    this->_vertexBufferHeap = BufferHeap::CreateVertexBufferHeap(this->_models);
-    this->_indexBufferHeap = BufferHeap::CreateIndexBufferHeap(this->_models);
+    m_primitiveConstantsBuffer.upload(app, commandBuffer);
+    m_primitiveConstantsBuffer.registerToHeap(m_heap);
   }
 
-  // Global resources
+  // Create acceleration structure for models
+  m_accelerationStructure = AccelerationStructure(app, commandBuffer, m_models);
+  m_accelerationStructure.registerToHeap(m_heap);
+
   {
-    DescriptorSetLayoutBuilder globalResourceLayout;
-
-    // Add textures for IBL
-    ImageBasedLighting::buildLayout(globalResourceLayout); // bindings 0-3
-    globalResourceLayout
-        // Global uniforms.
-        .addUniformBufferBinding(VK_SHADER_STAGE_ALL) // 4
-        // Point light buffer.
-        .addStorageBufferBinding(VK_SHADER_STAGE_ALL) // 5
-        // Shadow map texture.
-        .addTextureBinding(VK_SHADER_STAGE_ALL) // 6
-        // Texture heap.
-        .addTextureHeapBinding(
-            this->_textureHeap.getSize(),
-            VK_SHADER_STAGE_ALL) // 7
-        // Primitive constants heap.
-        .addStorageBufferBinding(VK_SHADER_STAGE_ALL) // 8
-        // Vertex buffer heap.
-        .addBufferHeapBinding(
-            this->_vertexBufferHeap.getSize(),
-            VK_SHADER_STAGE_ALL) // 9
-        // Index buffer heap.
-        .addBufferHeapBinding(
-            this->_indexBufferHeap.getSize(),
-            VK_SHADER_STAGE_ALL); // 10
-
-    this->_globalResources = PerFrameResources(app, globalResourceLayout);
-    this->_globalUniforms = TransientUniforms<GlobalUniforms>(app);
-
-    // this->_pointLights = PointLightCollection(
-    //     app,
-    //     commandBuffer,
-    //     9,
-    //     true,
-    //     this->_globalResources.getLayout(),
-    //     true,
-    //     8,
-    //     7,
-    //     this->_textureHeap.getSize());
+    m_pointLights = PointLightCollection(
+        app,
+        commandBuffer,
+        m_heap,
+        9,
+        true,
+        m_primitiveConstantsBuffer.getHandle());
     for (uint32_t i = 0; i < 3; ++i) {
       for (uint32_t j = 0; j < 3; ++j) {
         PointLight light;
@@ -354,65 +310,49 @@ void PathTracing::_createGlobalResources(
             1000.0f * // / static_cast<float>(i + 1) *
             glm::vec3(cos(t) + 1.0f, sin(t + 1.0f) + 1.0f, sin(t) + 1.0f);
 
-        this->_pointLights.setLight(i * 3 + j, light);
+        m_pointLights.setLight(i * 3 + j, light);
       }
     }
-
-    ResourcesAssignment assignment = this->_globalResources.assign();
-
-    // Bind IBL resources
-    this->_iblResources.bind(assignment);
-
-    // Bind global uniforms
-    assignment.bindTransientUniforms(this->_globalUniforms);
-    assignment.bindStorageBuffer(
-        this->_pointLights.getAllocation(),
-        this->_pointLights.getByteSize(),
-        true);
-    assignment.bindTexture(
-        this->_pointLights.getShadowMapArrayView(),
-        this->_pointLights.getShadowMapSampler());
-    assignment.bindTextureHeap(this->_textureHeap);
-    assignment.bindStorageBuffer(
-        this->_primitiveConstantsBuffer.getAllocation(),
-        this->_primitiveConstantsBuffer.getSize(),
-        false);
-    assignment.bindBufferHeap(this->_vertexBufferHeap);
-    assignment.bindBufferHeap(this->_indexBufferHeap);
   }
+
+  m_globalResources = GlobalResources(
+      app,
+      commandBuffer,
+      m_heap,
+      m_pointLights.getShadowMapHandle(),
+      m_primitiveConstantsBuffer.getHandle());
+  m_globalUniforms = GlobalUniformsResource(app, m_heap);
 }
 
-void PathTracing::_createRayTracingPass(
+void PathTracing::createRayTracingPass(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
+  m_giUniforms = TransientUniforms<GlobalIlluminationUniforms>(app);
+  m_giUniforms.registerToHeap(m_heap);
 
-  this->_accelerationStructure =
-      AccelerationStructure(app, commandBuffer, this->_models);
+  // std::vector<StructuredBuffer<Probe>> bucketBuffers;
+  // uint32_t probeBufferCount = (PROBE_COUNT - 1) / PROBES_PER_BUFFER + 1;
+  // bucketBuffers.reserve(probeBufferCount);
+  // for (uint32_t i = 0; i < probeBufferCount; ++i) {
+  //   bucketBuffers.emplace_back(app, PROBES_PER_BUFFER);
+  // }
+  // m_probes = StructuredBufferHeap<Probe>(std::move(bucketBuffers));
+  // m_probes.registerToHeap(m_heap);
 
-  this->_giUniforms = TransientUniforms<GlobalIlluminationUniforms>(app);
+  // std::vector<StructuredBuffer<uint32_t>> hashBuffers;
+  // uint32_t hashBufferCount =
+  //     (SPATIAL_HASH_SIZE - 1) / SPATIAL_HASH_SLOTS_PER_BUFFER + 1;
+  // hashBuffers.reserve(hashBufferCount);
+  // for (uint32_t i = 0; i < hashBufferCount; ++i) {
+  //   hashBuffers.emplace_back(app, SPATIAL_HASH_SLOTS_PER_BUFFER);
+  // }
+  // m_spatialHash = StructuredBufferHeap<uint32_t>(std::move(hashBuffers));
 
-  std::vector<StructuredBuffer<Probe>> bucketBuffers;
-  uint32_t probeBufferCount = (PROBE_COUNT - 1) / PROBES_PER_BUFFER + 1;
-  bucketBuffers.reserve(probeBufferCount);
-  for (uint32_t i = 0; i < probeBufferCount; ++i) {
-    bucketBuffers.emplace_back(app, PROBES_PER_BUFFER);
-  }
-  this->_probes = StructuredBufferHeap<Probe>(std::move(bucketBuffers));
+  // m_freeList = StructuredBuffer<FreeList>(app, 1);
+  // m_freeList.setElement({0}, 0);
+  // m_freeList.upload(app, commandBuffer);
 
-  std::vector<StructuredBuffer<uint32_t>> hashBuffers;
-  uint32_t hashBufferCount =
-      (SPATIAL_HASH_SIZE - 1) / SPATIAL_HASH_SLOTS_PER_BUFFER + 1;
-  hashBuffers.reserve(hashBufferCount);
-  for (uint32_t i = 0; i < hashBufferCount; ++i) {
-    hashBuffers.emplace_back(app, SPATIAL_HASH_SLOTS_PER_BUFFER);
-  }
-  this->_spatialHash = StructuredBufferHeap<uint32_t>(std::move(hashBuffers));
-
-  this->_freeList = StructuredBuffer<FreeList>(app, 1);
-  this->_freeList.setElement({0}, 0);
-  this->_freeList.upload(app, commandBuffer);
-
-  // this->_probes = StructuredBufferHeap<ProbeBucket>()
+  // m_probes = StructuredBufferHeap<ProbeBucket>()
 
   //DescriptorSetLayoutBuilder rayTracingMaterialLayout{};
   // TODO: Use ray queries in deferred pass instead
@@ -429,105 +369,27 @@ void PathTracing::_createRayTracingPass(
   samplerOptions.minFilter = VK_FILTER_NEAREST;
   samplerOptions.magFilter = VK_FILTER_NEAREST;
 
-  this->_rayTracingTarget[0].image = Image(app, imageOptions);
-  this->_rayTracingTarget[0].view =
-      ImageView(app, this->_rayTracingTarget[0].image, viewOptions);
-  this->_rayTracingTarget[0].sampler = Sampler(app, samplerOptions);
+  m_rtTarget[0].image = Image(app, imageOptions);
+  m_rtTarget[0].view = ImageView(app, m_rtTarget[0].image, viewOptions);
+  m_rtTarget[0].sampler = Sampler(app, samplerOptions);
 
-  this->_rayTracingTarget[1].image = Image(app, imageOptions);
-  this->_rayTracingTarget[1].view =
-      ImageView(app, this->_rayTracingTarget[1].image, viewOptions);
-  this->_rayTracingTarget[1].sampler = Sampler(app, samplerOptions);
+  m_rtTarget[1].image = Image(app, imageOptions);
+  m_rtTarget[1].view = ImageView(app, m_rtTarget[1].image, viewOptions);
+  m_rtTarget[1].sampler = Sampler(app, samplerOptions);
 
   imageOptions.format = viewOptions.format = VK_FORMAT_R32_SFLOAT;
-  this->_depthBuffer[0].image = Image(app, imageOptions);
-  this->_depthBuffer[1].image = Image(app, imageOptions);
-  this->_depthBuffer[0].view =
-      ImageView(app, this->_depthBuffer[0].image, viewOptions);
-  this->_depthBuffer[1].view =
-      ImageView(app, this->_depthBuffer[1].image, viewOptions);
-  this->_depthBuffer[0].sampler = Sampler(app, {});
-  this->_depthBuffer[1].sampler = Sampler(app, {});
+  m_depthBuffer[0].image = Image(app, imageOptions);
+  m_depthBuffer[1].image = Image(app, imageOptions);
+  m_depthBuffer[0].view = ImageView(app, m_depthBuffer[0].image, viewOptions);
+  m_depthBuffer[1].view = ImageView(app, m_depthBuffer[1].image, viewOptions);
+  m_depthBuffer[0].sampler = Sampler(app, {});
+  m_depthBuffer[1].sampler = Sampler(app, {});
 
   imageOptions.format = viewOptions.format = VK_FORMAT_R32G32B32A32_SFLOAT;
   imageOptions.width = imageOptions.height = 128;
-  this->_debugTarget.image = Image(app, imageOptions);
-  this->_debugTarget.view =
-      ImageView(app, this->_debugTarget.image, viewOptions);
-  this->_debugTarget.sampler = Sampler(app, {});
-
-  // Material layout
-  DescriptorSetLayoutBuilder matBuilder{};
-  matBuilder.addAccelerationStructureBinding(VK_SHADER_STAGE_ALL);
-  // prev accum buffer
-  matBuilder.addTextureBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
-  // current accumulation buffer
-  matBuilder.addStorageImageBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
-  // prev depth buffer
-  matBuilder.addTextureBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
-  // depth buffer
-  matBuilder.addStorageImageBinding(VK_SHADER_STAGE_RAYGEN_BIT_KHR);
-  // GI uniforms
-  matBuilder.addUniformBufferBinding(VK_SHADER_STAGE_ALL);
-  // Probe bucket buffers
-  matBuilder.addBufferHeapBinding(probeBufferCount, VK_SHADER_STAGE_ALL);
-  // Spatial hash buffers
-  matBuilder.addBufferHeapBinding(hashBufferCount, VK_SHADER_STAGE_ALL);
-  // Free list
-  matBuilder.addStorageBufferBinding(VK_SHADER_STAGE_ALL);
-  // Debug buffer
-  matBuilder.addStorageImageBinding(VK_SHADER_STAGE_ALL);
-
-  this->_pRayTracingMaterialAllocator =
-      std::make_unique<DescriptorSetAllocator>(app, matBuilder, 2);
-  this->_pRayTracingMaterial[0] =
-      std::make_unique<Material>(app, *this->_pRayTracingMaterialAllocator);
-  this->_pRayTracingMaterial[1] =
-      std::make_unique<Material>(app, *this->_pRayTracingMaterialAllocator);
-
-  this->_pRayTracingMaterial[0]
-      ->assign()
-      .bindAccelerationStructure(this->_accelerationStructure.getTLAS())
-      .bindTexture(
-          this->_rayTracingTarget[1].view,
-          this->_rayTracingTarget[1].sampler)
-      .bindStorageImage(
-          this->_rayTracingTarget[0].view,
-          this->_rayTracingTarget[0].sampler)
-      .bindTexture(this->_depthBuffer[1].view, this->_depthBuffer[1].sampler)
-      .bindStorageImage(
-          this->_depthBuffer[0].view,
-          this->_depthBuffer[0].sampler)
-      .bindTransientUniforms(this->_giUniforms)
-      .bindBufferHeap(this->_probes)
-      .bindBufferHeap(this->_spatialHash)
-      .bindStorageBuffer(
-          this->_freeList.getAllocation(),
-          this->_freeList.getSize(),
-          false)
-      .bindStorageImage(this->_debugTarget.view, this->_debugTarget.sampler);
-
-  this->_pRayTracingMaterial[1]
-      ->assign()
-      .bindAccelerationStructure(this->_accelerationStructure.getTLAS())
-      .bindTexture(
-          this->_rayTracingTarget[0].view,
-          this->_rayTracingTarget[0].sampler)
-      .bindStorageImage(
-          this->_rayTracingTarget[1].view,
-          this->_rayTracingTarget[1].sampler)
-      .bindTexture(this->_depthBuffer[0].view, this->_depthBuffer[0].sampler)
-      .bindStorageImage(
-          this->_depthBuffer[1].view,
-          this->_depthBuffer[1].sampler)
-      .bindTransientUniforms(this->_giUniforms)
-      .bindBufferHeap(this->_probes)
-      .bindBufferHeap(this->_spatialHash)
-      .bindStorageBuffer(
-          this->_freeList.getAllocation(),
-          this->_freeList.getSize(),
-          false)
-      .bindStorageImage(this->_debugTarget.view, this->_debugTarget.sampler);
+  m_debugTarget.image = Image(app, imageOptions);
+  m_debugTarget.view = ImageView(app, m_debugTarget.image, viewOptions);
+  m_debugTarget.sampler = Sampler(app, {});
 
   ShaderDefines defs;
 
@@ -545,48 +407,25 @@ void PathTracing::_createRayTracingPass(
       GEngineDirectory + "/Shaders/PathTracing/DepthRay.chit.glsl",
       defs);
 
-  builder.layoutBuilder.addDescriptorSet(this->_globalResources.getLayout())
-      .addDescriptorSet(this->_pRayTracingMaterialAllocator->getLayout())
+  builder.layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout())
       .addPushConstants<uint32_t>(VK_SHADER_STAGE_ALL);
 
-  this->_pRayTracingPipeline =
-      std::make_unique<RayTracingPipeline>(app, std::move(builder));
+  m_rtPass = RayTracingPipeline(app, std::move(builder));
 
   {
     ComputePipelineBuilder computeBuilder{};
     computeBuilder.layoutBuilder
-        .addDescriptorSet(this->_globalResources.getLayout())
-        .addDescriptorSet(this->_pRayTracingMaterialAllocator->getLayout())
+        .addDescriptorSet(m_heap.getDescriptorSetLayout())
         .addPushConstants<uint32_t>(VK_SHADER_STAGE_ALL);
 
     computeBuilder.setComputeShader(
         GEngineDirectory + "/Shaders/GlobalIllumination/UpdateProbe.comp.glsl",
         defs);
 
-    this->_probePass = ComputePipeline(app, std::move(computeBuilder));
+    m_probePass = ComputePipeline(app, std::move(computeBuilder));
   }
 
   // Display Pass
-  DescriptorSetLayoutBuilder displayPassMatLayout{};
-  displayPassMatLayout.addTextureBinding();
-  displayPassMatLayout.addTextureBinding();
-
-  this->_pDisplayPassMaterialAllocator =
-      std::make_unique<DescriptorSetAllocator>(app, displayPassMatLayout, 2);
-  this->_pDisplayPassMaterial[0] =
-      std::make_unique<Material>(app, *this->_pDisplayPassMaterialAllocator);
-  this->_pDisplayPassMaterial[1] =
-      std::make_unique<Material>(app, *this->_pDisplayPassMaterialAllocator);
-
-  this->_pDisplayPassMaterial[0]
-      ->assign()
-      .bindTexture(this->_rayTracingTarget[0])
-      .bindTexture(this->_debugTarget);
-  this->_pDisplayPassMaterial[1]
-      ->assign()
-      .bindTexture(this->_rayTracingTarget[1])
-      .bindTexture(this->_debugTarget);
-
   VkClearValue colorClear;
   colorClear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
   VkClearValue depthClear;
@@ -621,62 +460,60 @@ void PathTracing::_createRayTracingPass(
         // Pipeline resource layouts
         .layoutBuilder
         // Global resources (view, projection, environment map)
-        .addDescriptorSet(this->_globalResources.getLayout())
-        .addDescriptorSet(this->_pDisplayPassMaterialAllocator->getLayout());
+        .addDescriptorSet(m_heap.getDescriptorSetLayout());
   }
 
-  this->_pDisplayPass = std::make_unique<RenderPass>(
+  m_displayPass = RenderPass(
       app,
       app.getSwapChainExtent(),
       std::move(attachments),
       std::move(subpassBuilders));
 
-  this->_displayPassSwapChainFrameBuffers =
-      SwapChainFrameBufferCollection(app, *this->_pDisplayPass, {});
+  m_displayPassSwapChainFrameBuffers =
+      SwapChainFrameBufferCollection(app, m_displayPass, {});
 }
 
 void PathTracing::draw(
     Application& app,
     VkCommandBuffer commandBuffer,
     const FrameContext& frame) {
-  VkDescriptorSet globalDescriptorSet =
-      this->_globalResources.getCurrentDescriptorSet(frame);
+  VkDescriptorSet heapSet = m_heap.getDescriptorSet();
 
-  this->_pointLights.updateResource(frame);
+  m_pointLights.updateResource(frame);
 
   // Draw point light shadow maps
-  // this->_pointLights.drawShadowMaps(
+  // m_pointLights.drawShadowMaps(
   //     app,
   //     commandBuffer,
   //     frame,
-  //     this->_models,
+  //     m_models,
   //     globalDescriptorSet);
 
-  uint32_t readIndex = this->_targetIndex ^ 1;
+  uint32_t readIndex = m_targetIndex ^ 1;
 
-  this->_rayTracingTarget[readIndex].image.transitionLayout(
+  m_rtTarget[readIndex].image.transitionLayout(
       commandBuffer,
       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
       VK_ACCESS_SHADER_READ_BIT,
       VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
-  this->_rayTracingTarget[this->_targetIndex].image.transitionLayout(
+  m_rtTarget[m_targetIndex].image.transitionLayout(
       commandBuffer,
       VK_IMAGE_LAYOUT_GENERAL,
       VK_ACCESS_SHADER_WRITE_BIT,
       VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
-  this->_debugTarget.image.transitionLayout(
+  m_debugTarget.image.transitionLayout(
       commandBuffer,
       VK_IMAGE_LAYOUT_GENERAL,
       VK_ACCESS_SHADER_WRITE_BIT,
       VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR |
           VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-  this->_depthBuffer[readIndex].image.transitionLayout(
+  m_depthBuffer[readIndex].image.transitionLayout(
       commandBuffer,
       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
       VK_ACCESS_SHADER_READ_BIT,
       VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
-  this->_depthBuffer[this->_targetIndex].image.transitionLayout(
+  m_depthBuffer[m_targetIndex].image.transitionLayout(
       commandBuffer,
       VK_IMAGE_LAYOUT_GENERAL,
       VK_ACCESS_SHADER_WRITE_BIT,
@@ -684,64 +521,58 @@ void PathTracing::draw(
 
   // VkDescriptorSet rtDescSets = { globalDescriptorSet, this?}
   {
-    VkDescriptorSet sets[2] = {
-        globalDescriptorSet,
-        this->_pRayTracingMaterial[this->_targetIndex]->getCurrentDescriptorSet(
-            frame)};
     vkCmdBindPipeline(
         commandBuffer,
         VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
-        *this->_pRayTracingPipeline);
+        m_rtPass);
     vkCmdBindDescriptorSets(
         commandBuffer,
         VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
-        this->_pRayTracingPipeline->getLayout(),
+        m_rtPass.getLayout(),
         0,
-        2,
-        sets,
+        1,
+        &heapSet,
         0,
         nullptr);
     vkCmdPushConstants(
         commandBuffer,
-        this->_pRayTracingPipeline->getLayout(),
+        m_rtPass.getLayout(),
         VK_SHADER_STAGE_ALL,
         0,
         sizeof(uint32_t),
-        &this->_framesSinceCameraMoved);
-    this->_pRayTracingPipeline->traceRays(
-        app.getSwapChainExtent(),
-        commandBuffer);
+        &m_framesSinceCameraMoved);
+    m_rtPass.traceRays(app.getSwapChainExtent(), commandBuffer);
 
     vkCmdBindPipeline(
         commandBuffer,
         VK_PIPELINE_BIND_POINT_COMPUTE,
-        this->_probePass.getPipeline());
+        m_probePass.getPipeline());
     vkCmdBindDescriptorSets(
         commandBuffer,
         VK_PIPELINE_BIND_POINT_COMPUTE,
-        this->_probePass.getLayout(),
+        m_probePass.getLayout(),
         0,
-        2,
-        sets,
+        1,
+        &heapSet,
         0,
         nullptr);
     vkCmdPushConstants(
         commandBuffer,
-        this->_probePass.getLayout(),
+        m_probePass.getLayout(),
         VK_SHADER_STAGE_ALL,
         0,
         sizeof(uint32_t),
-        &this->_framesSinceCameraMoved);
+        &m_framesSinceCameraMoved);
     uint32_t groupCount = PROBE_COUNT / 32;
     vkCmdDispatch(commandBuffer, groupCount, 1, 1);
   }
 
-  this->_rayTracingTarget[this->_targetIndex].image.transitionLayout(
+  m_rtTarget[m_targetIndex].image.transitionLayout(
       commandBuffer,
       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
       VK_ACCESS_SHADER_READ_BIT,
       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-  this->_debugTarget.image.transitionLayout(
+  m_debugTarget.image.transitionLayout(
       commandBuffer,
       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
       VK_ACCESS_SHADER_READ_BIT,
@@ -749,23 +580,22 @@ void PathTracing::draw(
 
   // Display pass
   {
-    ActiveRenderPass pass = this->_pDisplayPass->begin(
+    ActiveRenderPass pass = m_displayPass.begin(
         app,
         commandBuffer,
         frame,
-        this->_displayPassSwapChainFrameBuffers.getCurrentFrameBuffer(frame));
+        m_displayPassSwapChainFrameBuffers.getCurrentFrameBuffer(frame));
     // Bind global descriptor sets
-    pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
+    pass.setGlobalDescriptorSets(gsl::span(&heapSet, 1));
 
     {
       const DrawContext& context = pass.getDrawContext();
-      context.bindDescriptorSets(
-          *this->_pDisplayPassMaterial[this->_targetIndex]);
+      context.bindDescriptorSets();
       context.draw(3);
     }
   }
 
-  this->_targetIndex ^= 1;
+  m_targetIndex ^= 1;
 }
 } // namespace PathTracing
 } // namespace AltheaDemo

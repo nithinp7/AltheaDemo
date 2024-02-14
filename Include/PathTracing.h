@@ -27,6 +27,9 @@
 #include <Althea/StructuredBuffer.h>
 #include <Althea/Primitive.h>
 #include <Althea/BufferHeap.h>
+#include <Althea/GlobalHeap.h>
+#include <Althea/GlobalResources.h>
+#include <Althea/GlobalUniforms.h>
 #include <glm/glm.hpp>
 
 #include <vector>
@@ -39,19 +42,6 @@ class Application;
 
 namespace AltheaDemo {
 namespace PathTracing {
-
-// TODO: move this into engine
-struct GlobalUniforms {
-  glm::mat4 projection;
-  glm::mat4 inverseProjection;
-  glm::mat4 view;
-  glm::mat4 prevView;
-  glm::mat4 inverseView;
-  glm::mat4 prevInverseView;
-  int lightCount;
-  float time;
-  float exposure;
-};
 
 struct GlobalIlluminationUniforms {
   uint32_t spatialHashSize;
@@ -102,52 +92,46 @@ public:
       const FrameContext& frame) override;
 
 private:
-  bool _adjustingExposure = false;
+  bool m_adjustingExposure = false;
 
-  std::unique_ptr<CameraController> _pCameraController;
+  std::unique_ptr<CameraController> m_pCameraController;
 
-  void _createGlobalResources(
+  void createModels(Application& app, SingleTimeCommandBuffer& commandBuffer);
+  std::vector<Model> m_models;
+
+  void createGlobalResources(
       Application& app,
       SingleTimeCommandBuffer& commandBuffer);
-  PerFrameResources _globalResources;
-  TransientUniforms<GlobalUniforms> _globalUniforms;
-  PointLightCollection _pointLights;
-  IBLResources _iblResources;
-  StructuredBuffer<PrimitiveConstants> _primitiveConstantsBuffer; 
-  TextureHeap _textureHeap;
-  BufferHeap _vertexBufferHeap;
-  BufferHeap _indexBufferHeap;
-
-  void _createModels(Application& app, SingleTimeCommandBuffer& commandBuffer);
-  std::vector<Model> _models;
-
-  void _createRayTracingPass(Application& app, SingleTimeCommandBuffer& commandBuffer);
-  std::unique_ptr<DescriptorSetAllocator> _pRayTracingMaterialAllocator;
-  std::unique_ptr<Material> _pRayTracingMaterial[2];
-  std::unique_ptr<RayTracingPipeline> _pRayTracingPipeline;
+  GlobalHeap m_heap;
+  GlobalResources m_globalResources;
+  GlobalUniformsResource m_globalUniforms;
+  PointLightCollection m_pointLights;
+  StructuredBuffer<PrimitiveConstants> m_primitiveConstantsBuffer; 
+  AccelerationStructure m_accelerationStructure;
+  
+  void createRayTracingPass(Application& app, SingleTimeCommandBuffer& commandBuffer);
+  RayTracingPipeline m_rtPass;
+  
    // ping-pong buffers
-  ImageResource _rayTracingTarget[2];
-  ImageResource _depthBuffer[2];
-  ImageResource _debugTarget;
+  ImageResource m_rtTarget[2];
+  ImageResource m_depthBuffer[2];
+  ImageResource m_debugTarget;
 
-  ComputePipeline _probePass;
+  ComputePipeline m_probePass;
 
-  AccelerationStructure _accelerationStructure;
-  TransientUniforms<GlobalIlluminationUniforms> _giUniforms;
-  StructuredBufferHeap<Probe> _probes;
-  StructuredBufferHeap<uint32_t> _spatialHash;
-  StructuredBuffer<FreeList> _freeList;
+  TransientUniforms<GlobalIlluminationUniforms> m_giUniforms;
+  StructuredBufferHeap<Probe> m_probes;
+  StructuredBufferHeap<uint32_t> m_spatialHash;
+  StructuredBuffer<FreeList> m_freeList;
 
-  std::unique_ptr<DescriptorSetAllocator> _pDisplayPassMaterialAllocator;
-  std::unique_ptr<Material> _pDisplayPassMaterial[2];
-  std::unique_ptr<RenderPass> _pDisplayPass;
-  SwapChainFrameBufferCollection _displayPassSwapChainFrameBuffers;
+  RenderPass m_displayPass;
+  SwapChainFrameBufferCollection m_displayPassSwapChainFrameBuffers;
 
-  bool _freezeCamera = true;
-  uint32_t _framesSinceCameraMoved = 0;
-  uint32_t _targetIndex = 0;
+  bool m_freezeCamera = true;
+  uint32_t m_framesSinceCameraMoved = 0;
+  uint32_t m_targetIndex = 0;
 
-  float _exposure = 0.6f;
+  float m_exposure = 0.6f;
 };
 } // namespace PathTracing
 } // namespace AltheaDemo
