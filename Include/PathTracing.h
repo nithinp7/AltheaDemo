@@ -114,7 +114,9 @@ private:
   
    // ping-pong buffers
   ImageResource m_rtTarget[2];
+  ImageHandle m_rtTargetHandle[2];
   ImageResource m_depthBuffer[2];
+  ImageHandle m_depthBufferHandle[2];
   ImageResource m_debugTarget;
 
   ComputePipeline m_probePass;

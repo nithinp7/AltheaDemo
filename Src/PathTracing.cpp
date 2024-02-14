@@ -39,14 +39,25 @@ namespace PathTracing {
 
 namespace {
 struct RTPush {
-  GlobalResourcesConstants globalResourceHandles;
+  uint32_t globalResourcesHandle;
   uint32_t globalUniformsHandle;
   uint32_t tlasHandle;
+
+  uint32_t prevImgHandle;
+  uint32_t imgHandle;
+  uint32_t prevDepthBufferHandle;
+  uint32_t depthBufferHandle;
+
+  uint32_t framesSinceCameraMoved;
 };
 
-struct ProbePush {};
+struct ProbePush {
+  uint32_t tmp;
+};
 
-struct DisplayPush {};
+struct DisplayPush {
+  uint32_t imgHandle;
+};
 } // namespace
 
 PathTracing::PathTracing() {}
@@ -219,7 +230,6 @@ void PathTracing::createModels(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
 
-  // TODO: BINDLESS!!
   m_models.emplace_back(
       app,
       commandBuffer,
@@ -372,18 +382,39 @@ void PathTracing::createRayTracingPass(
   m_rtTarget[0].image = Image(app, imageOptions);
   m_rtTarget[0].view = ImageView(app, m_rtTarget[0].image, viewOptions);
   m_rtTarget[0].sampler = Sampler(app, samplerOptions);
+  m_rtTargetHandle[0] = m_heap.registerTexture();
+  m_heap.updateStorageImage(
+      m_rtTargetHandle[0],
+      m_rtTarget[0].view,
+      m_rtTarget[0].sampler);
 
   m_rtTarget[1].image = Image(app, imageOptions);
   m_rtTarget[1].view = ImageView(app, m_rtTarget[1].image, viewOptions);
   m_rtTarget[1].sampler = Sampler(app, samplerOptions);
+  m_rtTargetHandle[1] = m_heap.registerTexture();
+  m_heap.updateStorageImage(
+      m_rtTargetHandle[1],
+      m_rtTarget[1].view,
+      m_rtTarget[1].sampler);
 
   imageOptions.format = viewOptions.format = VK_FORMAT_R32_SFLOAT;
   m_depthBuffer[0].image = Image(app, imageOptions);
-  m_depthBuffer[1].image = Image(app, imageOptions);
   m_depthBuffer[0].view = ImageView(app, m_depthBuffer[0].image, viewOptions);
-  m_depthBuffer[1].view = ImageView(app, m_depthBuffer[1].image, viewOptions);
   m_depthBuffer[0].sampler = Sampler(app, {});
+  m_depthBufferHandle[0] = m_heap.registerTexture();
+  m_heap.updateStorageImage(
+      m_depthBufferHandle[0],
+      m_depthBuffer[0].view,
+      m_depthBuffer[0].sampler);
+
+  m_depthBuffer[1].image = Image(app, imageOptions);
+  m_depthBuffer[1].view = ImageView(app, m_depthBuffer[1].image, viewOptions);
   m_depthBuffer[1].sampler = Sampler(app, {});
+  m_depthBufferHandle[1] = m_heap.registerTexture();
+  m_heap.updateStorageImage(
+      m_depthBufferHandle[1],
+      m_depthBuffer[1].view,
+      m_depthBuffer[1].sampler);
 
   imageOptions.format = viewOptions.format = VK_FORMAT_R32G32B32A32_SFLOAT;
   imageOptions.width = imageOptions.height = 128;
@@ -408,7 +439,7 @@ void PathTracing::createRayTracingPass(
       defs);
 
   builder.layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout())
-      .addPushConstants<uint32_t>(VK_SHADER_STAGE_ALL);
+      .addPushConstants<RTPush>(VK_SHADER_STAGE_ALL);
 
   m_rtPass = RayTracingPipeline(app, std::move(builder));
 
@@ -521,6 +552,18 @@ void PathTracing::draw(
 
   // VkDescriptorSet rtDescSets = { globalDescriptorSet, this?}
   {
+    RTPush push{};
+    push.globalResourcesHandle = m_globalResources.getHandle().index;
+    push.globalUniformsHandle = m_globalUniforms.getCurrentBindlessHandle(frame).index;
+    
+    push.tlasHandle = m_accelerationStructure.getTlasHandle().index;
+    push.prevImgHandle = m_rtTargetHandle[readIndex].index; 
+    push.imgHandle = m_rtTargetHandle[m_targetIndex].index; 
+    push.prevDepthBufferHandle = m_depthBufferHandle[readIndex].index;
+    push.depthBufferHandle = m_depthBufferHandle[m_targetIndex].index;
+    
+    push.framesSinceCameraMoved = m_framesSinceCameraMoved;
+
     vkCmdBindPipeline(
         commandBuffer,
         VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
@@ -539,10 +582,13 @@ void PathTracing::draw(
         m_rtPass.getLayout(),
         VK_SHADER_STAGE_ALL,
         0,
-        sizeof(uint32_t),
-        &m_framesSinceCameraMoved);
+        sizeof(RTPush),
+        &push);
     m_rtPass.traceRays(app.getSwapChainExtent(), commandBuffer);
+  }
 
+ #if 0 
+  {
     vkCmdBindPipeline(
         commandBuffer,
         VK_PIPELINE_BIND_POINT_COMPUTE,
@@ -566,6 +612,7 @@ void PathTracing::draw(
     uint32_t groupCount = PROBE_COUNT / 32;
     vkCmdDispatch(commandBuffer, groupCount, 1, 1);
   }
+#endif
 
   m_rtTarget[m_targetIndex].image.transitionLayout(
       commandBuffer,
@@ -580,6 +627,9 @@ void PathTracing::draw(
 
   // Display pass
   {
+    DisplayPush push{};
+    push.imgHandle = m_rtTargetHandle[m_targetIndex].index;
+
     ActiveRenderPass pass = m_displayPass.begin(
         app,
         commandBuffer,
@@ -590,6 +640,7 @@ void PathTracing::draw(
 
     {
       const DrawContext& context = pass.getDrawContext();
+      context.updatePushConstants(push, 0);
       context.bindDescriptorSets();
       context.draw(3);
     }
