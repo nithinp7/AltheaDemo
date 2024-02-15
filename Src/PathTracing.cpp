@@ -483,7 +483,7 @@ void PathTracing::createRayTracingPass(
         .setDepthTesting(false)
 
         // Vertex shader
-        .addVertexShader(GEngineDirectory + "/Shaders/Misc/FullScreenQuad.vert")
+        .addVertexShader(GEngineDirectory + "/Shaders/PathTracing/DisplayPass.vert")
         // Fragment shader
         .addFragmentShader(
             GEngineDirectory + "/Shaders/PathTracing/DisplayPass.frag")
