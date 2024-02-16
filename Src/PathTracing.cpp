@@ -56,6 +56,7 @@ struct ProbePush {
 };
 
 struct DisplayPush {
+  uint32_t globalUniformsHandle;
   uint32_t imgHandle;
 };
 } // namespace
@@ -94,7 +95,7 @@ void PathTracing::initGame(Application& app) {
         that->m_framesSinceCameraMoved = 0;
 
         that->m_rtPass.tryRecompile(app);
-        that->m_probePass.tryRecompile(app);
+        // that->m_probePass.tryRecompile(app);
         that->m_pointLights.getShadowMapPass().tryRecompile(app);
         that->m_displayPass.tryRecompile(app);
       });
@@ -453,7 +454,7 @@ void PathTracing::createRayTracingPass(
         GEngineDirectory + "/Shaders/GlobalIllumination/UpdateProbe.comp.glsl",
         defs);
 
-    m_probePass = ComputePipeline(app, std::move(computeBuilder));
+    // m_probePass = ComputePipeline(app, std::move(computeBuilder));
   }
 
   // Display Pass
@@ -483,7 +484,8 @@ void PathTracing::createRayTracingPass(
         .setDepthTesting(false)
 
         // Vertex shader
-        .addVertexShader(GEngineDirectory + "/Shaders/PathTracing/DisplayPass.vert")
+        .addVertexShader(
+            GEngineDirectory + "/Shaders/PathTracing/DisplayPass.vert")
         // Fragment shader
         .addFragmentShader(
             GEngineDirectory + "/Shaders/PathTracing/DisplayPass.frag")
@@ -491,7 +493,8 @@ void PathTracing::createRayTracingPass(
         // Pipeline resource layouts
         .layoutBuilder
         // Global resources (view, projection, environment map)
-        .addDescriptorSet(m_heap.getDescriptorSetLayout());
+        .addDescriptorSet(m_heap.getDescriptorSetLayout())
+        .addPushConstants<DisplayPush>(VK_SHADER_STAGE_ALL);
   }
 
   m_displayPass = RenderPass(
@@ -554,14 +557,15 @@ void PathTracing::draw(
   {
     RTPush push{};
     push.globalResourcesHandle = m_globalResources.getHandle().index;
-    push.globalUniformsHandle = m_globalUniforms.getCurrentBindlessHandle(frame).index;
-    
+    push.globalUniformsHandle =
+        m_globalUniforms.getCurrentBindlessHandle(frame).index;
+
     push.tlasHandle = m_accelerationStructure.getTlasHandle().index;
-    push.prevImgHandle = m_rtTargetHandle[readIndex].index; 
-    push.imgHandle = m_rtTargetHandle[m_targetIndex].index; 
+    push.prevImgHandle = m_rtTargetHandle[readIndex].index;
+    push.imgHandle = m_rtTargetHandle[m_targetIndex].index;
     push.prevDepthBufferHandle = m_depthBufferHandle[readIndex].index;
     push.depthBufferHandle = m_depthBufferHandle[m_targetIndex].index;
-    
+
     push.framesSinceCameraMoved = m_framesSinceCameraMoved;
 
     vkCmdBindPipeline(
@@ -587,7 +591,7 @@ void PathTracing::draw(
     m_rtPass.traceRays(app.getSwapChainExtent(), commandBuffer);
   }
 
- #if 0 
+#if 0 
   {
     vkCmdBindPipeline(
         commandBuffer,
@@ -628,6 +632,8 @@ void PathTracing::draw(
   // Display pass
   {
     DisplayPush push{};
+    push.globalUniformsHandle =
+        m_globalUniforms.getCurrentBindlessHandle(frame).index;
     push.imgHandle = m_rtTargetHandle[m_targetIndex].index;
 
     ActiveRenderPass pass = m_displayPass.begin(
