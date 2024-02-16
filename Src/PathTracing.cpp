@@ -134,11 +134,9 @@ void PathTracing::destroyRenderState(Application& app) {
   Primitive::resetPrimitiveIndexCount();
 
   m_accelerationStructure = {};
-  m_rtTarget[0] = {};
-  m_rtTarget[1] = {};
-  m_depthBuffer[0] = {};
-  m_depthBuffer[1] = {};
-  m_debugTarget = {};
+  m_rtTargets[0] = {};
+  m_rtTargets[1] = {};
+  // m_debugTarget = {};
   m_giUniforms = {};
   m_probes = {};
   m_spatialHash = {};
@@ -367,61 +365,57 @@ void PathTracing::createRayTracingPass(
 
   //DescriptorSetLayoutBuilder rayTracingMaterialLayout{};
   // TODO: Use ray queries in deferred pass instead
-  ImageOptions imageOptions{};
-  imageOptions.format = VK_FORMAT_R32G32B32A32_SFLOAT;
-  imageOptions.width = app.getSwapChainExtent().width;
-  imageOptions.height = app.getSwapChainExtent().height;
-  imageOptions.usage = VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 
-  ImageViewOptions viewOptions{};
-  viewOptions.format = imageOptions.format;
+  for (int i = 0; i < 2; ++i) {
+    ImageOptions imageOptions{};
+    imageOptions.format = VK_FORMAT_R32G32B32A32_SFLOAT;
+    imageOptions.width = app.getSwapChainExtent().width;
+    imageOptions.height = app.getSwapChainExtent().height;
+    imageOptions.usage =
+        VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 
-  SamplerOptions samplerOptions{};
-  samplerOptions.minFilter = VK_FILTER_NEAREST;
-  samplerOptions.magFilter = VK_FILTER_NEAREST;
+    ImageViewOptions viewOptions{};
+    viewOptions.format = imageOptions.format;
 
-  m_rtTarget[0].image = Image(app, imageOptions);
-  m_rtTarget[0].view = ImageView(app, m_rtTarget[0].image, viewOptions);
-  m_rtTarget[0].sampler = Sampler(app, samplerOptions);
-  m_rtTargetHandle[0] = m_heap.registerTexture();
-  m_heap.updateStorageImage(
-      m_rtTargetHandle[0],
-      m_rtTarget[0].view,
-      m_rtTarget[0].sampler);
+    SamplerOptions samplerOptions{};
+    samplerOptions.minFilter = VK_FILTER_NEAREST;
+    samplerOptions.magFilter = VK_FILTER_NEAREST;
 
-  m_rtTarget[1].image = Image(app, imageOptions);
-  m_rtTarget[1].view = ImageView(app, m_rtTarget[1].image, viewOptions);
-  m_rtTarget[1].sampler = Sampler(app, samplerOptions);
-  m_rtTargetHandle[1] = m_heap.registerTexture();
-  m_heap.updateStorageImage(
-      m_rtTargetHandle[1],
-      m_rtTarget[1].view,
-      m_rtTarget[1].sampler);
+    RtTarget& rtTarget = m_rtTargets[i];
+    rtTarget.target.image = Image(app, imageOptions);
+    rtTarget.target.view = ImageView(app, rtTarget.target.image, viewOptions);
+    rtTarget.target.sampler = Sampler(app, samplerOptions);
 
-  imageOptions.format = viewOptions.format = VK_FORMAT_R32_SFLOAT;
-  m_depthBuffer[0].image = Image(app, imageOptions);
-  m_depthBuffer[0].view = ImageView(app, m_depthBuffer[0].image, viewOptions);
-  m_depthBuffer[0].sampler = Sampler(app, {});
-  m_depthBufferHandle[0] = m_heap.registerTexture();
-  m_heap.updateStorageImage(
-      m_depthBufferHandle[0],
-      m_depthBuffer[0].view,
-      m_depthBuffer[0].sampler);
+    imageOptions.format = viewOptions.format = VK_FORMAT_R32_SFLOAT;
+    rtTarget.depthTarget.image = Image(app, imageOptions);
+    rtTarget.depthTarget.view =
+        ImageView(app, rtTarget.depthTarget.image, viewOptions);
+    rtTarget.depthTarget.sampler = Sampler(app, samplerOptions);
 
-  m_depthBuffer[1].image = Image(app, imageOptions);
-  m_depthBuffer[1].view = ImageView(app, m_depthBuffer[1].image, viewOptions);
-  m_depthBuffer[1].sampler = Sampler(app, {});
-  m_depthBufferHandle[1] = m_heap.registerTexture();
-  m_heap.updateStorageImage(
-      m_depthBufferHandle[1],
-      m_depthBuffer[1].view,
-      m_depthBuffer[1].sampler);
+    rtTarget.targetImageHandle = m_heap.registerImage();
+    m_heap.updateStorageImage(
+        rtTarget.targetImageHandle,
+        rtTarget.target.view,
+        rtTarget.target.sampler);
 
-  imageOptions.format = viewOptions.format = VK_FORMAT_R32G32B32A32_SFLOAT;
-  imageOptions.width = imageOptions.height = 128;
-  m_debugTarget.image = Image(app, imageOptions);
-  m_debugTarget.view = ImageView(app, m_debugTarget.image, viewOptions);
-  m_debugTarget.sampler = Sampler(app, {});
+    rtTarget.targetTextureHandle = m_heap.registerTexture();
+    m_heap.updateTexture(
+        rtTarget.targetTextureHandle,
+        rtTarget.target.view,
+        rtTarget.target.sampler);
+
+    rtTarget.depthImageHandle = m_heap.registerImage();
+    m_heap.updateStorageImage(
+        rtTarget.depthImageHandle,
+        rtTarget.depthTarget.view,
+        rtTarget.depthTarget.sampler);
+
+    rtTarget.depthTextureHandle = m_heap.registerTexture();
+    m_heap.updateTexture(
+        rtTarget.depthTextureHandle,
+        rtTarget.depthTarget.view,
+        rtTarget.depthTarget.sampler);
+  }
 
   ShaderDefines defs;
 
@@ -525,29 +519,29 @@ void PathTracing::draw(
 
   uint32_t readIndex = m_targetIndex ^ 1;
 
-  m_rtTarget[readIndex].image.transitionLayout(
+  m_rtTargets[readIndex].target.image.transitionLayout(
       commandBuffer,
       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
       VK_ACCESS_SHADER_READ_BIT,
       VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
-  m_rtTarget[m_targetIndex].image.transitionLayout(
+  m_rtTargets[m_targetIndex].target.image.transitionLayout(
       commandBuffer,
       VK_IMAGE_LAYOUT_GENERAL,
       VK_ACCESS_SHADER_WRITE_BIT,
       VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
-  m_debugTarget.image.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_GENERAL,
-      VK_ACCESS_SHADER_WRITE_BIT,
-      VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR |
-          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
+  // m_debugTargets.image.transitionLayout(
+  //     commandBuffer,
+  //     VK_IMAGE_LAYOUT_GENERAL,
+  //     VK_ACCESS_SHADER_WRITE_BIT,
+  //     VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR |
+  //         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
-  m_depthBuffer[readIndex].image.transitionLayout(
+  m_rtTargets[readIndex].depthTarget.image.transitionLayout(
       commandBuffer,
       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
       VK_ACCESS_SHADER_READ_BIT,
       VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
-  m_depthBuffer[m_targetIndex].image.transitionLayout(
+  m_rtTargets[m_targetIndex].depthTarget.image.transitionLayout(
       commandBuffer,
       VK_IMAGE_LAYOUT_GENERAL,
       VK_ACCESS_SHADER_WRITE_BIT,
@@ -561,10 +555,11 @@ void PathTracing::draw(
         m_globalUniforms.getCurrentBindlessHandle(frame).index;
 
     push.tlasHandle = m_accelerationStructure.getTlasHandle().index;
-    push.prevImgHandle = m_rtTargetHandle[readIndex].index;
-    push.imgHandle = m_rtTargetHandle[m_targetIndex].index;
-    push.prevDepthBufferHandle = m_depthBufferHandle[readIndex].index;
-    push.depthBufferHandle = m_depthBufferHandle[m_targetIndex].index;
+    push.prevImgHandle = m_rtTargets[readIndex].targetTextureHandle.index;
+    push.imgHandle = m_rtTargets[m_targetIndex].targetImageHandle.index;
+    push.prevDepthBufferHandle =
+        m_rtTargets[readIndex].depthTextureHandle.index;
+    push.depthBufferHandle = m_rtTargets[m_targetIndex].depthImageHandle.index;
 
     push.framesSinceCameraMoved = m_framesSinceCameraMoved;
 
@@ -618,23 +613,23 @@ void PathTracing::draw(
   }
 #endif
 
-  m_rtTarget[m_targetIndex].image.transitionLayout(
+  m_rtTargets[m_targetIndex].depthTarget.image.transitionLayout(
       commandBuffer,
       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
       VK_ACCESS_SHADER_READ_BIT,
       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-  m_debugTarget.image.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-      VK_ACCESS_SHADER_READ_BIT,
-      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+  // m_debugTarget.image.transitionLayout(
+  //     commandBuffer,
+  //     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+  //     VK_ACCESS_SHADER_READ_BIT,
+  //     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 
   // Display pass
   {
     DisplayPush push{};
     push.globalUniformsHandle =
         m_globalUniforms.getCurrentBindlessHandle(frame).index;
-    push.imgHandle = m_rtTargetHandle[m_targetIndex].index;
+    push.imgHandle = m_rtTargets[m_targetIndex].targetTextureHandle.index;
 
     ActiveRenderPass pass = m_displayPass.begin(
         app,

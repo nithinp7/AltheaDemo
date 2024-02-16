@@ -113,12 +113,17 @@ private:
   RayTracingPipeline m_rtPass;
   
    // ping-pong buffers
-  ImageResource m_rtTarget[2];
-  ImageHandle m_rtTargetHandle[2];
-  ImageResource m_depthBuffer[2];
-  ImageHandle m_depthBufferHandle[2];
-  ImageResource m_debugTarget;
+  struct RtTarget {
+    ImageResource target{};
+    ImageHandle targetImageHandle{};
+    TextureHandle targetTextureHandle{};
 
+    ImageResource depthTarget{};
+    ImageHandle depthImageHandle{};
+    TextureHandle depthTextureHandle{};
+  };
+  RtTarget m_rtTargets[2];
+  
   ComputePipeline m_probePass;
 
   TransientUniforms<GlobalIlluminationUniforms> m_giUniforms;

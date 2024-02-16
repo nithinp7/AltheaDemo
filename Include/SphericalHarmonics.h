@@ -90,7 +90,7 @@ private:
   RenderPass _graphPass;
   FrameBuffer _graphFrameBuffer;
   ImageResource _graph;
-  ImageHandle _graphHandle;
+  TextureHandle _graphHandle;
 
   void _createComputePass(Application& app);
   ComputePipeline _fitLegendre;
