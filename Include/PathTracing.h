@@ -51,6 +51,9 @@ struct GlobalIlluminationUniforms {
   uint32_t depthSamplers[2];
   uint32_t depthTargets[2];
 
+  uint32_t targetWidth;
+  uint32_t targetHeight;
+  
   uint32_t writeIndex;
 
   uint32_t reservoirHeap;
@@ -122,8 +125,6 @@ private:
   };
   RtTarget m_rtTargets[2];
   
-  ComputePipeline m_probePass;
-
   TransientUniforms<GlobalIlluminationUniforms> m_giUniforms;
   std::vector<StructuredBuffer<Reservoir>> m_reservoirHeap;
 

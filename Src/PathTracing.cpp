@@ -28,8 +28,7 @@
 
 using namespace AltheaEngine;
 
-#define RESERVOIR_COUNT_PER_BUFFER 16383 
-//65535
+#define RESERVOIR_COUNT_PER_BUFFER 16383
 
 namespace AltheaDemo {
 namespace PathTracing {
@@ -76,7 +75,6 @@ void PathTracing::initGame(Application& app) {
         that->m_framesSinceCameraMoved = 0;
 
         that->m_rtPass.tryRecompile(app);
-        // that->m_probePass.tryRecompile(app);
         that->m_pointLights.getShadowMapPass().tryRecompile(app);
         that->m_displayPass.tryRecompile(app);
       });
@@ -120,7 +118,6 @@ void PathTracing::destroyRenderState(Application& app) {
   m_giUniforms = {};
 
   m_rtPass = {};
-  m_probePass = {};
   m_displayPass = {};
   m_displayPassSwapChainFrameBuffers = {};
 
@@ -210,6 +207,9 @@ void PathTracing::tick(Application& app, const FrameContext& frame) {
 
   giUniforms.depthTargets[0] = m_rtTargets[0].depthImageHandle.index;
   giUniforms.depthTargets[1] = m_rtTargets[1].depthImageHandle.index;
+
+  giUniforms.targetWidth = app.getSwapChainExtent().width;
+  giUniforms.targetHeight = app.getSwapChainExtent().height;
 
   giUniforms.writeIndex = m_targetIndex;
 
@@ -339,11 +339,13 @@ void PathTracing::createGlobalResources(
     m_reservoirHeap.reserve(bufferCount);
 
     for (uint32_t bufferIdx = 0; bufferIdx < bufferCount; ++bufferIdx) {
-      auto& buffer = m_reservoirHeap.emplace_back(app, RESERVOIR_COUNT_PER_BUFFER);
+      auto& buffer =
+          m_reservoirHeap.emplace_back(app, RESERVOIR_COUNT_PER_BUFFER);
       for (uint32_t i = 0; i < RESERVOIR_COUNT_PER_BUFFER; ++i)
         buffer.setElement({}, i);
       buffer.upload(app, commandBuffer);
-      // These buffers are registered sequentially, we use this assumption in the shader
+      // These buffers are registered sequentially, we use this assumption in
+      // the shader
       buffer.registerToHeap(m_heap);
     }
   }
@@ -354,33 +356,6 @@ void PathTracing::createRayTracingPass(
     SingleTimeCommandBuffer& commandBuffer) {
   m_giUniforms = TransientUniforms<GlobalIlluminationUniforms>(app);
   m_giUniforms.registerToHeap(m_heap);
-
-  // std::vector<StructuredBuffer<Probe>> bucketBuffers;
-  // uint32_t probeBufferCount = (PROBE_COUNT - 1) / PROBES_PER_BUFFER + 1;
-  // bucketBuffers.reserve(probeBufferCount);
-  // for (uint32_t i = 0; i < probeBufferCount; ++i) {
-  //   bucketBuffers.emplace_back(app, PROBES_PER_BUFFER);
-  // }
-  // m_probes = StructuredBufferHeap<Probe>(std::move(bucketBuffers));
-  // m_probes.registerToHeap(m_heap);
-
-  // std::vector<StructuredBuffer<uint32_t>> hashBuffers;
-  // uint32_t hashBufferCount =
-  //     (SPATIAL_HASH_SIZE - 1) / SPATIAL_HASH_SLOTS_PER_BUFFER + 1;
-  // hashBuffers.reserve(hashBufferCount);
-  // for (uint32_t i = 0; i < hashBufferCount; ++i) {
-  //   hashBuffers.emplace_back(app, SPATIAL_HASH_SLOTS_PER_BUFFER);
-  // }
-  // m_spatialHash = StructuredBufferHeap<uint32_t>(std::move(hashBuffers));
-
-  // m_freeList = StructuredBuffer<FreeList>(app, 1);
-  // m_freeList.setElement({0}, 0);
-  // m_freeList.upload(app, commandBuffer);
-
-  // m_probes = StructuredBufferHeap<ProbeBucket>()
-
-  //DescriptorSetLayoutBuilder rayTracingMaterialLayout{};
-  // TODO: Use ray queries in deferred pass instead
 
   for (int i = 0; i < 2; ++i) {
     ImageOptions imageOptions{};
@@ -572,6 +547,28 @@ void PathTracing::draw(
       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
       VK_ACCESS_SHADER_READ_BIT,
       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+
+  for (auto& buffer : m_reservoirHeap) {
+    VkBufferMemoryBarrier barrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+    barrier.buffer = buffer.getAllocation().getBuffer();
+    barrier.offset = 0;
+    barrier.size = buffer.getSize();
+    barrier.srcAccessMask =
+        VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    vkCmdPipelineBarrier(
+        commandBuffer,
+        VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        0,
+        0,
+        nullptr,
+        1,
+        &barrier,
+        0,
+        nullptr);
+  }
 
   // Display pass
   {
