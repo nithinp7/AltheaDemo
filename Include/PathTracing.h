@@ -44,34 +44,32 @@ namespace AltheaDemo {
 namespace PathTracing {
 
 struct GlobalIlluminationUniforms {
-  uint32_t spatialHashSize;
-  uint32_t spatialHashSlotsPerBuffer;
-  uint32_t probeCount;
-  uint32_t probesPerBuffer;
+  uint32_t tlas;
 
-  float gridCellSize;
-  float padding1;
-  float padding2;
-  float padding3;
+  uint32_t colorSamplers[2];
+  uint32_t colorTargets[2];
+  uint32_t depthSamplers[2];
+  uint32_t depthTargets[2];
+
+  uint32_t writeIndex;
+
+  uint32_t reservoirHeap;
+  uint32_t reservoirsPerBuffer;
+
+  uint32_t framesSinceCameraMoved;
 };
 
-struct FreeList {
-  uint32_t counter;
+struct GISample {
+  alignas(16) glm::vec3 dir;
+  alignas(8) float W;
+  alignas(16) glm::vec3 radiance;
+  alignas(4) float padding; 
 };
 
-// 32 bytes
-struct ProbeSlot {
-  glm::vec4 irradiance;
-  int gridX;
-  int gridY;
-  int gridZ;
-  int dbg;
-};
-
-// 128 bytes
-// fits perfectly into cache line (hopefully)
-struct Probe {
-  ProbeSlot slots[4];
+struct Reservoir {
+  GISample samples[8];
+  uint32_t sampleCount = 0;
+  float wSum = 0.0f;
 };
 
 class PathTracing : public IGameInstance {
@@ -127,9 +125,7 @@ private:
   ComputePipeline m_probePass;
 
   TransientUniforms<GlobalIlluminationUniforms> m_giUniforms;
-  StructuredBufferHeap<Probe> m_probes;
-  StructuredBufferHeap<uint32_t> m_spatialHash;
-  StructuredBuffer<FreeList> m_freeList;
+  std::vector<StructuredBuffer<Reservoir>> m_reservoirHeap;
 
   RenderPass m_displayPass;
   SwapChainFrameBufferCollection m_displayPassSwapChainFrameBuffers;

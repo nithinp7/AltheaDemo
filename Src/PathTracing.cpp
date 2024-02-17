@@ -28,11 +28,8 @@
 
 using namespace AltheaEngine;
 
-#define PROBE_COUNT 100000
-#define PROBES_PER_BUFFER (PROBE_COUNT)
-
-#define SPATIAL_HASH_SIZE (PROBES_PER_BUFFER)
-#define SPATIAL_HASH_SLOTS_PER_BUFFER (SPATIAL_HASH_SIZE)
+#define RESERVOIR_COUNT_PER_BUFFER 16383 
+//65535
 
 namespace AltheaDemo {
 namespace PathTracing {
@@ -41,23 +38,7 @@ namespace {
 struct RTPush {
   uint32_t globalResourcesHandle;
   uint32_t globalUniformsHandle;
-  uint32_t tlasHandle;
-
-  uint32_t prevImgHandle;
-  uint32_t imgHandle;
-  uint32_t prevDepthBufferHandle;
-  uint32_t depthBufferHandle;
-
-  uint32_t framesSinceCameraMoved;
-};
-
-struct ProbePush {
-  uint32_t tmp;
-};
-
-struct DisplayPush {
-  uint32_t globalUniformsHandle;
-  uint32_t imgHandle;
+  uint32_t giUniformsHandle;
 };
 } // namespace
 
@@ -136,11 +117,7 @@ void PathTracing::destroyRenderState(Application& app) {
   m_accelerationStructure = {};
   m_rtTargets[0] = {};
   m_rtTargets[1] = {};
-  // m_debugTarget = {};
   m_giUniforms = {};
-  m_probes = {};
-  m_spatialHash = {};
-  m_freeList = {};
 
   m_rtPass = {};
   m_probePass = {};
@@ -151,6 +128,8 @@ void PathTracing::destroyRenderState(Application& app) {
   m_globalUniforms = {};
   m_pointLights = {};
   m_primitiveConstantsBuffer = {};
+
+  m_reservoirHeap.clear();
 
   m_heap = {};
 }
@@ -214,13 +193,30 @@ void PathTracing::tick(Application& app, const FrameContext& frame) {
 
   m_pointLights.updateResource(frame);
 
-  GlobalIlluminationUniforms giUniforms{};
-  giUniforms.probeCount = PROBE_COUNT;
-  giUniforms.probesPerBuffer = PROBES_PER_BUFFER;
-  giUniforms.spatialHashSize = SPATIAL_HASH_SIZE;
-  giUniforms.spatialHashSlotsPerBuffer = SPATIAL_HASH_SLOTS_PER_BUFFER;
+  uint32_t readIndex = m_targetIndex ^ 1;
 
-  giUniforms.gridCellSize = 0.1f;
+  GlobalIlluminationUniforms giUniforms{};
+
+  giUniforms.tlas = m_accelerationStructure.getTlasHandle().index;
+
+  giUniforms.colorSamplers[0] = m_rtTargets[0].targetTextureHandle.index;
+  giUniforms.colorSamplers[1] = m_rtTargets[1].targetTextureHandle.index;
+
+  giUniforms.colorTargets[0] = m_rtTargets[0].targetImageHandle.index;
+  giUniforms.colorTargets[1] = m_rtTargets[1].targetImageHandle.index;
+
+  giUniforms.depthSamplers[0] = m_rtTargets[0].depthTextureHandle.index;
+  giUniforms.depthSamplers[1] = m_rtTargets[1].depthTextureHandle.index;
+
+  giUniforms.depthTargets[0] = m_rtTargets[0].depthImageHandle.index;
+  giUniforms.depthTargets[1] = m_rtTargets[1].depthImageHandle.index;
+
+  giUniforms.writeIndex = m_targetIndex;
+
+  giUniforms.reservoirHeap = m_reservoirHeap[0].getHandle().index;
+  giUniforms.reservoirsPerBuffer = RESERVOIR_COUNT_PER_BUFFER;
+
+  giUniforms.framesSinceCameraMoved = m_framesSinceCameraMoved;
 
   m_giUniforms.updateUniforms(giUniforms, frame);
 }
@@ -331,6 +327,26 @@ void PathTracing::createGlobalResources(
       m_pointLights.getShadowMapHandle(),
       m_primitiveConstantsBuffer.getHandle());
   m_globalUniforms = GlobalUniformsResource(app, m_heap);
+
+  // TODO: Make this buffer smaller...
+  VkExtent2D extent = app.getSwapChainExtent();
+
+  {
+    uint32_t reservoirCount = extent.width * extent.height;
+    uint32_t bufferCount =
+        (reservoirCount - 1) / RESERVOIR_COUNT_PER_BUFFER + 1;
+
+    m_reservoirHeap.reserve(bufferCount);
+
+    for (uint32_t bufferIdx = 0; bufferIdx < bufferCount; ++bufferIdx) {
+      auto& buffer = m_reservoirHeap.emplace_back(app, RESERVOIR_COUNT_PER_BUFFER);
+      for (uint32_t i = 0; i < RESERVOIR_COUNT_PER_BUFFER; ++i)
+        buffer.setElement({}, i);
+      buffer.upload(app, commandBuffer);
+      // These buffers are registered sequentially, we use this assumption in the shader
+      buffer.registerToHeap(m_heap);
+    }
+  }
 }
 
 void PathTracing::createRayTracingPass(
@@ -438,19 +454,6 @@ void PathTracing::createRayTracingPass(
 
   m_rtPass = RayTracingPipeline(app, std::move(builder));
 
-  {
-    ComputePipelineBuilder computeBuilder{};
-    computeBuilder.layoutBuilder
-        .addDescriptorSet(m_heap.getDescriptorSetLayout())
-        .addPushConstants<uint32_t>(VK_SHADER_STAGE_ALL);
-
-    computeBuilder.setComputeShader(
-        GEngineDirectory + "/Shaders/GlobalIllumination/UpdateProbe.comp.glsl",
-        defs);
-
-    // m_probePass = ComputePipeline(app, std::move(computeBuilder));
-  }
-
   // Display Pass
   VkClearValue colorClear;
   colorClear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
@@ -488,7 +491,7 @@ void PathTracing::createRayTracingPass(
         .layoutBuilder
         // Global resources (view, projection, environment map)
         .addDescriptorSet(m_heap.getDescriptorSetLayout())
-        .addPushConstants<DisplayPush>(VK_SHADER_STAGE_ALL);
+        .addPushConstants<RTPush>(VK_SHADER_STAGE_ALL);
   }
 
   m_displayPass = RenderPass(
@@ -507,15 +510,13 @@ void PathTracing::draw(
     const FrameContext& frame) {
   VkDescriptorSet heapSet = m_heap.getDescriptorSet();
 
-  m_pointLights.updateResource(frame);
+  RTPush push{};
+  push.globalResourcesHandle = m_globalResources.getHandle().index;
+  push.globalUniformsHandle =
+      m_globalUniforms.getCurrentBindlessHandle(frame).index;
+  push.giUniformsHandle = m_giUniforms.getCurrentHandle(frame).index;
 
-  // Draw point light shadow maps
-  // m_pointLights.drawShadowMaps(
-  //     app,
-  //     commandBuffer,
-  //     frame,
-  //     m_models,
-  //     globalDescriptorSet);
+  m_pointLights.updateResource(frame);
 
   uint32_t readIndex = m_targetIndex ^ 1;
 
@@ -529,12 +530,6 @@ void PathTracing::draw(
       VK_IMAGE_LAYOUT_GENERAL,
       VK_ACCESS_SHADER_WRITE_BIT,
       VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
-  // m_debugTargets.image.transitionLayout(
-  //     commandBuffer,
-  //     VK_IMAGE_LAYOUT_GENERAL,
-  //     VK_ACCESS_SHADER_WRITE_BIT,
-  //     VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR |
-  //         VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT);
 
   m_rtTargets[readIndex].depthTarget.image.transitionLayout(
       commandBuffer,
@@ -549,20 +544,6 @@ void PathTracing::draw(
 
   // VkDescriptorSet rtDescSets = { globalDescriptorSet, this?}
   {
-    RTPush push{};
-    push.globalResourcesHandle = m_globalResources.getHandle().index;
-    push.globalUniformsHandle =
-        m_globalUniforms.getCurrentBindlessHandle(frame).index;
-
-    push.tlasHandle = m_accelerationStructure.getTlasHandle().index;
-    push.prevImgHandle = m_rtTargets[readIndex].targetTextureHandle.index;
-    push.imgHandle = m_rtTargets[m_targetIndex].targetImageHandle.index;
-    push.prevDepthBufferHandle =
-        m_rtTargets[readIndex].depthTextureHandle.index;
-    push.depthBufferHandle = m_rtTargets[m_targetIndex].depthImageHandle.index;
-
-    push.framesSinceCameraMoved = m_framesSinceCameraMoved;
-
     vkCmdBindPipeline(
         commandBuffer,
         VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
@@ -586,51 +567,14 @@ void PathTracing::draw(
     m_rtPass.traceRays(app.getSwapChainExtent(), commandBuffer);
   }
 
-#if 0 
-  {
-    vkCmdBindPipeline(
-        commandBuffer,
-        VK_PIPELINE_BIND_POINT_COMPUTE,
-        m_probePass.getPipeline());
-    vkCmdBindDescriptorSets(
-        commandBuffer,
-        VK_PIPELINE_BIND_POINT_COMPUTE,
-        m_probePass.getLayout(),
-        0,
-        1,
-        &heapSet,
-        0,
-        nullptr);
-    vkCmdPushConstants(
-        commandBuffer,
-        m_probePass.getLayout(),
-        VK_SHADER_STAGE_ALL,
-        0,
-        sizeof(uint32_t),
-        &m_framesSinceCameraMoved);
-    uint32_t groupCount = PROBE_COUNT / 32;
-    vkCmdDispatch(commandBuffer, groupCount, 1, 1);
-  }
-#endif
-
   m_rtTargets[m_targetIndex].depthTarget.image.transitionLayout(
       commandBuffer,
       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
       VK_ACCESS_SHADER_READ_BIT,
       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-  // m_debugTarget.image.transitionLayout(
-  //     commandBuffer,
-  //     VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-  //     VK_ACCESS_SHADER_READ_BIT,
-  //     VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 
   // Display pass
   {
-    DisplayPush push{};
-    push.globalUniformsHandle =
-        m_globalUniforms.getCurrentBindlessHandle(frame).index;
-    push.imgHandle = m_rtTargets[m_targetIndex].targetTextureHandle.index;
-
     ActiveRenderPass pass = m_displayPass.begin(
         app,
         commandBuffer,
