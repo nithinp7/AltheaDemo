@@ -332,7 +332,7 @@ void PathTracing::createGlobalResources(
   VkExtent2D extent = app.getSwapChainExtent();
 
   {
-    uint32_t reservoirCount = extent.width * extent.height;
+    uint32_t reservoirCount = 2 * extent.width * extent.height;
     uint32_t bufferCount =
         (reservoirCount - 1) / RESERVOIR_COUNT_PER_BUFFER + 1;
 
@@ -341,9 +341,7 @@ void PathTracing::createGlobalResources(
     for (uint32_t bufferIdx = 0; bufferIdx < bufferCount; ++bufferIdx) {
       auto& buffer =
           m_reservoirHeap.emplace_back(app, RESERVOIR_COUNT_PER_BUFFER);
-      for (uint32_t i = 0; i < RESERVOIR_COUNT_PER_BUFFER; ++i)
-        buffer.setElement({}, i);
-      buffer.upload(app, commandBuffer);
+      buffer.zeroBuffer(commandBuffer);
       // These buffers are registered sequentially, we use this assumption in
       // the shader
       buffer.registerToHeap(m_heap);
