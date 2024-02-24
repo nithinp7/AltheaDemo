@@ -34,6 +34,13 @@ namespace AltheaDemo {
 namespace PathTracing {
 
 namespace {
+struct GBufferPush {
+  glm::mat4 transform;
+  uint32_t primitiveIdx;
+  uint32_t globalResourcesHandle;
+  uint32_t globalUniformsHandle;
+};
+
 struct RTPush {
   uint32_t globalResourcesHandle;
   uint32_t globalUniformsHandle;
@@ -74,6 +81,7 @@ void PathTracing::initGame(Application& app) {
       [&app, that = this]() {
         that->m_framesSinceCameraMoved = 0;
 
+        that->m_gBufferPass.tryRecompile(app);
         that->m_rtPass.tryRecompile(app);
         that->m_pointLights.getShadowMapPass().tryRecompile(app);
         that->m_displayPass.tryRecompile(app);
@@ -105,6 +113,7 @@ void PathTracing::createRenderState(Application& app) {
 
   SingleTimeCommandBuffer commandBuffer(app);
   createGlobalResources(app, commandBuffer);
+  createGBufferPass(app, commandBuffer);
   createRayTracingPass(app, commandBuffer);
 }
 
@@ -117,6 +126,8 @@ void PathTracing::destroyRenderState(Application& app) {
   m_rtTargets[1] = {};
   m_giUniforms = {};
 
+  m_gBufferPass = {};
+  m_gBufferFrameBuffer = {};
   m_rtPass = {};
   m_displayPass = {};
   m_displayPassSwapChainFrameBuffers = {};
@@ -349,6 +360,59 @@ void PathTracing::createGlobalResources(
   }
 }
 
+void PathTracing::createGBufferPass(
+    Application& app,
+    SingleTimeCommandBuffer& commandBuffer) {
+
+  std::vector<SubpassBuilder> builders;
+  {
+    SubpassBuilder& builder = builders.emplace_back();
+
+    // The GBuffer contains the following color attachments
+    // 1. Position
+    // 2. Normal
+    // 3. Albedo
+    // 4. Metallic-Roughness-Occlusion
+    builder.colorAttachments = {0, 1, 2, 3};
+    builder.depthAttachment = 4;
+
+    Primitive::buildPipeline(builder.pipelineBuilder);
+
+    ShaderDefines defs;
+    defs.emplace("BINDLESS_SET", "0");
+
+    builder
+        .pipelineBuilder
+        // Vertex shader
+        .addVertexShader(
+            GEngineDirectory + "/Shaders/GltfForwardBindless.vert",
+            defs)
+        // Fragment shader
+        .addFragmentShader(
+            GEngineDirectory + "/Shaders/GltfForwardBindless.frag",
+            defs)
+
+        // Pipeline resource layouts
+        .layoutBuilder
+        // Global resources (view, projection, environment map)
+        .addDescriptorSet(this->m_heap.getDescriptorSetLayout())
+        .addPushConstants<GBufferPush>(VK_SHADER_STAGE_ALL);
+  }
+
+  const GBufferResources& gBuffer = m_globalResources.getGBuffer();
+  std::vector<Attachment> attachments = gBuffer.getAttachmentDescriptions();
+
+  const VkExtent2D& extent = app.getSwapChainExtent();
+  this->m_gBufferPass =
+      RenderPass(app, extent, std::move(attachments), std::move(builders));
+
+  this->m_gBufferFrameBuffer = FrameBuffer(
+      app,
+      this->m_gBufferPass,
+      extent,
+      gBuffer.getAttachmentViews());
+}
+
 void PathTracing::createRayTracingPass(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
@@ -483,15 +547,38 @@ void PathTracing::draw(
     const FrameContext& frame) {
   VkDescriptorSet heapSet = m_heap.getDescriptorSet();
 
-  RTPush push{};
-  push.globalResourcesHandle = m_globalResources.getHandle().index;
-  push.globalUniformsHandle =
-      m_globalUniforms.getCurrentBindlessHandle(frame).index;
-  push.giUniformsHandle = m_giUniforms.getCurrentHandle(frame).index;
-
   m_pointLights.updateResource(frame);
 
   uint32_t readIndex = m_targetIndex ^ 1;
+
+  m_globalResources.getGBuffer().transitionToAttachment(commandBuffer);
+
+  {
+    GBufferPush push{};
+    push.globalResourcesHandle = m_globalResources.getHandle().index;
+    push.globalUniformsHandle =
+        m_globalUniforms.getCurrentBindlessHandle(frame).index;
+
+    ActiveRenderPass draw =
+        m_gBufferPass.begin(app, commandBuffer, frame, m_gBufferFrameBuffer);
+    draw.setGlobalDescriptorSets(gsl::span(&heapSet, 1));
+
+    const DrawContext& context = draw.getDrawContext();
+    for (const Model& model : m_models) {
+      for (const Primitive& primitive : model.getPrimitives()) {
+        push.transform = primitive.computeWorldTransform();
+        push.primitiveIdx = primitive.getPrimitiveIndex();
+
+        context.updatePushConstants(push, 0);
+
+        context.setFrontFaceDynamic(primitive.getFrontFace());
+        context.bindDescriptorSets();
+        context.drawIndexed(primitive.getVertexBuffer(), primitive.getIndexBuffer());
+      }
+    }
+  }
+
+  m_globalResources.getGBuffer().transitionToTextures(commandBuffer);
 
   m_rtTargets[readIndex].target.image.transitionLayout(
       commandBuffer,
@@ -515,8 +602,13 @@ void PathTracing::draw(
       VK_ACCESS_SHADER_WRITE_BIT,
       VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
 
-  // VkDescriptorSet rtDescSets = { globalDescriptorSet, this?}
   {
+    RTPush push{};
+    push.globalResourcesHandle = m_globalResources.getHandle().index;
+    push.globalUniformsHandle =
+        m_globalUniforms.getCurrentBindlessHandle(frame).index;
+    push.giUniformsHandle = m_giUniforms.getCurrentHandle(frame).index;
+
     vkCmdBindPipeline(
         commandBuffer,
         VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
@@ -570,6 +662,12 @@ void PathTracing::draw(
 
   // Display pass
   {
+    RTPush push{};
+    push.globalResourcesHandle = m_globalResources.getHandle().index;
+    push.globalUniformsHandle =
+        m_globalUniforms.getCurrentBindlessHandle(frame).index;
+    push.giUniformsHandle = m_giUniforms.getCurrentHandle(frame).index;
+
     ActiveRenderPass pass = m_displayPass.begin(
         app,
         commandBuffer,

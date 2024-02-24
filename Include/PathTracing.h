@@ -109,6 +109,10 @@ private:
   PointLightCollection m_pointLights;
   StructuredBuffer<PrimitiveConstants> m_primitiveConstantsBuffer; 
   AccelerationStructure m_accelerationStructure;
+
+  void createGBufferPass(Application& app, SingleTimeCommandBuffer& commandBuffer);
+  RenderPass m_gBufferPass;
+  FrameBuffer m_gBufferFrameBuffer;
   
   void createRayTracingPass(Application& app, SingleTimeCommandBuffer& commandBuffer);
   RayTracingPipeline m_rtPass;
