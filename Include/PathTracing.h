@@ -48,8 +48,6 @@ struct GlobalIlluminationUniforms {
 
   uint32_t colorSamplers[2];
   uint32_t colorTargets[2];
-  uint32_t depthSamplers[2];
-  uint32_t depthTargets[2];
 
   uint32_t targetWidth;
   uint32_t targetHeight;
@@ -122,10 +120,6 @@ private:
     ImageResource target{};
     ImageHandle targetImageHandle{};
     TextureHandle targetTextureHandle{};
-
-    ImageResource depthTarget{};
-    ImageHandle depthImageHandle{};
-    TextureHandle depthTextureHandle{};
   };
   RtTarget m_rtTargets[2];
   

@@ -213,12 +213,6 @@ void PathTracing::tick(Application& app, const FrameContext& frame) {
   giUniforms.colorTargets[0] = m_rtTargets[0].targetImageHandle.index;
   giUniforms.colorTargets[1] = m_rtTargets[1].targetImageHandle.index;
 
-  giUniforms.depthSamplers[0] = m_rtTargets[0].depthTextureHandle.index;
-  giUniforms.depthSamplers[1] = m_rtTargets[1].depthTextureHandle.index;
-
-  giUniforms.depthTargets[0] = m_rtTargets[0].depthImageHandle.index;
-  giUniforms.depthTargets[1] = m_rtTargets[1].depthImageHandle.index;
-
   giUniforms.targetWidth = app.getSwapChainExtent().width;
   giUniforms.targetHeight = app.getSwapChainExtent().height;
 
@@ -439,12 +433,6 @@ void PathTracing::createRayTracingPass(
     rtTarget.target.view = ImageView(app, rtTarget.target.image, viewOptions);
     rtTarget.target.sampler = Sampler(app, samplerOptions);
 
-    imageOptions.format = viewOptions.format = VK_FORMAT_R32_SFLOAT;
-    rtTarget.depthTarget.image = Image(app, imageOptions);
-    rtTarget.depthTarget.view =
-        ImageView(app, rtTarget.depthTarget.image, viewOptions);
-    rtTarget.depthTarget.sampler = Sampler(app, samplerOptions);
-
     rtTarget.targetImageHandle = m_heap.registerImage();
     m_heap.updateStorageImage(
         rtTarget.targetImageHandle,
@@ -456,25 +444,13 @@ void PathTracing::createRayTracingPass(
         rtTarget.targetTextureHandle,
         rtTarget.target.view,
         rtTarget.target.sampler);
-
-    rtTarget.depthImageHandle = m_heap.registerImage();
-    m_heap.updateStorageImage(
-        rtTarget.depthImageHandle,
-        rtTarget.depthTarget.view,
-        rtTarget.depthTarget.sampler);
-
-    rtTarget.depthTextureHandle = m_heap.registerTexture();
-    m_heap.updateTexture(
-        rtTarget.depthTextureHandle,
-        rtTarget.depthTarget.view,
-        rtTarget.depthTarget.sampler);
   }
 
   ShaderDefines defs;
 
   RayTracingPipelineBuilder builder{};
   builder.setRayGenShader(
-      GEngineDirectory + "/Shaders/PathTracing/PathTrace.glsl",
+      GEngineDirectory + "/Shaders/PathTracing/SpatialResampling.glsl",
       defs);
   builder.addMissShader(
       GEngineDirectory + "/Shaders/PathTracing/PathTrace.miss.glsl",
@@ -591,17 +567,6 @@ void PathTracing::draw(
       VK_ACCESS_SHADER_WRITE_BIT,
       VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
 
-  m_rtTargets[readIndex].depthTarget.image.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-      VK_ACCESS_SHADER_READ_BIT,
-      VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
-  m_rtTargets[m_targetIndex].depthTarget.image.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_GENERAL,
-      VK_ACCESS_SHADER_WRITE_BIT,
-      VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
-
   {
     RTPush push{};
     push.globalResourcesHandle = m_globalResources.getHandle().index;
@@ -631,12 +596,6 @@ void PathTracing::draw(
         &push);
     m_rtPass.traceRays(app.getSwapChainExtent(), commandBuffer);
   }
-
-  m_rtTargets[m_targetIndex].depthTarget.image.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-      VK_ACCESS_SHADER_READ_BIT,
-      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 
   for (auto& buffer : m_reservoirHeap) {
     VkBufferMemoryBarrier barrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
