@@ -625,13 +625,7 @@ void ParticleSystem::_createForwardPass(Application& app) {
   //  FORWARD GLTF PASS
   {
     SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
-    // The GBuffer contains the following color attachments
-    // 1. Position
-    // 2. Normal
-    // 3. Albedo
-    // 4. Metallic-Roughness-Occlusion
-    subpassBuilder.colorAttachments = {0, 1, 2, 3};
-    subpassBuilder.depthAttachment = 4;
+    GBufferResources::setupAttachments(subpassBuilder);
 
     Primitive::buildPipeline(subpassBuilder.pipelineBuilder);
 
@@ -664,13 +658,7 @@ void ParticleSystem::_createForwardPass(Application& app) {
 #endif
 
     SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
-    // The GBuffer contains the following color attachments
-    // 1. Position
-    // 2. Normal
-    // 3. Albedo
-    // 4. Metallic-Roughness-Occlusion
-    subpassBuilder.colorAttachments = {0, 1, 2, 3};
-    subpassBuilder.depthAttachment = 4;
+    GBufferResources::setupAttachments(subpassBuilder);
 
     subpassBuilder.pipelineBuilder
         .setPrimitiveType(PrimitiveType::TRIANGLES)
@@ -692,13 +680,7 @@ void ParticleSystem::_createForwardPass(Application& app) {
   // Render floor
   {
     SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
-    // The GBuffer contains the following color attachments
-    // 1. Position
-    // 2. Normal
-    // 3. Albedo
-    // 4. Metallic-Roughness-Occlusion
-    subpassBuilder.colorAttachments = {0, 1, 2, 3};
-    subpassBuilder.depthAttachment = 4;
+    GBufferResources::setupAttachments(subpassBuilder);
 
     subpassBuilder.pipelineBuilder.setPrimitiveType(PrimitiveType::TRIANGLES)
         .setCullMode(VK_CULL_MODE_FRONT_BIT)
@@ -736,15 +718,6 @@ void ParticleSystem::_createDeferredPass(Application& app) {
           colorClear,
           true,
           false,
-          true},
-
-      // Depth buffer
-      Attachment{
-          ATTACHMENT_FLAG_DEPTH,
-          app.getDepthImageFormat(),
-          depthClear,
-          false,
-          true,
           true}};
 
   std::vector<SubpassBuilder> subpassBuilders;
@@ -787,10 +760,8 @@ void ParticleSystem::_createDeferredPass(Application& app) {
       std::move(attachments),
       std::move(subpassBuilders));
 
-  this->_swapChainFrameBuffers = SwapChainFrameBufferCollection(
-      app,
-      this->_deferredPass,
-      {app.getDepthImageView()});
+  this->_swapChainFrameBuffers =
+      SwapChainFrameBufferCollection(app, this->_deferredPass, {});
 }
 
 namespace {
@@ -1211,8 +1182,13 @@ void ParticleSystem::draw(
 
   // Reflection buffer and convolution
   {
-    this->_pSSR
-        ->captureReflection(app, commandBuffer, globalDescriptorSet, frame, {}, {});
+    this->_pSSR->captureReflection(
+        app,
+        commandBuffer,
+        globalDescriptorSet,
+        frame,
+        {},
+        {});
     this->_pSSR->convolveReflectionBuffer(app, commandBuffer, frame);
   }
 

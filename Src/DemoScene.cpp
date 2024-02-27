@@ -259,22 +259,22 @@ void DemoScene::_createGlobalResources(
     //     9,
     //     true,
     //     this->_pGltfMaterialAllocator->getLayout());
-    for (uint32_t i = 0; i < 3; ++i) {
-      for (uint32_t j = 0; j < 3; ++j) {
-        PointLight light;
-        float t = static_cast<float>(i * 3 + j);
+    // for (uint32_t i = 0; i < 3; ++i) {
+    //   for (uint32_t j = 0; j < 3; ++j) {
+    //     PointLight light;
+    //     float t = static_cast<float>(i * 3 + j);
 
-        light.position = 40.0f * glm::vec3(
-                                     static_cast<float>(i),
-                                     -0.1f,
-                                     (static_cast<float>(j) - 1.5f) * 0.5f);
-        light.emission =
-            1000.0f * // / static_cast<float>(i + 1) *
-            glm::vec3(cos(t) + 1.0f, sin(t + 1.0f) + 1.0f, sin(t) + 1.0f);
+    //     light.position = 40.0f * glm::vec3(
+    //                                  static_cast<float>(i),
+    //                                  -0.1f,
+    //                                  (static_cast<float>(j) - 1.5f) * 0.5f);
+    //     light.emission =
+    //         1000.0f * // / static_cast<float>(i + 1) *
+    //         glm::vec3(cos(t) + 1.0f, sin(t + 1.0f) + 1.0f, sin(t) + 1.0f);
 
-        this->_pointLights.setLight(i * 3 + j, light);
-      }
-    }
+    //     this->_pointLights.setLight(i * 3 + j, light);
+    //   }
+    // }
 
     ResourcesAssignment assignment = this->_pGlobalResources->assign();
 
@@ -326,13 +326,7 @@ void DemoScene::_createForwardPass(Application& app) {
   //  FORWARD GLTF PASS
   {
     SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
-    // The GBuffer contains the following color attachments
-    // 1. Position
-    // 2. Normal
-    // 3. Albedo
-    // 4. Metallic-Roughness-Occlusion
-    subpassBuilder.colorAttachments = {0, 1, 2, 3};
-    subpassBuilder.depthAttachment = 4;
+    GBufferResources::setupAttachments(subpassBuilder);
 
     Primitive::buildPipeline(subpassBuilder.pipelineBuilder);
 
@@ -381,15 +375,6 @@ void DemoScene::_createDeferredPass(Application& app) {
           colorClear,
           true,
           false,
-          true},
-
-      // Depth buffer
-      Attachment{
-          ATTACHMENT_FLAG_DEPTH,
-          app.getDepthImageFormat(),
-          depthClear,
-          false,
-          true,
           true}};
 
   std::vector<SubpassBuilder> subpassBuilders;
@@ -420,11 +405,11 @@ void DemoScene::_createDeferredPass(Application& app) {
   // TODO: Really light objects should be rendered in the forward
   // pass as well and an emissive channel should be added to the
   // G-Buffer
-  this->_pointLights.setupPointLightMeshSubpass(
-      subpassBuilders.emplace_back(),
-      0,
-      1,
-      this->_pGlobalResources->getLayout());
+  // this->_pointLights.setupPointLightMeshSubpass(
+  //     subpassBuilders.emplace_back(),
+  //     0,
+  //     1,
+  //     this->_pGlobalResources->getLayout());
 
   this->_pDeferredPass = std::make_unique<RenderPass>(
       app,
@@ -435,7 +420,7 @@ void DemoScene::_createDeferredPass(Application& app) {
   this->_swapChainFrameBuffers = SwapChainFrameBufferCollection(
       app,
       *this->_pDeferredPass,
-      {app.getDepthImageView()});
+      {});
 }
 
 namespace {
@@ -500,10 +485,6 @@ void DemoScene::draw(
       context.bindDescriptorSets(*this->_pDeferredMaterial);
       context.draw(3);
     }
-
-    pass.nextSubpass();
-    pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
-    // pass.draw(this->_pointLights);
   }
 }
 } // namespace DemoScene

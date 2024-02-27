@@ -74,39 +74,9 @@ void BindlessDemo::initGame(Application& app) {
   input.addKeyBinding(
       {GLFW_KEY_R, GLFW_PRESS, GLFW_MOD_CONTROL},
       [&app, that = this]() {
-        for (Subpass& subpass :
-             that->_pointLights.getShadowMapPass().getSubpasses()) {
-          GraphicsPipeline& pipeline = subpass.getPipeline();
-          if (pipeline.recompileStaleShaders()) {
-            if (pipeline.hasShaderRecompileErrors()) {
-              std::cout << pipeline.getShaderRecompileErrors() << "\n";
-            } else {
-              pipeline.recreatePipeline(app);
-            }
-          }
-        }
-
-        for (Subpass& subpass : that->_pForwardPass->getSubpasses()) {
-          GraphicsPipeline& pipeline = subpass.getPipeline();
-          if (pipeline.recompileStaleShaders()) {
-            if (pipeline.hasShaderRecompileErrors()) {
-              std::cout << pipeline.getShaderRecompileErrors() << "\n";
-            } else {
-              pipeline.recreatePipeline(app);
-            }
-          }
-        }
-
-        for (Subpass& subpass : that->_pDeferredPass->getSubpasses()) {
-          GraphicsPipeline& pipeline = subpass.getPipeline();
-          if (pipeline.recompileStaleShaders()) {
-            if (pipeline.hasShaderRecompileErrors()) {
-              std::cout << pipeline.getShaderRecompileErrors() << "\n";
-            } else {
-              pipeline.recreatePipeline(app);
-            }
-          }
-        }
+        that->_pointLights.getShadowMapPass().tryRecompile(app);
+        that->_pForwardPass->tryRecompile(app);
+        that->_pDeferredPass->tryRecompile(app);
       });
 
   input.addMousePositionCallback(
@@ -337,13 +307,7 @@ void BindlessDemo::_createForwardPass(Application& app) {
   //  FORWARD GLTF PASS
   {
     SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
-    // The GBuffer contains the following color attachments
-    // 1. Position
-    // 2. Normal
-    // 3. Albedo
-    // 4. Metallic-Roughness-Occlusion
-    subpassBuilder.colorAttachments = {0, 1, 2, 3};
-    subpassBuilder.depthAttachment = 4;
+    GBufferResources::setupAttachments(subpassBuilder);
 
     Primitive::buildPipeline(subpassBuilder.pipelineBuilder);
 
@@ -398,15 +362,6 @@ void BindlessDemo::_createDeferredPass(Application& app) {
           false, // forPresent is false since the imGUI pass follows the
                  // deferred pass
           false,
-          true},
-
-      // Depth buffer
-      Attachment{
-          ATTACHMENT_FLAG_DEPTH,
-          app.getDepthImageFormat(),
-          depthClear,
-          false,
-          true,
           true}};
 
   std::vector<SubpassBuilder> subpassBuilders;
@@ -439,11 +394,11 @@ void BindlessDemo::_createDeferredPass(Application& app) {
   // TODO: Really light objects should be rendered in the forward
   // pass as well and an emissive channel should be added to the
   // G-Buffer
-  this->_pointLights.setupPointLightMeshSubpass(
-      subpassBuilders.emplace_back(),
-      0,
-      1,
-      this->_globalHeap.getDescriptorSetLayout());
+  // this->_pointLights.setupPointLightMeshSubpass(
+  //     subpassBuilders.emplace_back(),
+  //     0,
+  //     1,
+  //     this->_globalHeap.getDescriptorSetLayout());
 
   this->_pDeferredPass = std::make_unique<RenderPass>(
       app,
@@ -451,10 +406,8 @@ void BindlessDemo::_createDeferredPass(Application& app) {
       std::move(attachments),
       std::move(subpassBuilders));
 
-  this->_swapChainFrameBuffers = SwapChainFrameBufferCollection(
-      app,
-      *this->_pDeferredPass,
-      {app.getDepthImageView()});
+  this->_swapChainFrameBuffers =
+      SwapChainFrameBufferCollection(app, *this->_pDeferredPass, {});
 }
 
 namespace {
@@ -555,11 +508,11 @@ void BindlessDemo::draw(
       context.draw(3);
     }
 
-    pass.nextSubpass();
-    pass.setGlobalDescriptorSets(gsl::span(&heapDescriptorSet, 1));
-    this->_pointLights.draw(
-        pass.getDrawContext(),
-        this->_globalUniforms.getCurrentBindlessHandle(frame));
+    // pass.nextSubpass();
+    // pass.setGlobalDescriptorSets(gsl::span(&heapDescriptorSet, 1));
+    // this->_pointLights.draw(
+    //     pass.getDrawContext(),
+    //     this->_globalUniforms.getCurrentBindlessHandle(frame));
   }
 
   Gui::draw(app, frame, commandBuffer);

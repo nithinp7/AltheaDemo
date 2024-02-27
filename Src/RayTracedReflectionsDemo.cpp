@@ -122,7 +122,7 @@ void RayTracedReflectionsDemo::createRenderState(Application& app) {
 void RayTracedReflectionsDemo::destroyRenderState(Application& app) {
   this->_models.clear();
   Primitive::resetPrimitiveIndexCount();
-  
+
   this->_pForwardPass.reset();
   this->_gBufferResources = {};
   this->_forwardFrameBuffer = {};
@@ -146,7 +146,9 @@ void RayTracedReflectionsDemo::destroyRenderState(Application& app) {
   this->_pRTR.reset();
 }
 
-void RayTracedReflectionsDemo::tick(Application& app, const FrameContext& frame) {
+void RayTracedReflectionsDemo::tick(
+    Application& app,
+    const FrameContext& frame) {
   this->_pCameraController->tick(frame.deltaTime);
   const Camera& camera = this->_pCameraController->getCamera();
 
@@ -250,7 +252,8 @@ void RayTracedReflectionsDemo::_createGlobalResources(
     this->_textureHeap = TextureHeap(this->_models);
     this->_vertexBufferHeap = BufferHeap::CreateVertexBufferHeap(this->_models);
     this->_indexBufferHeap = BufferHeap::CreateIndexBufferHeap(this->_models);
-    this->_accelerationStructure = AccelerationStructure(app, commandBuffer, this->_models);
+    this->_accelerationStructure =
+        AccelerationStructure(app, commandBuffer, this->_models);
   }
 
   // Global resources
@@ -267,13 +270,19 @@ void RayTracedReflectionsDemo::_createGlobalResources(
         // Shadow map texture.
         .addTextureBinding(VK_SHADER_STAGE_ALL)
         // Texture heap.
-        .addTextureHeapBinding(this->_textureHeap.getSize(), VK_SHADER_STAGE_ALL)
+        .addTextureHeapBinding(
+            this->_textureHeap.getSize(),
+            VK_SHADER_STAGE_ALL)
         // Primitive constants heap.
         .addStorageBufferBinding(VK_SHADER_STAGE_ALL)
         // Vertex buffer heap
-        .addBufferHeapBinding(this->_vertexBufferHeap.getSize(), VK_SHADER_STAGE_ALL)
+        .addBufferHeapBinding(
+            this->_vertexBufferHeap.getSize(),
+            VK_SHADER_STAGE_ALL)
         // Index buffer heap
-        .addBufferHeapBinding(this->_indexBufferHeap.getSize(), VK_SHADER_STAGE_ALL);
+        .addBufferHeapBinding(
+            this->_indexBufferHeap.getSize(),
+            VK_SHADER_STAGE_ALL);
 
     this->_pGlobalResources =
         std::make_unique<PerFrameResources>(app, globalResourceLayout);
@@ -377,13 +386,7 @@ void RayTracedReflectionsDemo::_createForwardPass(Application& app) {
   //  FORWARD GLTF PASS
   {
     SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
-    // The GBuffer contains the following color attachments
-    // 1. Position
-    // 2. Normal
-    // 3. Albedo
-    // 4. Metallic-Roughness-Occlusion
-    subpassBuilder.colorAttachments = {0, 1, 2, 3};
-    subpassBuilder.depthAttachment = 4;
+    GBufferResources::setupAttachments(subpassBuilder);
 
     Primitive::buildPipeline(subpassBuilder.pipelineBuilder);
 
@@ -487,10 +490,8 @@ void RayTracedReflectionsDemo::_createDeferredPass(Application& app) {
       std::move(attachments),
       std::move(subpassBuilders));
 
-  this->_swapChainFrameBuffers = SwapChainFrameBufferCollection(
-      app,
-      *this->_pDeferredPass,
-      {app.getDepthImageView()});
+  this->_swapChainFrameBuffers =
+      SwapChainFrameBufferCollection(app, *this->_pDeferredPass, {});
 }
 
 namespace {
@@ -514,7 +515,8 @@ void RayTracedReflectionsDemo::draw(
       this->_pGlobalResources->getCurrentDescriptorSet(frame);
 
   // Draw point light shadow maps
-  // this->_pointLights.drawShadowMaps(app, commandBuffer, frame, this->_models, globalDescriptorSet);
+  // this->_pointLights.drawShadowMaps(app, commandBuffer, frame, this->_models,
+  // globalDescriptorSet);
 
   // Forward pass
   {
@@ -535,7 +537,8 @@ void RayTracedReflectionsDemo::draw(
 
   // Reflection buffer and convolution
   {
-    this->_pRTR->captureReflection(app, commandBuffer, globalDescriptorSet, frame);
+    this->_pRTR
+        ->captureReflection(app, commandBuffer, globalDescriptorSet, frame);
     this->_pRTR->convolveReflectionBuffer(app, commandBuffer, frame);
   }
 

@@ -15,7 +15,7 @@ using namespace AltheaDemo;
 
 int main() {
   Application app("../..", "../../Extern/Althea");
-  // app.createGame<DemoScene::DemoScene>();
+  //app.createGame<DemoScene::DemoScene>(); // BROKEN
   // app.createGame<RayTracingDemo::RayTracingDemo>();
   // app.createGame<RayTracedReflectionsDemo::RayTracedReflectionsDemo>();
   // app.createGame<BindlessDemo::BindlessDemo>();

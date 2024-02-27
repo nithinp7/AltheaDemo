@@ -30,7 +30,7 @@ layout(push_constant) uniform PushConstants {
 #define irradianceMap RESOURCE(textureHeap, resources.ibl.irradianceMapHandle)
 #define brdfLut RESOURCE(textureHeap, resources.ibl.brdfLutHandle)
 
-#define gBufferPosition RESOURCE(textureHeap, resources.gBuffer.positionHandle)
+#define gBufferDepth RESOURCE(textureHeap, resources.gBuffer.depthHandle)
 #define gBufferNormal RESOURCE(textureHeap, resources.gBuffer.normalHandle)
 #define gBufferAlbedo RESOURCE(textureHeap, resources.gBuffer.albedoHandle)
 #define gBufferMetallicRoughnessOcclusion RESOURCE(textureHeap, resources.gBuffer.metallicRoughnessOcclusionHandle)
@@ -42,6 +42,28 @@ SAMPLERCUBEARRAY(cubemapHeap);
 #define pointLightArr RESOURCE(pointLights, globals.lightBufferHandle).pointLightArr
 
 #include <PBR/PBRMaterial.glsl>
+
+vec3 reconstructPosition(vec2 uv) {
+  float dRaw = texture(gBufferDepth, uv).r;
+
+  // TODO: Stop hardcoding this
+  float near = 0.01;
+  float far = 1000.0;
+  float d = far * near / (dRaw * (far - near) - far);
+
+  vec2 ndc = 2.0 * uv - vec2(1.0);
+
+  vec4 camPlanePos = vec4(ndc, 2.0, 1.0);
+  vec4 dirH = globals.inverseProjection * camPlanePos;
+  dirH.xyz /= dirH.w;
+  dirH.w = 0.0;
+  dirH = globals.inverseView * dirH;
+  vec3 dir = normalize(dirH.xyz);
+
+  float f = dot(dir, globals.inverseView[2].xyz);
+
+  return globals.inverseView[3].xyz + d * dir / f;
+}
 
 vec3 sampleEnvMap(vec3 dir) {
   float yaw = atan(dir.z, dir.x);
@@ -99,7 +121,7 @@ float computeSSAO(vec2 currentUV, vec3 worldPos, vec3 normal) {
 
       // TODO: Check for invalid position
       
-      vec3 currentPos = textureLod(gBufferPosition, currentUV, 0.0).xyz;
+      vec3 currentPos = reconstructPosition(currentUV);
       vec3 dir = currentPos - worldPos;
       float currentProjection = dot(dir, perpRef);
 
@@ -135,8 +157,8 @@ float computeSSAO(vec2 currentUV, vec3 worldPos, vec3 normal) {
 void main() {
   seed = uvec2(gl_FragCoord.xy);
 
-  vec4 position = texture(gBufferPosition, uv).rgba;
-  if (position.a == 0.0) {
+  vec4 baseColor = texture(gBufferAlbedo, uv);
+  if (baseColor.a == 0.0) {
     // Nothing in the GBuffer, draw the environment map
     vec3 envMapSample = sampleEnvMap(direction);
 #ifndef SKIP_TONEMAP
@@ -146,8 +168,8 @@ void main() {
     return;
   }
 
+  vec3 position = reconstructPosition(uv);
   vec3 normal = normalize(texture(gBufferNormal, uv).xyz);
-  vec3 baseColor = texture(gBufferAlbedo, uv).rgb;
   vec3 metallicRoughnessOcclusion = 
       texture(gBufferMetallicRoughnessOcclusion, uv).rgb;
   // metallicRoughnessOcclusion.y *= 0.1;
@@ -180,6 +202,7 @@ void main() {
   material = vec3(1.0) - exp(-material * globals.exposure);
 #endif
 
+  // outColor = vec4(fract(0.1 * position), 1.0);
   outColor = vec4(material, 1.0);
   // outColor = vec4(metallicRoughnessOcclusion.rgb, 1.0);
   // outColor = vec4(irradianceColor, 1.0);

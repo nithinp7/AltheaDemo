@@ -361,14 +361,7 @@ void PathTracing::createGBufferPass(
   std::vector<SubpassBuilder> builders;
   {
     SubpassBuilder& builder = builders.emplace_back();
-
-    // The GBuffer contains the following color attachments
-    // 1. Position
-    // 2. Normal
-    // 3. Albedo
-    // 4. Metallic-Roughness-Occlusion
-    builder.colorAttachments = {0, 1, 2, 3};
-    builder.depthAttachment = 4;
+    GBufferResources::setupAttachments(builder);
 
     Primitive::buildPipeline(builder.pipelineBuilder);
 
