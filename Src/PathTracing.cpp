@@ -82,7 +82,8 @@ void PathTracing::initGame(Application& app) {
         that->m_framesSinceCameraMoved = 0;
 
         that->m_gBufferPass.tryRecompile(app);
-        that->m_rtPass.tryRecompile(app);
+        that->m_directSamplingPass.tryRecompile(app);
+        // that->m_spatialResamplingPass.tryRecompile(app);
         that->m_pointLights.getShadowMapPass().tryRecompile(app);
         that->m_displayPass.tryRecompile(app);
       });
@@ -114,7 +115,7 @@ void PathTracing::createRenderState(Application& app) {
   SingleTimeCommandBuffer commandBuffer(app);
   createGlobalResources(app, commandBuffer);
   createGBufferPass(app, commandBuffer);
-  createRayTracingPass(app, commandBuffer);
+  createSamplingPasses(app, commandBuffer);
 }
 
 void PathTracing::destroyRenderState(Application& app) {
@@ -128,7 +129,8 @@ void PathTracing::destroyRenderState(Application& app) {
 
   m_gBufferPass = {};
   m_gBufferFrameBuffer = {};
-  m_rtPass = {};
+  m_directSamplingPass = {};
+  m_spatialResamplingPass = {};
   m_displayPass = {};
   m_displayPassSwapChainFrameBuffers = {};
 
@@ -400,7 +402,7 @@ void PathTracing::createGBufferPass(
       gBuffer.getAttachmentViews());
 }
 
-void PathTracing::createRayTracingPass(
+void PathTracing::createSamplingPasses(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
   m_giUniforms = TransientUniforms<GlobalIlluminationUniforms>(app);
@@ -443,7 +445,7 @@ void PathTracing::createRayTracingPass(
 
   RayTracingPipelineBuilder builder{};
   builder.setRayGenShader(
-      GEngineDirectory + "/Shaders/PathTracing/SpatialResampling.glsl",
+      GEngineDirectory + "/Shaders/PathTracing/SpatialResampling.rgen.glsl",
       defs);
   builder.addMissShader(
       GEngineDirectory + "/Shaders/PathTracing/PathTrace.miss.glsl",
@@ -458,7 +460,7 @@ void PathTracing::createRayTracingPass(
   builder.layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout())
       .addPushConstants<RTPush>(VK_SHADER_STAGE_ALL);
 
-  m_rtPass = RayTracingPipeline(app, std::move(builder));
+  m_directSamplingPass = RayTracingPipeline(app, std::move(builder));
 
   // Display Pass
   VkClearValue colorClear;
@@ -570,11 +572,11 @@ void PathTracing::draw(
     vkCmdBindPipeline(
         commandBuffer,
         VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
-        m_rtPass);
+        m_directSamplingPass);
     vkCmdBindDescriptorSets(
         commandBuffer,
         VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
-        m_rtPass.getLayout(),
+        m_directSamplingPass.getLayout(),
         0,
         1,
         &heapSet,
@@ -582,12 +584,12 @@ void PathTracing::draw(
         nullptr);
     vkCmdPushConstants(
         commandBuffer,
-        m_rtPass.getLayout(),
+        m_directSamplingPass.getLayout(),
         VK_SHADER_STAGE_ALL,
         0,
         sizeof(RTPush),
         &push);
-    m_rtPass.traceRays(app.getSwapChainExtent(), commandBuffer);
+    m_directSamplingPass.traceRays(app.getSwapChainExtent(), commandBuffer);
   }
 
   for (auto& buffer : m_reservoirHeap) {

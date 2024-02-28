@@ -112,8 +112,9 @@ private:
   RenderPass m_gBufferPass;
   FrameBuffer m_gBufferFrameBuffer;
   
-  void createRayTracingPass(Application& app, SingleTimeCommandBuffer& commandBuffer);
-  RayTracingPipeline m_rtPass;
+  void createSamplingPasses(Application& app, SingleTimeCommandBuffer& commandBuffer);
+  RayTracingPipeline m_directSamplingPass;
+  RayTracingPipeline m_spatialResamplingPass;
   
    // ping-pong buffers
   struct RtTarget {
