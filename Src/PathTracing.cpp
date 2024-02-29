@@ -83,7 +83,7 @@ void PathTracing::initGame(Application& app) {
 
         that->m_gBufferPass.tryRecompile(app);
         that->m_directSamplingPass.tryRecompile(app);
-        // that->m_spatialResamplingPass.tryRecompile(app);
+        that->m_spatialResamplingPass.tryRecompile(app);
         that->m_pointLights.getShadowMapPass().tryRecompile(app);
         that->m_displayPass.tryRecompile(app);
       });
@@ -442,10 +442,9 @@ void PathTracing::createSamplingPasses(
   }
 
   ShaderDefines defs;
-
   RayTracingPipelineBuilder builder{};
   builder.setRayGenShader(
-      GEngineDirectory + "/Shaders/PathTracing/SpatialResampling.rgen.glsl",
+      GEngineDirectory + "/Shaders/PathTracing/DirectSampling.rgen.glsl",
       defs);
   builder.addMissShader(
       GEngineDirectory + "/Shaders/PathTracing/PathTrace.miss.glsl",
@@ -460,7 +459,15 @@ void PathTracing::createSamplingPasses(
   builder.layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout())
       .addPushConstants<RTPush>(VK_SHADER_STAGE_ALL);
 
-  m_directSamplingPass = RayTracingPipeline(app, std::move(builder));
+  m_directSamplingPass =
+      RayTracingPipeline(app, RayTracingPipelineBuilder(builder));
+
+  builder.setRayGenShader(
+      GEngineDirectory + "/Shaders/PathTracing/SpatialResampling.rgen.glsl",
+      defs);
+
+  m_spatialResamplingPass =
+      RayTracingPipeline(app, RayTracingPipelineBuilder(builder));
 
   // Display Pass
   VkClearValue colorClear;
@@ -544,7 +551,9 @@ void PathTracing::draw(
 
         context.setFrontFaceDynamic(primitive.getFrontFace());
         context.bindDescriptorSets();
-        context.drawIndexed(primitive.getVertexBuffer(), primitive.getIndexBuffer());
+        context.drawIndexed(
+            primitive.getVertexBuffer(),
+            primitive.getIndexBuffer());
       }
     }
   }
@@ -562,6 +571,7 @@ void PathTracing::draw(
       VK_ACCESS_SHADER_WRITE_BIT,
       VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
 
+  // Direct Sampling
   {
     RTPush push{};
     push.globalResourcesHandle = m_globalResources.getHandle().index;
@@ -592,27 +602,40 @@ void PathTracing::draw(
     m_directSamplingPass.traceRays(app.getSwapChainExtent(), commandBuffer);
   }
 
-  for (auto& buffer : m_reservoirHeap) {
-    VkBufferMemoryBarrier barrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-    barrier.buffer = buffer.getAllocation().getBuffer();
-    barrier.offset = 0;
-    barrier.size = buffer.getSize();
-    barrier.srcAccessMask =
-        VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+  reservoirBarrier(commandBuffer);
 
-    vkCmdPipelineBarrier(
+  // Spatial Resampling
+  {
+    RTPush push{};
+    push.globalResourcesHandle = m_globalResources.getHandle().index;
+    push.globalUniformsHandle =
+        m_globalUniforms.getCurrentBindlessHandle(frame).index;
+    push.giUniformsHandle = m_giUniforms.getCurrentHandle(frame).index;
+
+    vkCmdBindPipeline(
         commandBuffer,
-        VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
-        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
+        m_spatialResamplingPass);
+    vkCmdBindDescriptorSets(
+        commandBuffer,
+        VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
+        m_spatialResamplingPass.getLayout(),
         0,
-        0,
-        nullptr,
         1,
-        &barrier,
+        &heapSet,
         0,
         nullptr);
+    vkCmdPushConstants(
+        commandBuffer,
+        m_spatialResamplingPass.getLayout(),
+        VK_SHADER_STAGE_ALL,
+        0,
+        sizeof(RTPush),
+        &push);
+    m_spatialResamplingPass.traceRays(app.getSwapChainExtent(), commandBuffer);
   }
+
+  reservoirBarrier(commandBuffer);
 
   // Display pass
   {
@@ -639,6 +662,30 @@ void PathTracing::draw(
   }
 
   m_targetIndex ^= 1;
+}
+
+void PathTracing::reservoirBarrier(VkCommandBuffer commandBuffer) {
+  for (auto& buffer : m_reservoirHeap) {
+    VkBufferMemoryBarrier barrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+    barrier.buffer = buffer.getAllocation().getBuffer();
+    barrier.offset = 0;
+    barrier.size = buffer.getSize();
+    barrier.srcAccessMask =
+        VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+    vkCmdPipelineBarrier(
+        commandBuffer,
+        VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
+        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+        0,
+        0,
+        nullptr,
+        1,
+        &barrier,
+        0,
+        nullptr);
+  }
 }
 } // namespace PathTracing
 } // namespace AltheaDemo

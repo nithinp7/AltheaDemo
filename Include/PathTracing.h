@@ -61,9 +61,9 @@ struct GlobalIlluminationUniforms {
 };
 
 struct GISample {
-  alignas(16) glm::vec3 dir;
-  alignas(8) float W;
-  alignas(16) glm::vec3 radiance;
+  alignas(16) glm::vec3 wiw;
+  alignas(8) float w;
+  alignas(16) glm::vec3 Li;
   alignas(4) float padding; 
 };
 
@@ -115,7 +115,9 @@ private:
   void createSamplingPasses(Application& app, SingleTimeCommandBuffer& commandBuffer);
   RayTracingPipeline m_directSamplingPass;
   RayTracingPipeline m_spatialResamplingPass;
-  
+
+  void reservoirBarrier(VkCommandBuffer commandBuffer);
+
    // ping-pong buffers
   struct RtTarget {
     ImageResource target{};
