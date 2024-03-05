@@ -62,7 +62,7 @@ struct GlobalIlluminationUniforms {
 
 struct GISample {
   alignas(16) glm::vec3 wiw;
-  alignas(8) float w;
+  alignas(8) float W;
   alignas(16) glm::vec3 Li;
   alignas(4) float padding; 
 };

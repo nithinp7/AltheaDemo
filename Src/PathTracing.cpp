@@ -604,6 +604,7 @@ void PathTracing::draw(
 
   reservoirBarrier(commandBuffer);
 
+#if 0
   // Spatial Resampling
   {
     RTPush push{};
@@ -636,7 +637,7 @@ void PathTracing::draw(
   }
 
   reservoirBarrier(commandBuffer);
-
+#endif
   // Display pass
   {
     RTPush push{};
