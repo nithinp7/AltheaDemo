@@ -43,6 +43,14 @@ class Application;
 namespace AltheaDemo {
 namespace PathTracing {
 
+struct LiveEditValues {
+  float temporalBlend = 0.25f;
+  float slider1;
+  float slider2;
+  bool checkbox1;
+  bool checkbox2;
+};
+
 struct GlobalIlluminationUniforms {
   uint32_t tlas;
 
@@ -58,6 +66,8 @@ struct GlobalIlluminationUniforms {
   uint32_t reservoirsPerBuffer;
 
   uint32_t framesSinceCameraMoved;
+
+  LiveEditValues liveValues;
 };
 
 struct GISample {

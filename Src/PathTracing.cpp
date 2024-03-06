@@ -6,6 +6,7 @@
 #include <Althea/Cubemap.h>
 #include <Althea/DescriptorSet.h>
 #include <Althea/GraphicsPipeline.h>
+#include <Althea/Gui.h>
 #include <Althea/IndexBuffer.h>
 #include <Althea/InputManager.h>
 #include <Althea/ModelViewProjection.h>
@@ -112,6 +113,8 @@ void PathTracing::createRenderState(Application& app) {
   m_pCameraController->getCamera().setAspectRatio(
       (float)extent.width / (float)extent.height);
 
+  Gui::createRenderState(app);
+
   SingleTimeCommandBuffer commandBuffer(app);
   createGlobalResources(app, commandBuffer);
   createGBufferPass(app, commandBuffer);
@@ -121,6 +124,8 @@ void PathTracing::createRenderState(Application& app) {
 void PathTracing::destroyRenderState(Application& app) {
   m_models.clear();
   Primitive::resetPrimitiveIndexCount();
+
+  Gui::destroyRenderState(app);
 
   m_accelerationStructure = {};
   m_rtTargets[0] = {};
@@ -144,7 +149,28 @@ void PathTracing::destroyRenderState(Application& app) {
   m_heap = {};
 }
 
+static LiveEditValues s_liveValues{};
+static void updateUi() {
+    Gui::startRecordingImgui();
+    const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(
+        ImVec2(main_viewport->WorkPos.x + 650, main_viewport->WorkPos.y + 20),
+        ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(440, 200), ImGuiCond_FirstUseEver);
+
+    if (ImGui::Begin("Live Edit")) {
+      ImGui::Text("Temporal Blend:");
+      ImGui::SliderFloat("##temporalblend", &s_liveValues.temporalBlend, 0.0f, 1.0f);
+    }
+
+    ImGui::End();
+
+    Gui::finishRecordingImgui();
+}
+
 void PathTracing::tick(Application& app, const FrameContext& frame) {
+  updateUi();
+
   const Camera& camera = m_pCameraController->getCamera();
 
   GlobalUniforms globalUniforms;
@@ -224,6 +250,8 @@ void PathTracing::tick(Application& app, const FrameContext& frame) {
   giUniforms.reservoirsPerBuffer = RESERVOIR_COUNT_PER_BUFFER;
 
   giUniforms.framesSinceCameraMoved = m_framesSinceCameraMoved;
+
+  giUniforms.liveValues = s_liveValues;
 
   m_giUniforms.updateUniforms(giUniforms, frame);
 }
@@ -480,7 +508,8 @@ void PathTracing::createSamplingPasses(
           ATTACHMENT_FLAG_COLOR,
           app.getSwapChainImageFormat(),
           colorClear,
-          true,
+          false, // forPresent is false since the imGUI pass follows the
+                 // display pass
           false,
           true},
   };
@@ -661,6 +690,8 @@ void PathTracing::draw(
       context.draw(3);
     }
   }
+
+  Gui::draw(app, frame, commandBuffer);
 
   m_targetIndex ^= 1;
 }
