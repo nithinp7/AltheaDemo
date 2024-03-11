@@ -80,7 +80,7 @@ void PathTracing::initGame(Application& app) {
   input.addKeyBinding(
       {GLFW_KEY_R, GLFW_PRESS, GLFW_MOD_CONTROL},
       [&app, that = this]() {
-        that->m_framesSinceCameraMoved = 0;
+        that->m_frameNumber = 0;
 
         that->m_gBufferPass.tryRecompile(app);
         that->m_directSamplingPass.tryRecompile(app);
@@ -133,7 +133,8 @@ void PathTracing::destroyRenderState(Application& app) {
   m_giUniforms = {};
 
   m_gBufferPass = {};
-  m_gBufferFrameBuffer = {};
+  m_gBufferFrameBufferA = {};
+  m_gBufferFrameBufferB = {};
   m_directSamplingPass = {};
   m_spatialResamplingPass = {};
   m_displayPass = {};
@@ -151,24 +152,38 @@ void PathTracing::destroyRenderState(Application& app) {
 
 static LiveEditValues s_liveValues{};
 static void updateUi() {
-    Gui::startRecordingImgui();
-    const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(
-        ImVec2(main_viewport->WorkPos.x + 650, main_viewport->WorkPos.y + 20),
-        ImGuiCond_FirstUseEver);
-    ImGui::SetNextWindowSize(ImVec2(440, 200), ImGuiCond_FirstUseEver);
+  Gui::startRecordingImgui();
+  const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(
+      ImVec2(main_viewport->WorkPos.x + 650, main_viewport->WorkPos.y + 20),
+      ImGuiCond_FirstUseEver);
+  ImGui::SetNextWindowSize(ImVec2(440, 200), ImGuiCond_FirstUseEver);
 
-    if (ImGui::Begin("Live Edit")) {
-      ImGui::Text("Temporal Blend:");
-      ImGui::SliderFloat("##temporalblend", &s_liveValues.temporalBlend, 0.0f, 1.0f);
-    }
+  if (ImGui::Begin("Live Edit")) {
+    ImGui::Text("Temporal Blend:");
+    ImGui::SliderFloat(
+        "##temporalblend",
+        &s_liveValues.temporalBlend,
+        0.0f,
+        1.0f);
+    ImGui::Text("Slider1:");
+    ImGui::SliderFloat("##temporalblend1", &s_liveValues.slider1, 0.0, 1.0);
+    ImGui::Text("Slider2:");
+    ImGui::SliderFloat("##temporalblend2", &s_liveValues.slider2, 0.0, 1.0);
+    ImGui::Text("Checkbox1:");
+    ImGui::Checkbox("##checkbox1", &s_liveValues.checkbox1);
+    ImGui::Text("Checkbox2:");
+    ImGui::Checkbox("##checkbox2", &s_liveValues.checkbox2);
+  }
 
-    ImGui::End();
+  ImGui::End();
 
-    Gui::finishRecordingImgui();
+  Gui::finishRecordingImgui();
 }
 
 void PathTracing::tick(Application& app, const FrameContext& frame) {
+  ++m_frameNumber; 
+  
   updateUi();
 
   const Camera& camera = m_pCameraController->getCamera();
@@ -177,13 +192,7 @@ void PathTracing::tick(Application& app, const FrameContext& frame) {
   globalUniforms.prevView = camera.computeView();
   globalUniforms.prevInverseView = glm::inverse(globalUniforms.prevView);
 
-  // if (m_freezeCamera) {
-  //   ++m_framesSinceCameraMoved;
-  // } else {
-  // m_framesSinceCameraMoved = 0;
-  m_framesSinceCameraMoved++; // TODO: Clean this up..
   m_pCameraController->tick(frame.deltaTime);
-  // }
 
   uint32_t inputMask = app.getInputManager().getCurrentInputMask();
 
@@ -249,7 +258,7 @@ void PathTracing::tick(Application& app, const FrameContext& frame) {
   giUniforms.reservoirHeap = m_reservoirHeap[0].getHandle().index;
   giUniforms.reservoirsPerBuffer = RESERVOIR_COUNT_PER_BUFFER;
 
-  giUniforms.framesSinceCameraMoved = m_framesSinceCameraMoved;
+  giUniforms.frameNumber = m_frameNumber;
 
   giUniforms.liveValues = s_liveValues;
 
@@ -423,11 +432,16 @@ void PathTracing::createGBufferPass(
   this->m_gBufferPass =
       RenderPass(app, extent, std::move(attachments), std::move(builders));
 
-  this->m_gBufferFrameBuffer = FrameBuffer(
+  this->m_gBufferFrameBufferA = FrameBuffer(
       app,
       this->m_gBufferPass,
       extent,
-      gBuffer.getAttachmentViews());
+      gBuffer.getAttachmentViewsA());
+  this->m_gBufferFrameBufferB = FrameBuffer(
+      app,
+      this->m_gBufferPass,
+      extent,
+      gBuffer.getAttachmentViewsB());
 }
 
 void PathTracing::createSamplingPasses(
@@ -566,8 +580,11 @@ void PathTracing::draw(
     push.globalUniformsHandle =
         m_globalUniforms.getCurrentBindlessHandle(frame).index;
 
-    ActiveRenderPass draw =
-        m_gBufferPass.begin(app, commandBuffer, frame, m_gBufferFrameBuffer);
+    ActiveRenderPass draw = m_gBufferPass.begin(
+        app,
+        commandBuffer,
+        frame,
+        (m_targetIndex == 0) ? m_gBufferFrameBufferA : m_gBufferFrameBufferB);
     draw.setGlobalDescriptorSets(gsl::span(&heapSet, 1));
 
     const DrawContext& context = draw.getDrawContext();
@@ -633,7 +650,7 @@ void PathTracing::draw(
 
   reservoirBarrier(commandBuffer);
 
-#if 0
+#if 1
   // Spatial Resampling
   {
     RTPush push{};

@@ -702,7 +702,7 @@ void ParticleSystem::_createForwardPass(Application& app) {
       app,
       this->_forwardPass,
       extent,
-      this->_gBufferResources.getAttachmentViews());
+      this->_gBufferResources.getAttachmentViewsA());
 }
 
 void ParticleSystem::_createDeferredPass(Application& app) {

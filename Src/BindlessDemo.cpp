@@ -345,7 +345,7 @@ void BindlessDemo::_createForwardPass(Application& app) {
       app,
       *this->_pForwardPass,
       extent,
-      gBuffer.getAttachmentViews());
+      gBuffer.getAttachmentViewsA());
 }
 
 void BindlessDemo::_createDeferredPass(Application& app) {

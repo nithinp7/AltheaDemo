@@ -423,7 +423,7 @@ void RayTracedReflectionsDemo::_createForwardPass(Application& app) {
       app,
       *this->_pForwardPass,
       extent,
-      this->_gBufferResources.getAttachmentViews());
+      this->_gBufferResources.getAttachmentViewsA());
 }
 
 void RayTracedReflectionsDemo::_createDeferredPass(Application& app) {

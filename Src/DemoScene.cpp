@@ -359,7 +359,7 @@ void DemoScene::_createForwardPass(Application& app) {
       app,
       *this->_pForwardPass,
       extent,
-      this->_gBufferResources.getAttachmentViews());
+      this->_gBufferResources.getAttachmentViewsA());
 }
 
 void DemoScene::_createDeferredPass(Application& app) {

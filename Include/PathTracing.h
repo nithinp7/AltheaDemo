@@ -65,7 +65,7 @@ struct GlobalIlluminationUniforms {
   uint32_t reservoirHeap;
   uint32_t reservoirsPerBuffer;
 
-  uint32_t framesSinceCameraMoved;
+  uint32_t frameNumber;
 
   LiveEditValues liveValues;
 };
@@ -120,7 +120,8 @@ private:
 
   void createGBufferPass(Application& app, SingleTimeCommandBuffer& commandBuffer);
   RenderPass m_gBufferPass;
-  FrameBuffer m_gBufferFrameBuffer;
+  FrameBuffer m_gBufferFrameBufferA;
+  FrameBuffer m_gBufferFrameBufferB;
   
   void createSamplingPasses(Application& app, SingleTimeCommandBuffer& commandBuffer);
   RayTracingPipeline m_directSamplingPass;
@@ -143,7 +144,7 @@ private:
   SwapChainFrameBufferCollection m_displayPassSwapChainFrameBuffers;
 
   bool m_freezeCamera = true;
-  uint32_t m_framesSinceCameraMoved = 0;
+  uint32_t m_frameNumber = 0;
   uint32_t m_targetIndex = 0;
 
   float m_exposure = 0.6f;
