@@ -128,8 +128,7 @@ void PathTracing::destroyRenderState(Application& app) {
   Gui::destroyRenderState(app);
 
   m_accelerationStructure = {};
-  m_rtTargets[0] = {};
-  m_rtTargets[1] = {};
+  m_rtTarget = {};
   m_giUniforms = {};
 
   m_gBufferPass = {};
@@ -244,11 +243,8 @@ void PathTracing::tick(Application& app, const FrameContext& frame) {
 
   giUniforms.tlas = m_accelerationStructure.getTlasHandle().index;
 
-  giUniforms.colorSamplers[0] = m_rtTargets[0].targetTextureHandle.index;
-  giUniforms.colorSamplers[1] = m_rtTargets[1].targetTextureHandle.index;
-
-  giUniforms.colorTargets[0] = m_rtTargets[0].targetImageHandle.index;
-  giUniforms.colorTargets[1] = m_rtTargets[1].targetImageHandle.index;
+  giUniforms.colorSampler = m_rtTarget.targetTextureHandle.index;
+  giUniforms.colorTarget = m_rtTarget.targetImageHandle.index;
 
   giUniforms.targetWidth = app.getSwapChainExtent().width;
   giUniforms.targetHeight = app.getSwapChainExtent().height;
@@ -465,22 +461,21 @@ void PathTracing::createSamplingPasses(
     samplerOptions.minFilter = VK_FILTER_NEAREST;
     samplerOptions.magFilter = VK_FILTER_NEAREST;
 
-    RtTarget& rtTarget = m_rtTargets[i];
-    rtTarget.target.image = Image(app, imageOptions);
-    rtTarget.target.view = ImageView(app, rtTarget.target.image, viewOptions);
-    rtTarget.target.sampler = Sampler(app, samplerOptions);
+    m_rtTarget.target.image = Image(app, imageOptions);
+    m_rtTarget.target.view = ImageView(app, m_rtTarget.target.image, viewOptions);
+    m_rtTarget.target.sampler = Sampler(app, samplerOptions);
 
-    rtTarget.targetImageHandle = m_heap.registerImage();
+    m_rtTarget.targetImageHandle = m_heap.registerImage();
     m_heap.updateStorageImage(
-        rtTarget.targetImageHandle,
-        rtTarget.target.view,
-        rtTarget.target.sampler);
+        m_rtTarget.targetImageHandle,
+        m_rtTarget.target.view,
+        m_rtTarget.target.sampler);
 
-    rtTarget.targetTextureHandle = m_heap.registerTexture();
+    m_rtTarget.targetTextureHandle = m_heap.registerTexture();
     m_heap.updateTexture(
-        rtTarget.targetTextureHandle,
-        rtTarget.target.view,
-        rtTarget.target.sampler);
+        m_rtTarget.targetTextureHandle,
+        m_rtTarget.target.view,
+        m_rtTarget.target.sampler);
   }
 
   ShaderDefines defs;
@@ -606,12 +601,7 @@ void PathTracing::draw(
 
   m_globalResources.getGBuffer().transitionToTextures(commandBuffer);
 
-  m_rtTargets[readIndex].target.image.transitionLayout(
-      commandBuffer,
-      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
-      VK_ACCESS_SHADER_READ_BIT,
-      VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
-  m_rtTargets[m_targetIndex].target.image.transitionLayout(
+  m_rtTarget.target.image.transitionLayout(
       commandBuffer,
       VK_IMAGE_LAYOUT_GENERAL,
       VK_ACCESS_SHADER_WRITE_BIT,
@@ -650,7 +640,6 @@ void PathTracing::draw(
 
   reservoirBarrier(commandBuffer);
 
-#if 1
   // Spatial Resampling
   {
     RTPush push{};
@@ -683,7 +672,13 @@ void PathTracing::draw(
   }
 
   reservoirBarrier(commandBuffer);
-#endif
+  
+  m_rtTarget.target.image.transitionLayout(
+      commandBuffer,
+      VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
+      VK_ACCESS_SHADER_READ_BIT,
+      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
+  
   // Display pass
   {
     RTPush push{};

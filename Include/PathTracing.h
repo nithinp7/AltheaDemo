@@ -54,8 +54,8 @@ struct LiveEditValues {
 struct GlobalIlluminationUniforms {
   uint32_t tlas;
 
-  uint32_t colorSamplers[2];
-  uint32_t colorTargets[2];
+  uint32_t colorSampler;
+  uint32_t colorTarget;
 
   uint32_t targetWidth;
   uint32_t targetHeight;
@@ -135,7 +135,7 @@ private:
     ImageHandle targetImageHandle{};
     TextureHandle targetTextureHandle{};
   };
-  RtTarget m_rtTargets[2];
+  RtTarget m_rtTarget;
   
   TransientUniforms<GlobalIlluminationUniforms> m_giUniforms;
   std::vector<StructuredBuffer<Reservoir>> m_reservoirHeap;
