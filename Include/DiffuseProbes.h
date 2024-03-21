@@ -1,12 +1,16 @@
 #pragma once
 
-#include <Althea/Allocator.h>
 #include <Althea/AccelerationStructure.h>
+#include <Althea/Allocator.h>
+#include <Althea/BufferHeap.h>
 #include <Althea/CameraController.h>
 #include <Althea/ComputePipeline.h>
 #include <Althea/DeferredRendering.h>
 #include <Althea/DescriptorSet.h>
 #include <Althea/FrameBuffer.h>
+#include <Althea/GlobalHeap.h>
+#include <Althea/GlobalResources.h>
+#include <Althea/GlobalUniforms.h>
 #include <Althea/IGameInstance.h>
 #include <Althea/Image.h>
 #include <Althea/ImageBasedLighting.h>
@@ -15,21 +19,17 @@
 #include <Althea/Model.h>
 #include <Althea/PerFrameResources.h>
 #include <Althea/PointLight.h>
+#include <Althea/Primitive.h>
 #include <Althea/RayTracingPipeline.h>
 #include <Althea/RenderPass.h>
 #include <Althea/Sampler.h>
 #include <Althea/ScreenSpaceReflection.h>
+#include <Althea/ShaderBindingTable.h>
+#include <Althea/StructuredBuffer.h>
 #include <Althea/Texture.h>
+#include <Althea/TextureHeap.h>
 #include <Althea/TransientUniforms.h>
 #include <Althea/UniformBuffer.h>
-#include <Althea/ShaderBindingTable.h>
-#include <Althea/TextureHeap.h>
-#include <Althea/StructuredBuffer.h>
-#include <Althea/Primitive.h>
-#include <Althea/BufferHeap.h>
-#include <Althea/GlobalHeap.h>
-#include <Althea/GlobalResources.h>
-#include <Althea/GlobalUniforms.h>
 #include <Althea/Common/GlobalIllumination.h>
 #include <glm/glm.hpp>
 
@@ -42,12 +42,12 @@ class Application;
 } // namespace AltheaEngine
 
 namespace AltheaDemo {
-namespace PathTracing {
+namespace DiffuseProbes {
 
-class PathTracing : public IGameInstance {
+class DiffuseProbes : public IGameInstance {
 public:
-  PathTracing();
-  // virtual ~PathTracing();
+  DiffuseProbes();
+  // virtual ~DiffuseProbes();
 
   void initGame(Application& app) override;
   void shutdownGame(Application& app) override;
@@ -69,6 +69,17 @@ private:
   void createModels(Application& app, SingleTimeCommandBuffer& commandBuffer);
   std::vector<Model> m_models;
 
+  void createDebugResources(
+      Application& app,
+      SingleTimeCommandBuffer& commandBuffer);
+  struct SphereMesh {
+    VertexBuffer<glm::vec3> vertices;
+    IndexBuffer indices;
+  };
+  SphereMesh m_sphere;
+  RenderPass m_compositingPass;
+  FrameBuffer m_compositingFB;
+
   void createGlobalResources(
       Application& app,
       SingleTimeCommandBuffer& commandBuffer);
@@ -76,30 +87,37 @@ private:
   GlobalResources m_globalResources;
   GlobalUniformsResource m_globalUniforms;
   PointLightCollection m_pointLights;
-  StructuredBuffer<PrimitiveConstants> m_primitiveConstantsBuffer; 
+  StructuredBuffer<PrimitiveConstants> m_primitiveConstantsBuffer;
   AccelerationStructure m_accelerationStructure;
 
-  void createGBufferPass(Application& app, SingleTimeCommandBuffer& commandBuffer);
+  void
+  createGBufferPass(Application& app, SingleTimeCommandBuffer& commandBuffer);
   RenderPass m_gBufferPass;
   FrameBuffer m_gBufferFrameBufferA;
   FrameBuffer m_gBufferFrameBufferB;
-  
-  void createSamplingPasses(Application& app, SingleTimeCommandBuffer& commandBuffer);
+
+  void createSamplingPasses(
+      Application& app,
+      SingleTimeCommandBuffer& commandBuffer);
   RayTracingPipeline m_directSamplingPass;
   RayTracingPipeline m_spatialResamplingPass;
 
   void reservoirBarrier(VkCommandBuffer commandBuffer);
 
-   // ping-pong buffers
   struct RtTarget {
     ImageResource target{};
     ImageHandle targetImageHandle{};
     TextureHandle targetTextureHandle{};
   };
   RtTarget m_rtTarget;
-  
+
   TransientUniforms<GlobalIllumination::Uniforms> m_giUniforms;
   std::vector<StructuredBuffer<GlobalIllumination::Reservoir>> m_reservoirHeap;
+
+  StructuredBuffer<GlobalIllumination::Probe> m_probes;
+  StructuredBuffer<uint32_t> m_spatialHash;
+  
+  StructuredBuffer<VkDrawIndexedIndirectCommand> m_probeController;
 
   RenderPass m_displayPass;
   SwapChainFrameBufferCollection m_displayPassSwapChainFrameBuffers;
@@ -110,5 +128,5 @@ private:
 
   float m_exposure = 0.6f;
 };
-} // namespace PathTracing
+} // namespace DiffuseProbes
 } // namespace AltheaDemo

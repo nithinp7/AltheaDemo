@@ -3,6 +3,7 @@
 #include "RayTracedReflectionsDemo.h"
 #include "BindlessDemo.h"
 #include "PathTracing.h"
+#include "DiffuseProbes.h"
 #include "ParticleSystem.h"
 #include "SphericalHarmonics.h"
 
@@ -20,7 +21,8 @@ int main() {
   // app.createGame<RayTracedReflectionsDemo::RayTracedReflectionsDemo>();
   // app.createGame<BindlessDemo::BindlessDemo>();
   // app.createGame<ParticleSystem::ParticleSystem>();
-  app.createGame<PathTracing::PathTracing>();
+  // app.createGame<PathTracing::PathTracing>();
+  app.createGame<DiffuseProbes::DiffuseProbes>();
   // app.createGame<SphericalHarmonics::SphericalHarmonics>();
 
   try {

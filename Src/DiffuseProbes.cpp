@@ -1,4 +1,4 @@
-#include "PathTracing.h"
+#include "DiffuseProbes.h"
 
 #include <Althea/Application.h>
 #include <Althea/BufferUtilities.h>
@@ -11,6 +11,7 @@
 #include <Althea/InputManager.h>
 #include <Althea/ModelViewProjection.h>
 #include <Althea/Primitive.h>
+#include <Althea/ShapeUtilities.h>
 #include <Althea/SingleTimeCommandBuffer.h>
 #include <Althea/Skybox.h>
 #include <Althea/Utilities.h>
@@ -31,8 +32,11 @@ using namespace AltheaEngine;
 
 #define RESERVOIR_COUNT_PER_BUFFER 16383
 
+// TODO: Eventually need to page the probes
+#define PROBE_COUNT 65536
+
 namespace AltheaDemo {
-namespace PathTracing {
+namespace DiffuseProbes {
 
 namespace {
 struct GBufferPush {
@@ -49,9 +53,9 @@ struct RTPush {
 };
 } // namespace
 
-PathTracing::PathTracing() {}
+DiffuseProbes::DiffuseProbes() {}
 
-void PathTracing::initGame(Application& app) {
+void DiffuseProbes::initGame(Application& app) {
   const VkExtent2D& windowDims = app.getSwapChainExtent();
   m_pCameraController = std::make_unique<CameraController>(
       app.getInputManager(),
@@ -104,11 +108,11 @@ void PathTracing::initGame(Application& app) {
       });
 }
 
-void PathTracing::shutdownGame(Application& app) {
+void DiffuseProbes::shutdownGame(Application& app) {
   m_pCameraController.reset();
 }
 
-void PathTracing::createRenderState(Application& app) {
+void DiffuseProbes::createRenderState(Application& app) {
   const VkExtent2D& extent = app.getSwapChainExtent();
   m_pCameraController->getCamera().setAspectRatio(
       (float)extent.width / (float)extent.height);
@@ -121,7 +125,7 @@ void PathTracing::createRenderState(Application& app) {
   createSamplingPasses(app, commandBuffer);
 }
 
-void PathTracing::destroyRenderState(Application& app) {
+void DiffuseProbes::destroyRenderState(Application& app) {
   m_models.clear();
   Primitive::resetPrimitiveIndexCount();
 
@@ -138,6 +142,10 @@ void PathTracing::destroyRenderState(Application& app) {
   m_spatialResamplingPass = {};
   m_displayPass = {};
   m_displayPassSwapChainFrameBuffers = {};
+
+  m_sphere = {};
+  m_compositingPass = {};
+  m_compositingFB = {};
 
   m_globalResources = {};
   m_globalUniforms = {};
@@ -180,9 +188,9 @@ static void updateUi() {
   Gui::finishRecordingImgui();
 }
 
-void PathTracing::tick(Application& app, const FrameContext& frame) {
-  ++m_frameNumber; 
-  
+void DiffuseProbes::tick(Application& app, const FrameContext& frame) {
+  ++m_frameNumber;
+
   updateUi();
 
   const Camera& camera = m_pCameraController->getCamera();
@@ -261,7 +269,7 @@ void PathTracing::tick(Application& app, const FrameContext& frame) {
   m_giUniforms.updateUniforms(giUniforms, frame);
 }
 
-void PathTracing::createModels(
+void DiffuseProbes::createModels(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
 
@@ -298,7 +306,7 @@ void PathTracing::createModels(
       glm::vec3(0.0f, -8.0f, 0.0f)));
 }
 
-void PathTracing::createGlobalResources(
+void DiffuseProbes::createGlobalResources(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
 
@@ -389,7 +397,7 @@ void PathTracing::createGlobalResources(
   }
 }
 
-void PathTracing::createGBufferPass(
+void DiffuseProbes::createGBufferPass(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
 
@@ -440,7 +448,7 @@ void PathTracing::createGBufferPass(
       gBuffer.getAttachmentViewsB());
 }
 
-void PathTracing::createSamplingPasses(
+void DiffuseProbes::createSamplingPasses(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
   m_giUniforms = TransientUniforms<GlobalIllumination::Uniforms>(app);
@@ -462,7 +470,8 @@ void PathTracing::createSamplingPasses(
     samplerOptions.magFilter = VK_FILTER_NEAREST;
 
     m_rtTarget.target.image = Image(app, imageOptions);
-    m_rtTarget.target.view = ImageView(app, m_rtTarget.target.image, viewOptions);
+    m_rtTarget.target.view =
+        ImageView(app, m_rtTarget.target.image, viewOptions);
     m_rtTarget.target.sampler = Sampler(app, samplerOptions);
 
     m_rtTarget.targetImageHandle = m_heap.registerImage();
@@ -481,16 +490,16 @@ void PathTracing::createSamplingPasses(
   ShaderDefines defs;
   RayTracingPipelineBuilder builder{};
   builder.setRayGenShader(
-      GEngineDirectory + "/Shaders/PathTracing/DirectSampling.rgen.glsl",
+      GEngineDirectory + "/Shaders/DiffuseProbes/DirectSampling.rgen.glsl",
       defs);
   builder.addMissShader(
-      GEngineDirectory + "/Shaders/PathTracing/PathTrace.miss.glsl",
+      GEngineDirectory + "/Shaders/DiffuseProbes/PathTrace.miss.glsl",
       defs);
   builder.addClosestHitShader(
-      GEngineDirectory + "/Shaders/PathTracing/PathTrace.chit.glsl",
+      GEngineDirectory + "/Shaders/DiffuseProbes/PathTrace.chit.glsl",
       defs);
   builder.addClosestHitShader(
-      GEngineDirectory + "/Shaders/PathTracing/DepthRay.chit.glsl",
+      GEngineDirectory + "/Shaders/DiffuseProbes/DepthRay.chit.glsl",
       defs);
 
   builder.layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout())
@@ -500,7 +509,7 @@ void PathTracing::createSamplingPasses(
       RayTracingPipeline(app, RayTracingPipelineBuilder(builder));
 
   builder.setRayGenShader(
-      GEngineDirectory + "/Shaders/PathTracing/SpatialResampling.rgen.glsl",
+      GEngineDirectory + "/Shaders/DiffuseProbes/SpatialResampling.rgen.glsl",
       defs);
 
   m_spatialResamplingPass =
@@ -535,10 +544,10 @@ void PathTracing::createSamplingPasses(
 
         // Vertex shader
         .addVertexShader(
-            GEngineDirectory + "/Shaders/PathTracing/DisplayPass.vert")
+            GEngineDirectory + "/Shaders/DiffuseProbes/DisplayPass.vert")
         // Fragment shader
         .addFragmentShader(
-            GEngineDirectory + "/Shaders/PathTracing/DisplayPass.frag")
+            GEngineDirectory + "/Shaders/DiffuseProbes/DisplayPass.frag")
 
         // Pipeline resource layouts
         .layoutBuilder
@@ -557,7 +566,48 @@ void PathTracing::createSamplingPasses(
       SwapChainFrameBufferCollection(app, m_displayPass, {});
 }
 
-void PathTracing::draw(
+void DiffuseProbes::createDebugResources(
+    Application& app,
+    SingleTimeCommandBuffer& commandBuffer) {
+  ShapeUtilities::createSphere(
+      app,
+      commandBuffer,
+      m_sphere.vertices,
+      m_sphere.indices,
+      10);
+
+  VkClearValue colorClear;
+  colorClear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
+  VkClearValue depthClear;
+  depthClear.depthStencil = {1.0f, 0};
+
+  std::vector<Attachment> attachments = {
+    Attachment{
+        ATTACHMENT_FLAG_COLOR,
+        m_rtTarget.target.image.getOptions().format,
+        colorClear,
+        false,
+        true,
+        true},
+    Attachment{
+        ATTACHMENT_FLAG_DEPTH,
+        app.getDepthImageFormat(),
+        depthClear,
+        false,
+        true,
+        true}        
+};
+
+// Compositing pass
+std::vector<SubpassBuilder> builders;
+{
+  SubpassBuilder& builder = builders.emplace_back();
+  builder.colorAttachments = {0};
+  builder.depthAttachment = 1;
+}
+} // namespace DiffuseProbes
+
+void DiffuseProbes::draw(
     Application& app,
     VkCommandBuffer commandBuffer,
     const FrameContext& frame) {
@@ -672,13 +722,13 @@ void PathTracing::draw(
   }
 
   reservoirBarrier(commandBuffer);
-  
+
   m_rtTarget.target.image.transitionLayout(
       commandBuffer,
       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
       VK_ACCESS_SHADER_READ_BIT,
       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-  
+
   // Display pass
   {
     RTPush push{};
@@ -708,7 +758,7 @@ void PathTracing::draw(
   m_targetIndex ^= 1;
 }
 
-void PathTracing::reservoirBarrier(VkCommandBuffer commandBuffer) {
+void DiffuseProbes::reservoirBarrier(VkCommandBuffer commandBuffer) {
   for (auto& buffer : m_reservoirHeap) {
     VkBufferMemoryBarrier barrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
     barrier.buffer = buffer.getAllocation().getBuffer();
@@ -731,5 +781,5 @@ void PathTracing::reservoirBarrier(VkCommandBuffer commandBuffer) {
         nullptr);
   }
 }
-} // namespace PathTracing
+} // namespace AltheaDemo
 } // namespace AltheaDemo
