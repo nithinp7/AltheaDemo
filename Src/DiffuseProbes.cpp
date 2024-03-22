@@ -33,7 +33,7 @@ using namespace AltheaEngine;
 #define RESERVOIR_COUNT_PER_BUFFER 16383
 
 // TODO: Eventually need to page the probes
-#define PROBE_COUNT 65536
+#define PROBE_COUNT 16383
 
 namespace AltheaDemo {
 namespace DiffuseProbes {
@@ -91,6 +91,7 @@ void DiffuseProbes::initGame(Application& app) {
         that->m_spatialResamplingPass.tryRecompile(app);
         that->m_pointLights.getShadowMapPass().tryRecompile(app);
         that->m_displayPass.tryRecompile(app);
+        that->m_compositingPass.tryRecompile(app);
       });
 
   input.addKeyBinding(
@@ -123,6 +124,7 @@ void DiffuseProbes::createRenderState(Application& app) {
   createGlobalResources(app, commandBuffer);
   createGBufferPass(app, commandBuffer);
   createSamplingPasses(app, commandBuffer);
+  createProbeResources(app, commandBuffer);
 }
 
 void DiffuseProbes::destroyRenderState(Application& app) {
@@ -143,9 +145,13 @@ void DiffuseProbes::destroyRenderState(Application& app) {
   m_displayPass = {};
   m_displayPassSwapChainFrameBuffers = {};
 
+  m_probeController = {};
+  m_probes = {};
+
   m_sphere = {};
   m_compositingPass = {};
-  m_compositingFB = {};
+  m_compositingFrameBufferA = {};
+  m_compositingFrameBufferB = {};
 
   m_globalResources = {};
   m_globalUniforms = {};
@@ -263,6 +269,9 @@ void DiffuseProbes::tick(Application& app, const FrameContext& frame) {
   giUniforms.reservoirsPerBuffer = RESERVOIR_COUNT_PER_BUFFER;
 
   giUniforms.frameNumber = m_frameNumber;
+
+  giUniforms.probesInfo = m_probeController.getHandle().index;
+  giUniforms.probes = m_probes.getHandle().index;
 
   giUniforms.liveValues = s_liveValues;
 
@@ -490,16 +499,16 @@ void DiffuseProbes::createSamplingPasses(
   ShaderDefines defs;
   RayTracingPipelineBuilder builder{};
   builder.setRayGenShader(
-      GEngineDirectory + "/Shaders/DiffuseProbes/DirectSampling.rgen.glsl",
+      GEngineDirectory + "/Shaders/PathTracing/DirectSampling.rgen.glsl",
       defs);
   builder.addMissShader(
-      GEngineDirectory + "/Shaders/DiffuseProbes/PathTrace.miss.glsl",
+      GEngineDirectory + "/Shaders/PathTracing/PathTrace.miss.glsl",
       defs);
   builder.addClosestHitShader(
-      GEngineDirectory + "/Shaders/DiffuseProbes/PathTrace.chit.glsl",
+      GEngineDirectory + "/Shaders/PathTracing/PathTrace.chit.glsl",
       defs);
   builder.addClosestHitShader(
-      GEngineDirectory + "/Shaders/DiffuseProbes/DepthRay.chit.glsl",
+      GEngineDirectory + "/Shaders/PathTracing/DepthRay.chit.glsl",
       defs);
 
   builder.layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout())
@@ -509,7 +518,7 @@ void DiffuseProbes::createSamplingPasses(
       RayTracingPipeline(app, RayTracingPipelineBuilder(builder));
 
   builder.setRayGenShader(
-      GEngineDirectory + "/Shaders/DiffuseProbes/SpatialResampling.rgen.glsl",
+      GEngineDirectory + "/Shaders/PathTracing/SpatialResampling.rgen.glsl",
       defs);
 
   m_spatialResamplingPass =
@@ -544,10 +553,10 @@ void DiffuseProbes::createSamplingPasses(
 
         // Vertex shader
         .addVertexShader(
-            GEngineDirectory + "/Shaders/DiffuseProbes/DisplayPass.vert")
+            GEngineDirectory + "/Shaders/PathTracing/DisplayPass.vert")
         // Fragment shader
         .addFragmentShader(
-            GEngineDirectory + "/Shaders/DiffuseProbes/DisplayPass.frag")
+            GEngineDirectory + "/Shaders/PathTracing/DisplayPass.frag")
 
         // Pipeline resource layouts
         .layoutBuilder
@@ -566,7 +575,7 @@ void DiffuseProbes::createSamplingPasses(
       SwapChainFrameBufferCollection(app, m_displayPass, {});
 }
 
-void DiffuseProbes::createDebugResources(
+void DiffuseProbes::createProbeResources(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
   ShapeUtilities::createSphere(
@@ -576,36 +585,81 @@ void DiffuseProbes::createDebugResources(
       m_sphere.indices,
       10);
 
+  VkDrawIndexedIndirectCommand indirectCmd{};
+  indirectCmd.firstIndex = 0;
+  indirectCmd.firstInstance = 0;
+  indirectCmd.indexCount = m_sphere.indices.getIndexCount();
+  indirectCmd.instanceCount = 1;
+  indirectCmd.vertexOffset = 0;
+
+  m_probeController = StructuredBuffer<VkDrawIndexedIndirectCommand>(
+      app,
+      1,
+      VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
+  m_probeController.setElement(indirectCmd, 0);
+  m_probeController.upload(app, commandBuffer);
+  m_probeController.registerToHeap(m_heap);
+
+  m_probes = StructuredBuffer<GlobalIllumination::Probe>(app, PROBE_COUNT);
+  m_probes.zeroBuffer(commandBuffer);
+  m_probes.registerToHeap(m_heap);
+
+  const ImageOptions& targetOptions = m_rtTarget.target.image.getOptions();
+
   VkClearValue colorClear;
   colorClear.color = {{0.0f, 0.0f, 0.0f, 1.0f}};
   VkClearValue depthClear;
   depthClear.depthStencil = {1.0f, 0};
 
   std::vector<Attachment> attachments = {
-    Attachment{
-        ATTACHMENT_FLAG_COLOR,
-        m_rtTarget.target.image.getOptions().format,
-        colorClear,
-        false,
-        true,
-        true},
-    Attachment{
-        ATTACHMENT_FLAG_DEPTH,
-        app.getDepthImageFormat(),
-        depthClear,
-        false,
-        true,
-        true}        
-};
+      Attachment{
+          ATTACHMENT_FLAG_COLOR,
+          targetOptions.format,
+          colorClear,
+          false,
+          true,
+          true},
+      Attachment{
+          ATTACHMENT_FLAG_DEPTH,
+          app.getDepthImageFormat(),
+          depthClear,
+          false,
+          true,
+          true}};
 
-// Compositing pass
-std::vector<SubpassBuilder> builders;
-{
-  SubpassBuilder& builder = builders.emplace_back();
-  builder.colorAttachments = {0};
-  builder.depthAttachment = 1;
+  // Compositing pass
+  std::vector<SubpassBuilder> builders;
+  {
+    SubpassBuilder& builder = builders.emplace_back();
+    builder.colorAttachments = {0};
+    builder.depthAttachment = 1;
+
+    builder.pipelineBuilder.setDepthWrite(false)
+        .addVertexInputBinding<glm::vec3>(VK_VERTEX_INPUT_RATE_VERTEX)
+        .addVertexAttribute(VertexAttributeType::VEC3, 0)
+        .addVertexShader(GProjectDirectory + "/Shaders/Probes/ProbeViz.vert")
+        .addFragmentShader(GProjectDirectory + "/Shaders/Probes/ProbeViz.frag")
+        .layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout());
+  }
+
+  VkExtent2D extent{targetOptions.width, targetOptions.height};
+  m_compositingPass = RenderPass(
+      app,
+      extent,
+      std::move(attachments),
+      std::move(builders),
+      true);
+  m_compositingFrameBufferA = FrameBuffer(
+      app,
+      m_compositingPass,
+      extent,
+      {m_rtTarget.target.view, m_globalResources.getGBuffer().getDepthViewA()});
+  m_compositingFrameBufferB = FrameBuffer(
+      app,
+      m_compositingPass,
+      extent,
+      {m_rtTarget.target.view, m_globalResources.getGBuffer().getDepthViewB()});
 }
-} // namespace DiffuseProbes
 
 void DiffuseProbes::draw(
     Application& app,
@@ -725,6 +779,36 @@ void DiffuseProbes::draw(
 
   m_rtTarget.target.image.transitionLayout(
       commandBuffer,
+      VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
+      VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
+      VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
+
+  // Compositing pass
+  {
+    ActiveRenderPass pass = m_compositingPass.begin(
+        app,
+        commandBuffer,
+        frame,
+        (m_targetIndex == 0) ? m_compositingFrameBufferA
+                             : m_compositingFrameBufferB);
+    // Bind global descriptor sets
+    pass.setGlobalDescriptorSets(gsl::span(&heapSet, 1));
+
+    const DrawContext& context = pass.getDrawContext();
+    context.bindDescriptorSets();
+    context.bindIndexBuffer(m_sphere.indices);
+    context.bindVertexBuffer(m_sphere.vertices);
+    
+    vkCmdDrawIndexedIndirect(
+        commandBuffer,
+        m_probeController.getAllocation().getBuffer(),
+        0,
+        1,
+        sizeof(VkDrawIndexedIndirectCommand));
+  }
+
+  m_rtTarget.target.image.transitionLayout(
+      commandBuffer,
       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
       VK_ACCESS_SHADER_READ_BIT,
       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
@@ -781,5 +865,5 @@ void DiffuseProbes::reservoirBarrier(VkCommandBuffer commandBuffer) {
         nullptr);
   }
 }
-} // namespace AltheaDemo
+} // namespace DiffuseProbes
 } // namespace AltheaDemo

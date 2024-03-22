@@ -69,17 +69,6 @@ private:
   void createModels(Application& app, SingleTimeCommandBuffer& commandBuffer);
   std::vector<Model> m_models;
 
-  void createDebugResources(
-      Application& app,
-      SingleTimeCommandBuffer& commandBuffer);
-  struct SphereMesh {
-    VertexBuffer<glm::vec3> vertices;
-    IndexBuffer indices;
-  };
-  SphereMesh m_sphere;
-  RenderPass m_compositingPass;
-  FrameBuffer m_compositingFB;
-
   void createGlobalResources(
       Application& app,
       SingleTimeCommandBuffer& commandBuffer);
@@ -101,6 +90,18 @@ private:
       SingleTimeCommandBuffer& commandBuffer);
   RayTracingPipeline m_directSamplingPass;
   RayTracingPipeline m_spatialResamplingPass;
+
+  void createProbeResources(
+      Application& app,
+      SingleTimeCommandBuffer& commandBuffer);
+  struct SphereMesh {
+    VertexBuffer<glm::vec3> vertices;
+    IndexBuffer indices;
+  };
+  SphereMesh m_sphere;
+  RenderPass m_compositingPass;
+  FrameBuffer m_compositingFrameBufferA;
+  FrameBuffer m_compositingFrameBufferB;
 
   void reservoirBarrier(VkCommandBuffer commandBuffer);
 
