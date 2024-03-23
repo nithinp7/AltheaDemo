@@ -46,6 +46,7 @@ struct GBufferPush {
   uint32_t globalUniformsHandle;
 };
 
+// TODO: Move this into Althea/Shared/GlobalIllumination.glsl"
 struct RTPush {
   uint32_t globalResourcesHandle;
   uint32_t globalUniformsHandle;
@@ -92,6 +93,7 @@ void DiffuseProbes::initGame(Application& app) {
         that->m_pointLights.getShadowMapPass().tryRecompile(app);
         that->m_displayPass.tryRecompile(app);
         that->m_compositingPass.tryRecompile(app);
+        that->m_probePlacementPass.tryRecompile(app);
       });
 
   input.addKeyBinding(
@@ -149,6 +151,7 @@ void DiffuseProbes::destroyRenderState(Application& app) {
   m_probes = {};
 
   m_sphere = {};
+  m_probePlacementPass = {};
   m_compositingPass = {};
   m_compositingFrameBufferA = {};
   m_compositingFrameBufferB = {};
@@ -179,10 +182,10 @@ static void updateUi() {
         &s_liveValues.temporalBlend,
         0.0f,
         1.0f);
-    ImGui::Text("Slider1:");
-    ImGui::SliderFloat("##temporalblend1", &s_liveValues.slider1, 0.0, 1.0);
-    ImGui::Text("Slider2:");
-    ImGui::SliderFloat("##temporalblend2", &s_liveValues.slider2, 0.0, 1.0);
+    ImGui::Text("Depth Discrepancy Tolerance:");
+    ImGui::SliderFloat("##temporalblend1", &s_liveValues.depthDiscrepancyTolerance, 0.0, 1.0);
+    ImGui::Text("Spatial Resampling Radius:");
+    ImGui::SliderFloat("##temporalblend2", &s_liveValues.spatialResamplingRadius, 0.0, 1.0);
     ImGui::Text("Checkbox1:");
     ImGui::Checkbox("##checkbox1", &s_liveValues.checkbox1);
     ImGui::Text("Checkbox2:");
@@ -468,8 +471,9 @@ void DiffuseProbes::createSamplingPasses(
     imageOptions.format = VK_FORMAT_R32G32B32A32_SFLOAT;
     imageOptions.width = app.getSwapChainExtent().width;
     imageOptions.height = app.getSwapChainExtent().height;
-    imageOptions.usage =
-        VK_IMAGE_USAGE_STORAGE_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
+    imageOptions.usage = VK_IMAGE_USAGE_STORAGE_BIT |
+                         VK_IMAGE_USAGE_SAMPLED_BIT |
+                         VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
 
     ImageViewOptions viewOptions{};
     viewOptions.format = imageOptions.format;
@@ -589,7 +593,7 @@ void DiffuseProbes::createProbeResources(
   indirectCmd.firstIndex = 0;
   indirectCmd.firstInstance = 0;
   indirectCmd.indexCount = m_sphere.indices.getIndexCount();
-  indirectCmd.instanceCount = 1;
+  indirectCmd.instanceCount = 0;
   indirectCmd.vertexOffset = 0;
 
   m_probeController = StructuredBuffer<VkDrawIndexedIndirectCommand>(
@@ -604,6 +608,16 @@ void DiffuseProbes::createProbeResources(
   m_probes.zeroBuffer(commandBuffer);
   m_probes.registerToHeap(m_heap);
 
+  {
+    ComputePipelineBuilder builder{};
+    builder.setComputeShader(
+        GEngineDirectory +
+        "/Shaders/GlobalIllumination/Probes/GBufferPlaceProbes.comp.glsl");
+    builder.layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout())
+        .addPushConstants<RTPush>(VK_SHADER_STAGE_ALL);
+
+    m_probePlacementPass = ComputePipeline(app, std::move(builder));
+  }
   const ImageOptions& targetOptions = m_rtTarget.target.image.getOptions();
 
   VkClearValue colorClear;
@@ -639,7 +653,8 @@ void DiffuseProbes::createProbeResources(
         .addVertexAttribute(VertexAttributeType::VEC3, 0)
         .addVertexShader(GProjectDirectory + "/Shaders/Probes/ProbeViz.vert")
         .addFragmentShader(GProjectDirectory + "/Shaders/Probes/ProbeViz.frag")
-        .layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout());
+        .layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout())
+        .addPushConstants<RTPush>(VK_SHADER_STAGE_ALL);
   }
 
   VkExtent2D extent{targetOptions.width, targetOptions.height};
@@ -674,9 +689,9 @@ void DiffuseProbes::draw(
   m_globalResources.getGBuffer().transitionToAttachment(commandBuffer);
 
   {
-    GBufferPush push{};
-    push.globalResourcesHandle = m_globalResources.getHandle().index;
-    push.globalUniformsHandle =
+    GBufferPush gBufPush{};
+    gBufPush.globalResourcesHandle = m_globalResources.getHandle().index;
+    gBufPush.globalUniformsHandle =
         m_globalUniforms.getCurrentBindlessHandle(frame).index;
 
     ActiveRenderPass draw = m_gBufferPass.begin(
@@ -689,10 +704,10 @@ void DiffuseProbes::draw(
     const DrawContext& context = draw.getDrawContext();
     for (const Model& model : m_models) {
       for (const Primitive& primitive : model.getPrimitives()) {
-        push.transform = primitive.computeWorldTransform();
-        push.primitiveIdx = primitive.getPrimitiveIndex();
+        gBufPush.transform = primitive.computeWorldTransform();
+        gBufPush.primitiveIdx = primitive.getPrimitiveIndex();
 
-        context.updatePushConstants(push, 0);
+        context.updatePushConstants(gBufPush, 0);
 
         context.setFrontFaceDynamic(primitive.getFrontFace());
         context.bindDescriptorSets();
@@ -703,6 +718,12 @@ void DiffuseProbes::draw(
     }
   }
 
+  RTPush push{};
+  push.globalResourcesHandle = m_globalResources.getHandle().index;
+  push.globalUniformsHandle =
+      m_globalUniforms.getCurrentBindlessHandle(frame).index;
+  push.giUniformsHandle = m_giUniforms.getCurrentHandle(frame).index;
+
   m_globalResources.getGBuffer().transitionToTextures(commandBuffer);
 
   m_rtTarget.target.image.transitionLayout(
@@ -711,14 +732,35 @@ void DiffuseProbes::draw(
       VK_ACCESS_SHADER_WRITE_BIT,
       VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
 
+  // GBuffer probe placement
+  {
+    uint32_t localSize = 8;
+    uint32_t groupCount = 1; // 128 / localSize;
+
+    m_probePlacementPass.bindPipeline(commandBuffer);
+    vkCmdBindDescriptorSets(
+        commandBuffer,
+        VK_PIPELINE_BIND_POINT_COMPUTE,
+        m_probePlacementPass.getLayout(),
+        0,
+        1,
+        &heapSet,
+        0,
+        nullptr);
+    vkCmdPushConstants(
+        commandBuffer,
+        m_probePlacementPass.getLayout(),
+        VK_SHADER_STAGE_ALL,
+        0,
+        sizeof(RTPush),
+        &push);
+    vkCmdDispatch(commandBuffer, groupCount, groupCount, 1);
+  }
+
+  probeBarrier(commandBuffer);
+
   // Direct Sampling
   {
-    RTPush push{};
-    push.globalResourcesHandle = m_globalResources.getHandle().index;
-    push.globalUniformsHandle =
-        m_globalUniforms.getCurrentBindlessHandle(frame).index;
-    push.giUniformsHandle = m_giUniforms.getCurrentHandle(frame).index;
-
     vkCmdBindPipeline(
         commandBuffer,
         VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
@@ -746,12 +788,6 @@ void DiffuseProbes::draw(
 
   // Spatial Resampling
   {
-    RTPush push{};
-    push.globalResourcesHandle = m_globalResources.getHandle().index;
-    push.globalUniformsHandle =
-        m_globalUniforms.getCurrentBindlessHandle(frame).index;
-    push.giUniformsHandle = m_giUniforms.getCurrentHandle(frame).index;
-
     vkCmdBindPipeline(
         commandBuffer,
         VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
@@ -783,6 +819,8 @@ void DiffuseProbes::draw(
       VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT,
       VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT);
 
+  m_globalResources.getGBuffer().transitionToAttachment(commandBuffer);
+
   // Compositing pass
   {
     ActiveRenderPass pass = m_compositingPass.begin(
@@ -796,9 +834,10 @@ void DiffuseProbes::draw(
 
     const DrawContext& context = pass.getDrawContext();
     context.bindDescriptorSets();
+    context.updatePushConstants(push, 0);
     context.bindIndexBuffer(m_sphere.indices);
     context.bindVertexBuffer(m_sphere.vertices);
-    
+
     vkCmdDrawIndexedIndirect(
         commandBuffer,
         m_probeController.getAllocation().getBuffer(),
@@ -815,12 +854,6 @@ void DiffuseProbes::draw(
 
   // Display pass
   {
-    RTPush push{};
-    push.globalResourcesHandle = m_globalResources.getHandle().index;
-    push.globalUniformsHandle =
-        m_globalUniforms.getCurrentBindlessHandle(frame).index;
-    push.giUniformsHandle = m_giUniforms.getCurrentHandle(frame).index;
-
     ActiveRenderPass pass = m_displayPass.begin(
         app,
         commandBuffer,
@@ -864,6 +897,40 @@ void DiffuseProbes::reservoirBarrier(VkCommandBuffer commandBuffer) {
         0,
         nullptr);
   }
+}
+
+void DiffuseProbes::probeBarrier(VkCommandBuffer commandBuffer) {
+  VkBufferMemoryBarrier barriers[2];
+  barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+  barriers[0].buffer = m_probes.getAllocation().getBuffer();
+  barriers[0].offset = 0;
+  barriers[0].size = m_probes.getSize();
+  barriers[0].srcAccessMask =
+      VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+  barriers[0].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+  barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+  barriers[1].buffer = m_probeController.getAllocation().getBuffer();
+  barriers[1].offset = 0;
+  barriers[1].size = m_probeController.getSize();
+  barriers[1].srcAccessMask =
+      VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
+  barriers[1].dstAccessMask =
+      VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
+
+  vkCmdPipelineBarrier(
+      commandBuffer,
+      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+      VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT |
+          VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+          VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
+      0,
+      0,
+      nullptr,
+      2,
+      barriers,
+      0,
+      nullptr);
 }
 } // namespace DiffuseProbes
 } // namespace AltheaDemo

@@ -99,11 +99,13 @@ private:
     IndexBuffer indices;
   };
   SphereMesh m_sphere;
+  ComputePipeline m_probePlacementPass;
   RenderPass m_compositingPass;
   FrameBuffer m_compositingFrameBufferA;
   FrameBuffer m_compositingFrameBufferB;
 
   void reservoirBarrier(VkCommandBuffer commandBuffer);
+  void probeBarrier(VkCommandBuffer commandBuffer);
 
   struct RtTarget {
     ImageResource target{};

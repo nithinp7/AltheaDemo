@@ -11,7 +11,7 @@ void main() {
   vec3 probePos = getProbe(uint(gl_InstanceIndex)).position;
 
   // paramaterize??
-  float radius = 5.0;
+  float radius = 0.5;
   vec4 worldPos = vec4(probePos + radius * sphereVert, 1.0);
   gl_Position = globals.projection * globals.view * worldPos;
 
