@@ -18,7 +18,6 @@
 #include <Althea/ImageView.h>
 #include <Althea/Model.h>
 #include <Althea/PerFrameResources.h>
-#include <Althea/PointLight.h>
 #include <Althea/Primitive.h>
 #include <Althea/RayTracingPipeline.h>
 #include <Althea/RenderPass.h>
@@ -75,7 +74,6 @@ private:
   GlobalHeap m_heap;
   GlobalResources m_globalResources;
   GlobalUniformsResource m_globalUniforms;
-  PointLightCollection m_pointLights;
   StructuredBuffer<PrimitiveConstants> m_primitiveConstantsBuffer;
   AccelerationStructure m_accelerationStructure;
 

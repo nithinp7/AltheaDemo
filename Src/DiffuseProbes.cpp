@@ -90,7 +90,6 @@ void DiffuseProbes::initGame(Application& app) {
         that->m_gBufferPass.tryRecompile(app);
         that->m_directSamplingPass.tryRecompile(app);
         that->m_spatialResamplingPass.tryRecompile(app);
-        that->m_pointLights.getShadowMapPass().tryRecompile(app);
         that->m_displayPass.tryRecompile(app);
         that->m_compositingPass.tryRecompile(app);
         that->m_probePlacementPass.tryRecompile(app);
@@ -158,7 +157,6 @@ void DiffuseProbes::destroyRenderState(Application& app) {
 
   m_globalResources = {};
   m_globalUniforms = {};
-  m_pointLights = {};
   m_primitiveConstantsBuffer = {};
 
   m_reservoirHeap.clear();
@@ -216,7 +214,7 @@ void DiffuseProbes::tick(Application& app, const FrameContext& frame) {
   globalUniforms.inverseProjection = glm::inverse(globalUniforms.projection);
   globalUniforms.view = camera.computeView();
   globalUniforms.inverseView = glm::inverse(globalUniforms.view);
-  globalUniforms.lightCount = static_cast<int>(m_pointLights.getCount());
+  globalUniforms.lightCount = 0;
   globalUniforms.time = static_cast<float>(frame.currentTime);
   globalUniforms.exposure = m_exposure;
 
@@ -230,29 +228,11 @@ void DiffuseProbes::tick(Application& app, const FrameContext& frame) {
 
   globalUniforms.mouseUV = mouseUV;
 
-  globalUniforms.lightBufferHandle =
-      m_pointLights.getCurrentLightBufferHandle(frame).index;
-  globalUniforms.lightCount = m_pointLights.getCount();
+  globalUniforms.lightBufferHandle = INVALID_BINDLESS_HANDLE;
+  globalUniforms.lightCount = 0;
 
   m_globalUniforms.getCurrentUniformBuffer(frame).updateUniforms(
       globalUniforms);
-
-  // TODO: Allow lights to move again :)
-  // for (uint32_t i = 0; i < m_pointLights.getCount(); ++i) {
-  //   PointLight light = m_pointLights.getLight(i);
-
-  //   light.position = 40.0f * glm::vec3(
-  //                                static_cast<float>(i / 3),
-  //                                -0.1f,
-  //                                (static_cast<float>(i % 3) - 1.5f) * 0.5f);
-
-  //   light.position.x += 5.5f * cos(1.5f * frame.currentTime + i);
-  //   light.position.z += 5.5f * sin(1.5 * frame.currentTime + i);
-
-  //   m_pointLights.setLight(i, light);
-  // }
-
-  m_pointLights.updateResource(frame);
 
   uint32_t readIndex = m_targetIndex ^ 1;
 
@@ -354,37 +334,11 @@ void DiffuseProbes::createGlobalResources(
   m_accelerationStructure = AccelerationStructure(app, commandBuffer, m_models);
   m_accelerationStructure.registerToHeap(m_heap);
 
-  {
-    m_pointLights = PointLightCollection(
-        app,
-        commandBuffer,
-        m_heap,
-        9,
-        true,
-        m_primitiveConstantsBuffer.getHandle());
-    for (uint32_t i = 0; i < 3; ++i) {
-      for (uint32_t j = 0; j < 3; ++j) {
-        PointLight light;
-        float t = static_cast<float>(i * 3 + j);
-
-        light.position = 40.0f * glm::vec3(
-                                     static_cast<float>(i),
-                                     -0.1f,
-                                     (static_cast<float>(j) - 1.5f) * 0.5f);
-        light.emission =
-            1000.0f * // / static_cast<float>(i + 1) *
-            glm::vec3(cos(t) + 1.0f, sin(t + 1.0f) + 1.0f, sin(t) + 1.0f);
-
-        m_pointLights.setLight(i * 3 + j, light);
-      }
-    }
-  }
-
   m_globalResources = GlobalResources(
       app,
       commandBuffer,
       m_heap,
-      m_pointLights.getShadowMapHandle(),
+      {}, // point lights...
       m_primitiveConstantsBuffer.getHandle());
   m_globalUniforms = GlobalUniformsResource(app, m_heap);
 
@@ -681,8 +635,6 @@ void DiffuseProbes::draw(
     VkCommandBuffer commandBuffer,
     const FrameContext& frame) {
   VkDescriptorSet heapSet = m_heap.getDescriptorSet();
-
-  m_pointLights.updateResource(frame);
 
   uint32_t readIndex = m_targetIndex ^ 1;
 
