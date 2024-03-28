@@ -9,6 +9,7 @@
 #include <Althea/Gui.h>
 #include <Althea/IndexBuffer.h>
 #include <Althea/InputManager.h>
+#include <Althea/InputMask.h>
 #include <Althea/ModelViewProjection.h>
 #include <Althea/Primitive.h>
 #include <Althea/ShapeUtilities.h>
@@ -208,8 +209,6 @@ void DiffuseProbes::tick(Application& app, const FrameContext& frame) {
 
   m_pCameraController->tick(frame.deltaTime);
 
-  uint32_t inputMask = app.getInputManager().getCurrentInputMask();
-
   globalUniforms.projection = camera.getProjection();
   globalUniforms.inverseProjection = glm::inverse(globalUniforms.projection);
   globalUniforms.view = camera.computeView();
@@ -218,7 +217,7 @@ void DiffuseProbes::tick(Application& app, const FrameContext& frame) {
   globalUniforms.time = static_cast<float>(frame.currentTime);
   globalUniforms.exposure = m_exposure;
 
-  globalUniforms.inputMask = inputMask;
+  globalUniforms.inputMask = m_inputMask = app.getInputManager().getCurrentInputMask();
 
   InputManager::MousePos mPos = app.getInputManager().getCurrentMousePos();
   VkExtent2D extent = app.getSwapChainExtent();
@@ -685,6 +684,7 @@ void DiffuseProbes::draw(
       VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
 
   // GBuffer probe placement
+  if (m_inputMask & INPUT_BIT_SPACE)
   {
     uint32_t localSize = 8;
     uint32_t groupCount = 1; // 128 / localSize;

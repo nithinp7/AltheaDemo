@@ -126,6 +126,7 @@ private:
   bool m_freezeCamera = true;
   uint32_t m_frameNumber = 0;
   uint32_t m_targetIndex = 0;
+  uint32_t m_inputMask = 0;
 
   float m_exposure = 0.6f;
 };
