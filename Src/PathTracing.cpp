@@ -169,10 +169,10 @@ static void updateUi() {
     ImGui::SliderFloat("##temporalblend1", &s_liveValues.depthDiscrepancyTolerance, 0.0, 1.0);
     ImGui::Text("Slider2:");
     ImGui::SliderFloat("##temporalblend2", &s_liveValues.spatialResamplingRadius, 0.0, 1.0);
-    ImGui::Text("Checkbox1:");
-    ImGui::Checkbox("##checkbox1", &s_liveValues.checkbox1);
-    ImGui::Text("Checkbox2:");
-    ImGui::Checkbox("##checkbox2", &s_liveValues.checkbox2);
+    // ImGui::Text("Checkbox1:");
+    // ImGui::Checkbox("##checkbox1", &s_liveValues.checkbox1);
+    // ImGui::Text("Checkbox2:");
+    // ImGui::Checkbox("##checkbox2", &s_liveValues.checkbox2);
   }
 
   ImGui::End();

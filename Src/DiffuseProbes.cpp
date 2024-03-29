@@ -166,7 +166,12 @@ void DiffuseProbes::destroyRenderState(Application& app) {
 }
 
 static GlobalIllumination::LiveEditValues s_liveValues{};
+static bool s_bLightSamplingMode = false;
+static bool s_bDisableEnvMap = false;
+
 static void updateUi() {
+  using namespace AltheaEngine::GlobalIllumination;
+
   Gui::startRecordingImgui();
   const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
   ImGui::SetNextWindowPos(
@@ -182,13 +187,25 @@ static void updateUi() {
         0.0f,
         1.0f);
     ImGui::Text("Depth Discrepancy Tolerance:");
-    ImGui::SliderFloat("##temporalblend1", &s_liveValues.depthDiscrepancyTolerance, 0.0, 1.0);
+    ImGui::SliderFloat("##depthdiscrepancy", &s_liveValues.depthDiscrepancyTolerance, 0.0, 1.0);
     ImGui::Text("Spatial Resampling Radius:");
-    ImGui::SliderFloat("##temporalblend2", &s_liveValues.spatialResamplingRadius, 0.0, 1.0);
-    ImGui::Text("Checkbox1:");
-    ImGui::Checkbox("##checkbox1", &s_liveValues.checkbox1);
-    ImGui::Text("Checkbox2:");
-    ImGui::Checkbox("##checkbox2", &s_liveValues.checkbox2);
+    ImGui::SliderFloat("##spatialresamplingradius", &s_liveValues.spatialResamplingRadius, 0.0, 1.0);
+    ImGui::Text("Light Intensity:");
+    ImGui::SliderFloat("##lightintensity", &s_liveValues.lightIntensity, 0.0, 1.0);
+    ImGui::Text("Enable Light Sampling:");
+    if (ImGui::Checkbox("##lightsampling", &s_bLightSamplingMode)) {
+      if (s_bLightSamplingMode)
+        s_liveValues.flags |= LEF_LIGHT_SAMPLING_MODE;
+      else 
+        s_liveValues.flags &= ~LEF_LIGHT_SAMPLING_MODE;
+    }
+    ImGui::Text("Disable Env Map:");
+    if (ImGui::Checkbox("##disableenvmap", &s_bDisableEnvMap)) {
+      if (s_bDisableEnvMap)
+        s_liveValues.flags |= LEF_DISABLE_ENV_MAP;
+      else 
+        s_liveValues.flags &= ~LEF_DISABLE_ENV_MAP;
+    }
   }
 
   ImGui::End();
@@ -199,7 +216,8 @@ static void updateUi() {
 void DiffuseProbes::tick(Application& app, const FrameContext& frame) {
   ++m_frameNumber;
 
-  updateUi();
+  if (!app.getInputManager().getMouseCursorHidden())
+    updateUi();
 
   const Camera& camera = m_pCameraController->getCamera();
 
@@ -684,7 +702,8 @@ void DiffuseProbes::draw(
       VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR);
 
   // GBuffer probe placement
-  if (m_inputMask & INPUT_BIT_SPACE)
+  if ((m_inputMask & INPUT_BIT_LEFT_MOUSE) &&
+      app.getInputManager().getMouseCursorHidden())
   {
     uint32_t localSize = 8;
     uint32_t groupCount = 1; // 128 / localSize;
@@ -822,7 +841,8 @@ void DiffuseProbes::draw(
     }
   }
 
-  Gui::draw(app, frame, commandBuffer);
+  if (!app.getInputManager().getMouseCursorHidden())
+    Gui::draw(app, frame, commandBuffer);
 
   m_targetIndex ^= 1;
 }
