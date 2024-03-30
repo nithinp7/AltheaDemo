@@ -169,46 +169,60 @@ static GlobalIllumination::LiveEditValues s_liveValues{};
 static bool s_bLightSamplingMode = false;
 static bool s_bDisableEnvMap = false;
 
-static void updateUi() {
+static void updateUi(bool bEnable) {
   using namespace AltheaEngine::GlobalIllumination;
 
   Gui::startRecordingImgui();
-  const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
-  ImGui::SetNextWindowPos(
-      ImVec2(main_viewport->WorkPos.x + 650, main_viewport->WorkPos.y + 20),
-      ImGuiCond_FirstUseEver);
-  ImGui::SetNextWindowSize(ImVec2(440, 200), ImGuiCond_FirstUseEver);
+  if (bEnable) {
+    const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(
+        ImVec2(main_viewport->WorkPos.x + 650, main_viewport->WorkPos.y + 20),
+        ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(440, 200), ImGuiCond_FirstUseEver);
 
-  if (ImGui::Begin("Live Edit")) {
-    ImGui::Text("Temporal Blend:");
-    ImGui::SliderFloat(
-        "##temporalblend",
-        &s_liveValues.temporalBlend,
-        0.0f,
-        1.0f);
-    ImGui::Text("Depth Discrepancy Tolerance:");
-    ImGui::SliderFloat("##depthdiscrepancy", &s_liveValues.depthDiscrepancyTolerance, 0.0, 1.0);
-    ImGui::Text("Spatial Resampling Radius:");
-    ImGui::SliderFloat("##spatialresamplingradius", &s_liveValues.spatialResamplingRadius, 0.0, 1.0);
-    ImGui::Text("Light Intensity:");
-    ImGui::SliderFloat("##lightintensity", &s_liveValues.lightIntensity, 0.0, 1.0);
-    ImGui::Text("Enable Light Sampling:");
-    if (ImGui::Checkbox("##lightsampling", &s_bLightSamplingMode)) {
-      if (s_bLightSamplingMode)
-        s_liveValues.flags |= LEF_LIGHT_SAMPLING_MODE;
-      else 
-        s_liveValues.flags &= ~LEF_LIGHT_SAMPLING_MODE;
+    if (ImGui::Begin("Live Edit")) {
+      ImGui::Text("Temporal Blend:");
+      ImGui::SliderFloat(
+          "##temporalblend",
+          &s_liveValues.temporalBlend,
+          0.0f,
+          1.0f);
+      ImGui::Text("Depth Discrepancy Tolerance:");
+      ImGui::SliderFloat(
+          "##depthdiscrepancy",
+          &s_liveValues.depthDiscrepancyTolerance,
+          0.0,
+          1.0);
+      ImGui::Text("Spatial Resampling Radius:");
+      ImGui::SliderFloat(
+          "##spatialresamplingradius",
+          &s_liveValues.spatialResamplingRadius,
+          0.0,
+          1.0);
+      ImGui::Text("Light Intensity:");
+      ImGui::SliderFloat(
+          "##lightintensity",
+          &s_liveValues.lightIntensity,
+          0.0,
+          1.0);
+      ImGui::Text("Enable Light Sampling:");
+      if (ImGui::Checkbox("##lightsampling", &s_bLightSamplingMode)) {
+        if (s_bLightSamplingMode)
+          s_liveValues.flags |= LEF_LIGHT_SAMPLING_MODE;
+        else
+          s_liveValues.flags &= ~LEF_LIGHT_SAMPLING_MODE;
+      }
+      ImGui::Text("Disable Env Map:");
+      if (ImGui::Checkbox("##disableenvmap", &s_bDisableEnvMap)) {
+        if (s_bDisableEnvMap)
+          s_liveValues.flags |= LEF_DISABLE_ENV_MAP;
+        else
+          s_liveValues.flags &= ~LEF_DISABLE_ENV_MAP;
+      }
     }
-    ImGui::Text("Disable Env Map:");
-    if (ImGui::Checkbox("##disableenvmap", &s_bDisableEnvMap)) {
-      if (s_bDisableEnvMap)
-        s_liveValues.flags |= LEF_DISABLE_ENV_MAP;
-      else 
-        s_liveValues.flags &= ~LEF_DISABLE_ENV_MAP;
-    }
+
+    ImGui::End();
   }
-
-  ImGui::End();
 
   Gui::finishRecordingImgui();
 }
@@ -216,8 +230,7 @@ static void updateUi() {
 void DiffuseProbes::tick(Application& app, const FrameContext& frame) {
   ++m_frameNumber;
 
-  if (!app.getInputManager().getMouseCursorHidden())
-    updateUi();
+  updateUi(!app.getInputManager().getMouseCursorHidden());
 
   const Camera& camera = m_pCameraController->getCamera();
 
@@ -235,7 +248,8 @@ void DiffuseProbes::tick(Application& app, const FrameContext& frame) {
   globalUniforms.time = static_cast<float>(frame.currentTime);
   globalUniforms.exposure = m_exposure;
 
-  globalUniforms.inputMask = m_inputMask = app.getInputManager().getCurrentInputMask();
+  globalUniforms.inputMask = m_inputMask =
+      app.getInputManager().getCurrentInputMask();
 
   InputManager::MousePos mPos = app.getInputManager().getCurrentMousePos();
   VkExtent2D extent = app.getSwapChainExtent();
@@ -703,8 +717,7 @@ void DiffuseProbes::draw(
 
   // GBuffer probe placement
   if ((m_inputMask & INPUT_BIT_LEFT_MOUSE) &&
-      app.getInputManager().getMouseCursorHidden())
-  {
+      app.getInputManager().getMouseCursorHidden()) {
     uint32_t localSize = 8;
     uint32_t groupCount = 1; // 128 / localSize;
 
