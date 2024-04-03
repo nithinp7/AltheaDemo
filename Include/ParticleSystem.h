@@ -38,6 +38,12 @@ class Application;
 namespace AltheaDemo {
 namespace ParticleSystem {
 
+struct PushConstants {
+  uint32_t globalResourcesHandle;
+  uint32_t globalUniformsHandle;
+  uint32_t simUniformsHandle;
+};
+
 struct Particle {
   alignas(16) glm::vec3 position;
   alignas(4) uint32_t globalIndex;
@@ -63,7 +69,7 @@ struct SimUniforms {
   glm::mat4 inverseView;
 
   glm::vec3 interactionLocation;
-  uint32_t inputMask;
+  uint32_t padding;
 
   uint32_t particleCount;
   uint32_t particlesPerBuffer;
@@ -79,6 +85,11 @@ struct SimUniforms {
   uint32_t particleBucketCount;
   uint32_t particleBucketsPerBuffer;
   uint32_t freeListsCount;
+
+  uint32_t particlesHeap;
+  uint32_t spatialHashHeap;
+  uint32_t bucketHeap;
+  uint32_t nextFreeBucket;
 };
 
 #define SIM_PASS 0
@@ -122,6 +133,7 @@ private:
   std::vector<ComputePipeline> m_computePasses;
 
   TransientUniforms<SimUniforms> m_simUniforms;
+  PushConstants m_push;
 
   StructuredBufferHeap<Particle> m_particleBuffer;
   StructuredBufferHeap<uint32_t> m_spatialHash;
@@ -151,6 +163,10 @@ private:
       VkCommandBuffer commandBuffer,
       const FrameContext& frame);
 
+  void _dispatchComputePass(VkCommandBuffer commandBuffer, uint32_t passIdx, uint32_t groupCount);
+  void _readAfterWriteBarrier(VkCommandBuffer commandBuffer);
+  void _writeAfterReadBarrier(VkCommandBuffer commandBuffer);
+
   uint32_t m_writeIndex = 0;
 
   ScreenSpaceReflection m_ssr;
@@ -158,7 +174,6 @@ private:
 
   bool m_flagReset = false;
   uint32_t m_activeParticleCount = 100000; // 0;
-  uint32_t m_inputMask = 0;
 };
 } // namespace ParticleSystem
 } // namespace AltheaDemo

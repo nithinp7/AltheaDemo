@@ -1,7 +1,6 @@
 #ifndef _SIMRESOURCES_
 #define _SIMRESOURCES_
 
-#include "Particle.glsl"
 #include "Hash.glsl"
 
 #define INPUT_MASK_MOUSE_LEFT 1
@@ -16,14 +15,20 @@
 
 #extension GL_EXT_nonuniform_qualifier : enable
 
-layout(set=SIM_RESOURCES_SET, binding=0) uniform SimUniforms {
+layout(push_constant) uniform PushConstant {
+  uint globalResourcesHandle;
+  uint globalUniformsHandle;
+  uint simUniformsHandle;
+} pushConstants;
+
+UNIFORM_BUFFER(_simUniforms, SimUniforms{
   mat4 gridToWorld;
   mat4 worldToGrid;
 
   mat4 inverseView;
 
   vec3 interactionLocation;
-  uint inputMask;
+  uint padding;
   
   uint particleCount;
   uint particlesPerBuffer;
@@ -39,7 +44,13 @@ layout(set=SIM_RESOURCES_SET, binding=0) uniform SimUniforms {
   uint particleBucketCount;
   uint particleBucketsPerBuffer;
   uint freeListsCount;
-};
+
+  uint particlesHeap;
+  uint spatialHashHeap;
+  uint bucketHeap;
+  uint nextFreeBucket;
+});
+#define simUniforms _simUniforms[pushConstants.simUniformsHandle]
 
 // TODO: Would it be useful to have the previous pos cached here as well??
 struct ParticleBucketEntry {
@@ -50,13 +61,32 @@ struct ParticleBucket {
   ParticleBucketEntry particles[16];
 };
 
-layout(std430, set=SIM_RESOURCES_SET, binding=1) buffer PARTICLES_BUFFER {
-  Particle particles[];
-} particlesHeap[];
+struct Particle {
+  vec3 position;
+  uint globalIndex;
+  vec3 prevPosition;
+  uint debug;
+};
 
-layout(std430, set=SIM_RESOURCES_SET, binding=2) buffer SPATIAL_HASH_BUFFER {
+BUFFER_RW(_particlesHeap, PARTICLES_BUFFER{
+  Particle particles[];
+});
+#define getParticle(particleIdx)                    \
+    _particlesHeap[                                 \
+      simUniforms.particlesHeap +                   \
+      particleIdx / simUniforms.particlesPerBuffer] \
+        .particles[                                 \
+          particleIdx % simUniforms.particlesPerBuffer]
+
+BUFFER_RW(_spatialHashHeap, SPATIAL_HASH_HEAP{
   uint spatialHash[];
-} spatialHashHeap[];
+});
+#define getSpatialHashSlot(uint slotIdx)                    \
+    _spatialHashHeap[                                       \
+      simUniforms.spatialHashHeap +                           \
+      slotIdx / simUniforms.spatialHashEntriesPerBuffer]    \
+        .spatialHash[                                       \
+          slotIdx % simUniforms.spatialHashEntriesPerBuffer]
 
 // TODO: These should probably be heaps as well??
 
@@ -147,13 +177,6 @@ uint hashInsertPosition(uint slotIdx, vec3 position) {
       .positions[0].xyz = position;
 
   return particleGlobalIdx;
-}
-
-Particle getParticle(uint particleIdx)
-{
-  uint bufferIdx = particleIdx / particlesPerBuffer;
-  uint localIdx = particleIdx % particlesPerBuffer;
-  return particlesHeap[bufferIdx].particles[localIdx];
 }
 
 void setParticle(uint particleIdx, Particle particle)

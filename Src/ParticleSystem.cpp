@@ -8,6 +8,7 @@
 #include <Althea/DescriptorSet.h>
 #include <Althea/GraphicsPipeline.h>
 #include <Althea/InputManager.h>
+#include <Althea/InputMask.h>
 #include <Althea/ModelViewProjection.h>
 #include <Althea/Primitive.h>
 #include <Althea/ShapeUtilities.h>
@@ -49,10 +50,6 @@ using namespace AltheaEngine;
 
 #define GEN_SHADER_DEBUG_INFO
 
-#define INPUT_MASK_MOUSE_LEFT 1
-#define INPUT_MASK_MOUSE_RIGHT 2
-#define INPUT_MASK_SPACEBAR 4
-
 namespace {
 struct SolverPushConstants {
   uint32_t iteration;
@@ -65,11 +62,11 @@ ParticleSystem::ParticleSystem() {}
 
 void ParticleSystem::initGame(Application& app) {
   const VkExtent2D& windowDims = app.getSwapChainExtent();
-  this->m_pCameraController = std::make_unique<CameraController>(
+  m_pCameraController = std::make_unique<CameraController>(
       app.getInputManager(),
       90.0f,
       (float)windowDims.width / (float)windowDims.height);
-  this->m_pCameraController->setMaxSpeed(50.0f);
+  m_pCameraController->setMaxSpeed(50.0f);
 
   // TODO: need to unbind these at shutdown
   InputManager& input = app.getInputManager();
@@ -138,12 +135,12 @@ void ParticleSystem::initGame(Application& app) {
 }
 
 void ParticleSystem::shutdownGame(Application& app) {
-  this->m_pCameraController.reset();
+  m_pCameraController.reset();
 }
 
 void ParticleSystem::createRenderState(Application& app) {
   const VkExtent2D& extent = app.getSwapChainExtent();
-  this->m_pCameraController->getCamera().setAspectRatio(
+  m_pCameraController->getCamera().setAspectRatio(
       (float)extent.width / (float)extent.height);
 
   SingleTimeCommandBuffer commandBuffer(app);
@@ -155,29 +152,29 @@ void ParticleSystem::createRenderState(Application& app) {
 }
 
 void ParticleSystem::destroyRenderState(Application& app) {
-  this->m_models.clear();
+  m_models.clear();
 
-  this->m_gBufferPass = {};
-  this->m_gBufferFrameBufferA = {};
-  this->m_gBufferFrameBufferB = {};
+  m_gBufferPass = {};
+  m_gBufferFrameBufferA = {};
+  m_gBufferFrameBufferB = {};
 
-  this->m_computePasses.clear();
-  this->m_simUniforms = {};
-  this->m_particleBuffer = {};
-  this->m_spatialHash = {};
-  this->m_freeBucketCounter = {};
-  this->m_buckets = {};
+  m_computePasses.clear();
+  m_simUniforms = {};
+  m_particleBuffer = {};
+  m_spatialHash = {};
+  m_freeBucketCounter = {};
+  m_buckets = {};
 
-  this->m_sphere = {};
+  m_sphere = {};
 
-  this->m_deferredPass = {};
-  this->m_swapChainFrameBuffers = {};
+  m_deferredPass = {};
+  m_swapChainFrameBuffers = {};
 
-  this->m_globalResources = {};
-  this->m_globalUniforms = {};
+  m_globalResources = {};
+  m_globalUniforms = {};
 
-  this->m_ssr = {};
-  this->m_heap = {};
+  m_ssr = {};
+  m_heap = {};
 }
 
 void ParticleSystem::tick(Application& app, const FrameContext& frame) {
@@ -189,6 +186,8 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   float deltaTime = 1.0f / 15.0f / float(TIME_SUBSTEPS);
 
   const glm::mat4& projection = camera.getProjection();
+
+  uint32_t inputMask = app.getInputManager().getCurrentInputMask();
 
   GlobalUniforms globalUniforms;
   globalUniforms.prevView = camera.computeView();
@@ -203,8 +202,10 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   globalUniforms.lightCount = 0;
   globalUniforms.time = static_cast<float>(frame.currentTime);
   globalUniforms.exposure = m_exposure;
+  globalUniforms.inputMask = inputMask;
 
-  m_globalUniforms.getCurrentUniformBuffer(frame).updateUniforms(globalUniforms);
+  m_globalUniforms.getCurrentUniformBuffer(frame).updateUniforms(
+      globalUniforms);
 
   SimUniforms simUniforms{};
 
@@ -218,16 +219,11 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   simUniforms.worldToGrid = glm::inverse(simUniforms.gridToWorld);
 
   simUniforms.inverseView = globalUniforms.inverseView;
-  if (m_inputMask & INPUT_MASK_MOUSE_LEFT) {
-    // TODO:
-  }
-
-  simUniforms.inputMask = m_inputMask;
 
   if (m_flagReset) {
     m_flagReset = false;
     simUniforms.addedParticles = m_activeParticleCount;
-  } else if (m_inputMask & INPUT_MASK_MOUSE_RIGHT) {
+  } else if (inputMask & INPUT_BIT_RIGHT_MOUSE) {
     simUniforms.addedParticles = 1000;
 
     m_activeParticleCount += simUniforms.addedParticles;
@@ -252,7 +248,16 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   simUniforms.particleRadius = PARTICLE_RADIUS;
   simUniforms.time = frame.currentTime;
 
+  simUniforms.particlesHeap = m_particleBuffer.getBuffer(0).getHandle().index;
+  simUniforms.spatialHashHeap = m_spatialHash.getBuffer(0).getHandle().index;
+  simUniforms.nextFreeBucket = m_freeBucketCounter.getHandle().index;
+
   m_simUniforms.updateUniforms(simUniforms, frame);
+
+  m_push.globalResourcesHandle = m_globalResources.getHandle().index;
+  m_push.globalUniformsHandle =
+      m_globalUniforms.getCurrentBindlessHandle(frame).index;
+  m_push.simUniformsHandle = m_simUniforms.getCurrentHandle(frame).index;
 }
 
 void ParticleSystem::_createModels(
@@ -271,7 +276,7 @@ void ParticleSystem::_resetParticles(
     position += glm::vec3(35.0);
 
     // position += glm::vec3(10.0f);
-    this->m_particleBuffer.getBuffer(bufferIdx).setElement(
+    m_particleBuffer.getBuffer(bufferIdx).setElement(
         Particle{// position
                  position,
                  0,
@@ -281,15 +286,18 @@ void ParticleSystem::_resetParticles(
         localIdx);
   }
 
-  this->m_particleBuffer.upload(app, commandBuffer);
+  m_particleBuffer.upload(app, commandBuffer);
 
-  this->m_flagReset = true;
+  m_flagReset = true;
 }
 
 void ParticleSystem::_createGlobalResources(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
   m_heap = GlobalHeap(app);
+
+  m_globalResources = GlobalResources(app, commandBuffer, m_heap, {}, {});
+  m_globalUniforms = GlobalUniformsResource(app, m_heap);
 
   // TODO: Create LODs for particles
   ShapeUtilities::createSphere(
@@ -318,9 +326,10 @@ void ParticleSystem::_createSimResources(
   // value doesn't perfectly divide the particle count
   for (uint32_t bufferIdx = 0; bufferIdx < particleBufferCount; ++bufferIdx) {
     particleBufferHeap.emplace_back(app, PARTICLES_PER_BUFFER);
+    particleBufferHeap.back().registerToHeap(m_heap);
   }
 
-  this->m_particleBuffer =
+  m_particleBuffer =
       StructuredBufferHeap<Particle>(std::move(particleBufferHeap));
 
   _resetParticles(app, commandBuffer);
@@ -333,12 +342,14 @@ void ParticleSystem::_createSimResources(
   for (uint32_t bufferIdx = 0; bufferIdx < spatialHashBufferCount;
        ++bufferIdx) {
     spatialHashHeap.emplace_back(app, SPATIAL_HASH_ENTRIES_PER_BUFFER);
+    spatialHashHeap.back().registerToHeap(m_heap);
   }
 
-  this->m_spatialHash =
+  m_spatialHash =
       StructuredBufferHeap<uint32_t>(std::move(spatialHashHeap));
 
-  this->m_freeBucketCounter = StructuredBuffer<uint32_t>(app, LOCAL_SIZE_X);
+  m_freeBucketCounter = StructuredBuffer<uint32_t>(app, LOCAL_SIZE_X);
+  m_freeBucketCounter.registerToHeap(m_heap);
 
   uint32_t bucketBufferCount =
       (PARTICLE_BUCKET_COUNT - 1) / PARTICLE_BUCKETS_PER_BUFFFER + 1;
@@ -346,11 +357,13 @@ void ParticleSystem::_createSimResources(
   bucketHeap.reserve(bucketBufferCount);
   for (uint32_t bufferIdx = 0; bufferIdx < bucketBufferCount; ++bufferIdx) {
     bucketHeap.emplace_back(app, PARTICLE_BUCKETS_PER_BUFFFER);
+    bucketHeap.back().registerToHeap(m_heap);
   }
 
-  this->m_buckets = StructuredBufferHeap<ParticleBucket>(std::move(bucketHeap));
+  m_buckets = StructuredBufferHeap<ParticleBucket>(std::move(bucketHeap));
 
-  this->m_simUniforms = TransientUniforms<SimUniforms>(app);
+  m_simUniforms = TransientUniforms<SimUniforms>(app);
+  m_simUniforms.registerToHeap(m_heap);
 
   ShaderDefines shaderDefs{};
   shaderDefs.emplace("LOCAL_SIZE_X", std::to_string(LOCAL_SIZE_X));
@@ -359,7 +372,8 @@ void ParticleSystem::_createSimResources(
     builder.setComputeShader(
         GProjectDirectory + "/Shaders/ParticleSystem/ParticleSystem.comp.glsl",
         shaderDefs);
-    builder.layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout());
+    builder.layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout())
+        .addPushConstants<PushConstants>();
 
     m_computePasses.emplace_back(app, std::move(builder));
   }
@@ -369,7 +383,8 @@ void ParticleSystem::_createSimResources(
     builder.setComputeShader(
         GProjectDirectory + "/Shaders/ParticleSystem/BucketAlloc.glsl",
         shaderDefs);
-    builder.layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout());
+    builder.layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout())
+        .addPushConstants<PushConstants>();
 
     m_computePasses.emplace_back(app, std::move(builder));
   }
@@ -379,7 +394,8 @@ void ParticleSystem::_createSimResources(
     builder.setComputeShader(
         GProjectDirectory + "/Shaders/ParticleSystem/CopyToBucket.glsl",
         shaderDefs);
-    builder.layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout());
+    builder.layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout())
+        .addPushConstants<PushConstants>();
 
     m_computePasses.emplace_back(app, std::move(builder));
   }
@@ -391,6 +407,7 @@ void ParticleSystem::_createSimResources(
             "/Shaders/ParticleSystem/ProjectedJacobiStep.comp.glsl",
         shaderDefs);
     builder.layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout())
+        .addPushConstants<PushConstants>()
         .addPushConstants<SolverPushConstants>(VK_SHADER_STAGE_COMPUTE_BIT);
 
     m_computePasses.emplace_back(app, std::move(builder));
@@ -414,7 +431,8 @@ void ParticleSystem::_createGBufferPass(Application& app) {
             defs)
         .addFragmentShader(
             GProjectDirectory + "/Shaders/ParticleSystem/Particles.frag")
-        .layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout());
+        .layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout())
+        .addPushConstants<PushConstants>();
   }
 
   // Render floor
@@ -426,7 +444,8 @@ void ParticleSystem::_createGBufferPass(Application& app) {
         .setCullMode(VK_CULL_MODE_FRONT_BIT)
         .addVertexShader(GEngineDirectory + "/Shaders/Misc/FullScreenQuad.vert")
         .addFragmentShader(GEngineDirectory + "/Shaders/Misc/Floor.frag")
-        .layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout());
+        .layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout())
+        .addPushConstants<PushConstants>();
   }
 
   std::vector<Attachment> attachments =
@@ -480,7 +499,8 @@ void ParticleSystem::_createDeferredPass(Application& app) {
         .addFragmentShader(GProjectDirectory + "/Shaders/DeferredPass.frag")
 
         // Pipeline resource layouts
-        .layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout());
+        .layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout())
+        .addPushConstants<PushConstants>();
   }
 
   m_deferredPass = RenderPass(
@@ -490,7 +510,7 @@ void ParticleSystem::_createDeferredPass(Application& app) {
       std::move(subpassBuilders));
 
   m_swapChainFrameBuffers =
-      SwapChainFrameBufferCollection(app, this->m_deferredPass, {});
+      SwapChainFrameBufferCollection(app, m_deferredPass, {});
 }
 
 namespace {
@@ -509,7 +529,7 @@ void ParticleSystem::_renderGBufferPass(
   VkDescriptorSet globalDescriptorSet = m_heap.getDescriptorSet();
 
   {
-    ActiveRenderPass pass = this->m_gBufferPass.begin(
+    ActiveRenderPass pass = m_gBufferPass.begin(
         app,
         commandBuffer,
         frame,
@@ -517,6 +537,7 @@ void ParticleSystem::_renderGBufferPass(
     // Bind global descriptor sets
     pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
     pass.getDrawContext().bindDescriptorSets();
+    pass.getDrawContext().updatePushConstants(m_push, 0);
 
     pass.getDrawContext().bindIndexBuffer(m_sphere.indices);
     pass.getDrawContext().bindVertexBuffer(m_sphere.vertices);
@@ -528,8 +549,133 @@ void ParticleSystem::_renderGBufferPass(
     pass.nextSubpass();
     pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
     pass.getDrawContext().bindDescriptorSets();
+    pass.getDrawContext().updatePushConstants(m_push, 0);
     pass.getDrawContext().draw(3);
   }
+}
+
+void ParticleSystem::_dispatchComputePass(
+    VkCommandBuffer commandBuffer,
+    uint32_t passIdx,
+    uint32_t groupCount) {
+  VkDescriptorSet set = m_heap.getDescriptorSet();
+  m_computePasses[passIdx].bindPipeline(commandBuffer);
+  vkCmdBindDescriptorSets(
+      commandBuffer,
+      VK_PIPELINE_BIND_POINT_COMPUTE,
+      m_computePasses[passIdx].getLayout(),
+      0,
+      1,
+      &set,
+      0,
+      nullptr);
+
+  vkCmdPushConstants(
+      commandBuffer,
+      m_computePasses[passIdx].getLayout(),
+      VK_SHADER_STAGE_ALL,
+      0,
+      sizeof(PushConstants),
+      &m_push);
+
+  vkCmdDispatch(commandBuffer, groupCount, 1, 1);
+}
+
+void ParticleSystem::_readAfterWriteBarrier(VkCommandBuffer commandBuffer) {
+
+  uint32_t particleBufferCount = m_particleBuffer.getSize();
+  uint32_t spatialHashBufferCount = m_spatialHash.getSize();
+
+  static std::vector<VkBufferMemoryBarrier> postPresizeBarriers;
+  postPresizeBarriers.resize(particleBufferCount + spatialHashBufferCount);
+
+  for (uint32_t bufferIdx = 0; bufferIdx < particleBufferCount; ++bufferIdx) {
+    const auto& buffer = m_particleBuffer.getBuffer(bufferIdx);
+
+    VkBufferMemoryBarrier& barrier = postPresizeBarriers[bufferIdx];
+    barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+    barrier.buffer = buffer.getAllocation().getBuffer();
+    barrier.offset = 0;
+    barrier.size = buffer.getSize();
+    barrier.srcAccessMask =
+        VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+    barrier.dstAccessMask =
+        VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+  }
+
+  for (uint32_t bufferIdx = 0; bufferIdx < spatialHashBufferCount;
+       ++bufferIdx) {
+    const auto& buffer = m_spatialHash.getBuffer(bufferIdx);
+
+    VkBufferMemoryBarrier& barrier =
+        postPresizeBarriers[bufferIdx + particleBufferCount];
+    barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+    barrier.buffer = buffer.getAllocation().getBuffer();
+    barrier.offset = 0;
+    barrier.size = buffer.getSize();
+    barrier.srcAccessMask =
+        VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+    barrier.dstAccessMask =
+        VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+  }
+
+  vkCmdPipelineBarrier(
+      commandBuffer,
+      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+      0,
+      0,
+      nullptr,
+      postPresizeBarriers.size(),
+      postPresizeBarriers.data(),
+      0,
+      nullptr);
+}
+
+void ParticleSystem::_writeAfterReadBarrier(VkCommandBuffer commandBuffer) {
+  uint32_t particleBufferCount = m_particleBuffer.getSize();
+  uint32_t spatialHashBufferCount = m_spatialHash.getSize();
+
+  static std::vector<VkBufferMemoryBarrier> postBucketAllocBarriers;
+  postBucketAllocBarriers.resize(spatialHashBufferCount + 1);
+
+  for (uint32_t bufferIdx = 0; bufferIdx < spatialHashBufferCount;
+       ++bufferIdx) {
+    auto& buffer = m_spatialHash.getBuffer(bufferIdx);
+
+    VkBufferMemoryBarrier& barrier = postBucketAllocBarriers[bufferIdx];
+    barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+    barrier.buffer = buffer.getAllocation().getBuffer();
+    barrier.offset = 0;
+    barrier.size = buffer.getSize();
+    barrier.srcAccessMask =
+        VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+    barrier.dstAccessMask =
+        VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+  }
+
+  // TODO: Do we even need this barrier??
+  VkBufferMemoryBarrier& barrier =
+      postBucketAllocBarriers[spatialHashBufferCount];
+  barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+  barrier.buffer = m_freeBucketCounter.getAllocation().getBuffer();
+  barrier.offset = 0;
+  barrier.size = m_freeBucketCounter.getSize();
+  barrier.srcAccessMask =
+      VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
+  barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
+
+  vkCmdPipelineBarrier(
+      commandBuffer,
+      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+      0,
+      0,
+      nullptr,
+      postBucketAllocBarriers.size(),
+      postBucketAllocBarriers.data(),
+      0,
+      nullptr);
 }
 
 void ParticleSystem::draw(
@@ -542,6 +688,10 @@ void ParticleSystem::draw(
   uint32_t spatialHashBufferCount = m_spatialHash.getSize();
   uint32_t particleBufferCount = m_particleBuffer.getSize();
   uint32_t bucketBufferCount = m_buckets.getSize();
+
+  // TODO: Clean-up rest of the barriers
+  // probably just need one, write-after-write type barrier between each compute
+  // pass... should be able to re-use same barrier function
 
   for (uint32_t substep = 0; substep < TIME_SUBSTEPS; ++substep) {
     // Reset the spatial hash and prepare the buffers for read/write
@@ -604,64 +754,9 @@ void ParticleSystem::draw(
     // - Increment spatial hash bucket count for each particle
     {
       uint32_t groupCountX = (m_activeParticleCount - 1) / LOCAL_SIZE_X + 1;
+      _dispatchComputePass(commandBuffer, SIM_PASS, groupCountX);
 
-      m_computePasses[SIM_PASS].bindPipeline(commandBuffer);
-      vkCmdBindDescriptorSets(
-          commandBuffer,
-          VK_PIPELINE_BIND_POINT_COMPUTE,
-          m_computePasses[SIM_PASS].getLayout(),
-          0,
-          1,
-          &set,
-          0,
-          nullptr);
-      vkCmdDispatch(commandBuffer, groupCountX, 1, 1);
-
-      static std::vector<VkBufferMemoryBarrier> postPresizeBarriers;
-      postPresizeBarriers.resize(particleBufferCount + spatialHashBufferCount);
-
-      for (uint32_t bufferIdx = 0; bufferIdx < particleBufferCount;
-           ++bufferIdx) {
-        const auto& buffer = m_particleBuffer.getBuffer(bufferIdx);
-
-        VkBufferMemoryBarrier& barrier = postPresizeBarriers[bufferIdx];
-        barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-        barrier.buffer = buffer.getAllocation().getBuffer();
-        barrier.offset = 0;
-        barrier.size = buffer.getSize();
-        barrier.srcAccessMask =
-            VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
-        barrier.dstAccessMask =
-            VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
-      }
-
-      for (uint32_t bufferIdx = 0; bufferIdx < spatialHashBufferCount;
-           ++bufferIdx) {
-        const auto& buffer = m_spatialHash.getBuffer(bufferIdx);
-
-        VkBufferMemoryBarrier& barrier =
-            postPresizeBarriers[bufferIdx + particleBufferCount];
-        barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-        barrier.buffer = buffer.getAllocation().getBuffer();
-        barrier.offset = 0;
-        barrier.size = buffer.getSize();
-        barrier.srcAccessMask =
-            VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
-        barrier.dstAccessMask =
-            VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
-      }
-
-      vkCmdPipelineBarrier(
-          commandBuffer,
-          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-          0,
-          0,
-          nullptr,
-          postPresizeBarriers.size(),
-          postPresizeBarriers.data(),
-          0,
-          nullptr);
+      _readAfterWriteBarrier(commandBuffer);
     }
 
     // Bucket alloc pass
@@ -670,58 +765,8 @@ void ParticleSystem::draw(
     {
       uint32_t groupCountX = (SPATIAL_HASH_SIZE - 1) / LOCAL_SIZE_X + 1;
 
-      m_computePasses[BUCKET_ALLOC_PASS].bindPipeline(commandBuffer);
-      vkCmdBindDescriptorSets(
-          commandBuffer,
-          VK_PIPELINE_BIND_POINT_COMPUTE,
-          m_computePasses[BUCKET_ALLOC_PASS].getLayout(),
-          0,
-          1,
-          &set,
-          0,
-          nullptr);
-      vkCmdDispatch(commandBuffer, groupCountX, 1, 1);
-
-      static std::vector<VkBufferMemoryBarrier> postBucketAllocBarriers;
-      postBucketAllocBarriers.resize(spatialHashBufferCount + 1);
-
-      for (uint32_t bufferIdx = 0; bufferIdx < spatialHashBufferCount;
-           ++bufferIdx) {
-        auto& buffer = m_spatialHash.getBuffer(bufferIdx);
-
-        VkBufferMemoryBarrier& barrier = postBucketAllocBarriers[bufferIdx];
-        barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-        barrier.buffer = buffer.getAllocation().getBuffer();
-        barrier.offset = 0;
-        barrier.size = buffer.getSize();
-        barrier.srcAccessMask =
-            VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
-        barrier.dstAccessMask =
-            VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
-      }
-
-      // TODO: Do we even need this barrier??
-      VkBufferMemoryBarrier& barrier =
-          postBucketAllocBarriers[spatialHashBufferCount];
-      barrier = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-      barrier.buffer = m_freeBucketCounter.getAllocation().getBuffer();
-      barrier.offset = 0;
-      barrier.size = m_freeBucketCounter.getSize();
-      barrier.srcAccessMask =
-          VK_ACCESS_SHADER_WRITE_BIT | VK_ACCESS_SHADER_READ_BIT;
-      barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-      vkCmdPipelineBarrier(
-          commandBuffer,
-          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-          VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-          0,
-          0,
-          nullptr,
-          postBucketAllocBarriers.size(),
-          postBucketAllocBarriers.data(),
-          0,
-          nullptr);
+      _dispatchComputePass(commandBuffer, BUCKET_ALLOC_PASS, groupCountX);
+      _writeAfterReadBarrier(commandBuffer);
     }
 
     // Copy to particles bucket pass
@@ -730,18 +775,7 @@ void ParticleSystem::draw(
     // - Update particle with new global index
     {
       uint32_t groupCountX = (m_activeParticleCount - 1) / LOCAL_SIZE_X + 1;
-
-      m_computePasses[BUCKET_INSERT_PASS].bindPipeline(commandBuffer);
-      vkCmdBindDescriptorSets(
-          commandBuffer,
-          VK_PIPELINE_BIND_POINT_COMPUTE,
-          m_computePasses[BUCKET_INSERT_PASS].getLayout(),
-          0,
-          1,
-          &set,
-          0,
-          nullptr);
-      vkCmdDispatch(commandBuffer, groupCountX, 1, 1);
+      _dispatchComputePass(commandBuffer, BUCKET_INSERT_PASS, groupCountX);
 
       static std::vector<VkBufferMemoryBarrier> postBucketInsertBarriers;
       postBucketInsertBarriers.resize(
@@ -853,8 +887,15 @@ void ParticleSystem::draw(
         vkCmdPushConstants(
             commandBuffer,
             m_computePasses[JACOBI_STEP_PASS].getLayout(),
-            VK_SHADER_STAGE_COMPUTE_BIT,
+            VK_SHADER_STAGE_ALL,
             0,
+            sizeof(PushConstants),
+            &m_push);
+        vkCmdPushConstants(
+            commandBuffer,
+            m_computePasses[JACOBI_STEP_PASS].getLayout(),
+            VK_SHADER_STAGE_COMPUTE_BIT,
+            sizeof(PushConstants),
             sizeof(SolverPushConstants),
             &constants);
         vkCmdDispatch(commandBuffer, groupCountX, 1, 1);
