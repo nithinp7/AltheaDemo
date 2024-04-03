@@ -83,48 +83,39 @@ BUFFER_RW(_spatialHashHeap, SPATIAL_HASH_HEAP{
 });
 #define getSpatialHashSlot(uint slotIdx)                    \
     _spatialHashHeap[                                       \
-      simUniforms.spatialHashHeap +                           \
+      simUniforms.spatialHashHeap +                         \
       slotIdx / simUniforms.spatialHashEntriesPerBuffer]    \
         .spatialHash[                                       \
           slotIdx % simUniforms.spatialHashEntriesPerBuffer]
 
 // TODO: These should probably be heaps as well??
+BUFFER_RW(_nextFreeBucket, NEXT_FREE_BUCKET{
+  uint freeList[];
+});
+#define getBucketFreeList(freeListIdx)  \
+    _nextFreeBucket[giUniforms.nextFreeBucket].freeList[freeListIdx]
 
-layout(std430, set=SIM_RESOURCES_SET, binding=3) buffer NEXT_FREE_BUCKET {
-  uint nextFreeBucket[];
-};
+BUFFER_RW(_bucketHeap, PARTICLE_BUCKETS{
+  ParticleBucket buckets[];
+});
+#define getBucket(bucketIdx)                            \
+    _bucketHeap[                                        \
+      simUniforms.particleBucketsHeap +                 \
+      bucketIdx / simUniforms.particleBucketsPerBuffer] \
+        .buckets[                                       \
+          bucketIdx % simUniforms.particleBucketsPerBuffer]
 
-layout(std430, set=SIM_RESOURCES_SET, binding=4) buffer PARTICLE_BUCKETS {
-  ParticleBucket particleBuckets[];
-} particleBucketsHeap[];
-
-ParticleBucketEntry getParticleEntry(uint globalParticleIdx)
-{
-  uint bucketIdx = globalParticleIdx >> 4;
-  uint localParticleIdx = globalParticleIdx & 0xF;
-
-  uint bucketBufferIdx = bucketIdx / particleBucketsPerBuffer;
-  uint bucketLocalIdx = bucketIdx % particleBucketsPerBuffer;
-
-  return particleBucketsHeap[bucketBufferIdx].particleBuckets[bucketLocalIdx].particles[localParticleIdx];
-}
+// A "u32 globalParticleIdx" has a bottom 4-bits representing a bucket-local
+// index (0-15), the rest of the bits are the index of the bucket itself
+#define getParticleEntry(globalParticleIdx)        \
+    getBucket(globalParticleIdx >> 4).particles[globalParticleIdx & 0xF]
 
 vec3 getPosition(uint globalParticleIdx, uint phase) {
-  ParticleBucketEntry entry = getParticleEntry(globalParticleIdx);
-  return entry.positions[phase].xyz;
+  return getParticleEntry(globalParticleIdx).positions[phase].xyz;
 }
 
 void setPosition(uint globalParticleIdx, vec3 pos, uint phase) {
-  uint bucketIdx = globalParticleIdx >> 4;
-  uint localParticleIdx = globalParticleIdx & 0xF;
-
-  uint bucketBufferIdx = bucketIdx / particleBucketsPerBuffer;
-  uint bucketLocalIdx = bucketIdx % particleBucketsPerBuffer;
-
-  particleBucketsHeap[bucketBufferIdx]
-      .particleBuckets[bucketLocalIdx]
-      .particles[localParticleIdx]
-      .positions[phase].xyz = pos;
+  getParticleEntry(globalParticleIdx).positions[phase].xyz = pos;
 }
 
 // Increment the particle count of a cell, called during the 
@@ -132,11 +123,8 @@ void setPosition(uint globalParticleIdx, vec3 pos, uint phase) {
 uint incrementCellParticleCount(int i, int j, int k) {
   uint gridCellHash = hashCoords(i, j, k);
   uint slotIdx = gridCellHash % spatialHashSize;
-
-  uint bufferIdx = slotIdx / spatialHashEntriesPerBuffer;
-  uint localSlotIdx = slotIdx % spatialHashEntriesPerBuffer;
-
-  atomicAdd(spatialHashHeap[bufferIdx].spatialHash[localSlotIdx], 1);
+  
+  atomicAdd(getSpatialHashSlot(slotIdx), 1);
 
   return slotIdx;
 }
@@ -144,56 +132,35 @@ uint incrementCellParticleCount(int i, int j, int k) {
 // This should get called after the sizing-pass, each cell with a non-zero
 // amount of particles gets dynamically allocated a fixed-size particle bucket
 void allocateBucketForCell(uint slotIdx) {
-  uint bufferIdx = slotIdx / spatialHashEntriesPerBuffer;
-  uint localSlotIdx = slotIdx % spatialHashEntriesPerBuffer;
+  uint particleCount = getSpatialHashSlot(slotIdx);
 
-  uint particleCount = spatialHashHeap[bufferIdx].spatialHash[localSlotIdx];
   if (particleCount != INVALID_INDEX) {
     uint freeListIdx = slotIdx % freeListsCount;
     // // TODO: Measure how much contention is seen here...
-    uint freeListCounter = atomicAdd(nextFreeBucket[freeListIdx], 1);
+    uint freeListCounter = atomicAdd(getBucketFreeList(freeListIdx), 1);
     uint bucketIdx = (freeListCounter * freeListsCount + freeListIdx) % particleBucketCount;
     uint globalIdx = bucketIdx << 4;
 
-    spatialHashHeap[bufferIdx].spatialHash[localSlotIdx] = globalIdx;
+    getSpatialHashSlot(slotIdx) = globalIdx;
   }
 }
 
 uint hashInsertPosition(uint slotIdx, vec3 position) {
-  uint bufferIdx = slotIdx / spatialHashEntriesPerBuffer;
-  uint localSlotIdx = slotIdx % spatialHashEntriesPerBuffer;
-  
-  uint particleGlobalIdx = atomicAdd(spatialHashHeap[bufferIdx].spatialHash[localSlotIdx], 1);
+  // Bump-allocates a particle entry within the bucket that 
+  // exists in this hash slot
+  uint particleGlobalIdx = atomicAdd(getSpatialHashSlot(slotIdx), 1);
 
-  uint bucketIdx = particleGlobalIdx >> 4;
-  uint bucketBufferIdx = bucketIdx / particleBucketsPerBuffer;
-  uint bucketLocalIdx = bucketIdx % particleBucketsPerBuffer;
-
-  uint particleLocalIdx = particleGlobalIdx & 0xF;
-
-  particleBucketsHeap[bucketBufferIdx]
-      .particleBuckets[bucketLocalIdx]
-      .particles[particleLocalIdx]
-      .positions[0].xyz = position;
+  // TODO: Understand this 0-phase?
+  setPosition(particleGlobalIdx, position, 0);
 
   return particleGlobalIdx;
-}
-
-void setParticle(uint particleIdx, Particle particle)
-{
-  uint bufferIdx = particleIdx / particlesPerBuffer;
-  uint localIdx = particleIdx % particlesPerBuffer;
-  particlesHeap[bufferIdx].particles[localIdx] = particle;
 }
 
 uint spatialHashAtomicExchange(int i, int j, int k, uint newValue) {
   uint gridCellHash = hashCoords(i, j, k);
   uint slotIdx = gridCellHash % spatialHashSize;
 
-  uint bufferIdx = slotIdx / spatialHashEntriesPerBuffer;
-  uint localSlotIdx = slotIdx % spatialHashEntriesPerBuffer;
-
-  return atomicExchange(spatialHashHeap[bufferIdx].spatialHash[localSlotIdx], newValue);
+  return atomicExchange(getSpatialHashSlot(slotIdx), newValue);
 }
 
 
@@ -201,9 +168,6 @@ uint getSpatialHashSlot(int i, int j, int k) {
   uint gridCellHash = hashCoords(i, j, k);
   uint slotIdx = gridCellHash % spatialHashSize;
 
-  uint bufferIdx = slotIdx / spatialHashEntriesPerBuffer;
-  uint localSlotIdx = slotIdx % spatialHashEntriesPerBuffer;
-
-  return spatialHashHeap[bufferIdx].spatialHash[localSlotIdx];
+  return getSpatialHashSlot(slotIdx);
 }
 #endif // _SIMRESOURCES_
