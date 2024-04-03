@@ -7,6 +7,9 @@
 #include <Althea/DeferredRendering.h>
 #include <Althea/DescriptorSet.h>
 #include <Althea/FrameBuffer.h>
+#include <Althea/GlobalHeap.h>
+#include <Althea/GlobalResources.h>
+#include <Althea/GlobalUniforms.h>
 #include <Althea/IGameInstance.h>
 #include <Althea/Image.h>
 #include <Althea/ImageBasedLighting.h>
@@ -34,20 +37,6 @@ class Application;
 
 namespace AltheaDemo {
 namespace ParticleSystem {
-
-// TODO: move this into engine
-struct GlobalUniforms {
-  glm::mat4 projection;
-  glm::mat4 inverseProjection;
-  glm::mat4 view;
-  glm::mat4 prevView;
-  glm::mat4 inverseView;
-  glm::mat4 prevInverseView;
-  int lightCount;
-  float time;
-  float exposure;
-};
-
 
 struct Particle {
   alignas(16) glm::vec3 position;
@@ -115,63 +104,61 @@ public:
       const FrameContext& frame) override;
 
 private:
-  bool _adjustingExposure = false;
+  bool m_adjustingExposure = false;
 
-  std::unique_ptr<CameraController> _pCameraController;
+  std::unique_ptr<CameraController> m_pCameraController;
 
   void _resetParticles(Application& app, VkCommandBuffer commandBuffer);
 
   void _createGlobalResources(
       Application& app,
       SingleTimeCommandBuffer& commandBuffer);
-  PerFrameResources _globalResources;
-  TransientUniforms<GlobalUniforms> _globalUniforms;
-  PointLightCollection _pointLights;
-  std::unique_ptr<DescriptorSetAllocator> _pGltfMaterialAllocator;
-  IBLResources _iblResources;
-  GBufferResources _gBufferResources;
+  GlobalHeap m_heap;
+  GlobalResources m_globalResources;
+  GlobalUniformsResource m_globalUniforms;
 
   void
   _createSimResources(Application& app, SingleTimeCommandBuffer& commandBuffer);
-  std::unique_ptr<PerFrameResources> _pSimResources;
-  // TODO: RENAME to spatialHashRegistration?
+  std::vector<ComputePipeline> m_computePasses;
 
-  std::vector<ComputePipeline> _computePasses;
+  TransientUniforms<SimUniforms> m_simUniforms;
 
-  TransientUniforms<SimUniforms> _simUniforms;
+  StructuredBufferHeap<Particle> m_particleBuffer;
+  StructuredBufferHeap<uint32_t> m_spatialHash;
+  StructuredBuffer<uint32_t> m_freeBucketCounter;
+  StructuredBufferHeap<ParticleBucket> m_buckets;
 
-  StructuredBufferHeap<Particle> _particleBuffer;
-  StructuredBufferHeap<uint32_t> _spatialHash;
-  StructuredBuffer<uint32_t> _freeBucketCounter;
-  StructuredBufferHeap<ParticleBucket> _buckets;
-
-  VertexBuffer<glm::vec3> _sphereVertices;
-  IndexBuffer _sphereIndices;
+  struct SphereMesh {
+    VertexBuffer<glm::vec3> vertices;
+    IndexBuffer indices;
+  };
+  SphereMesh m_sphere;
 
   void _createModels(Application& app, SingleTimeCommandBuffer& commandBuffer);
-  std::vector<Model> _models;
+  std::vector<Model> m_models;
 
-  void _createForwardPass(Application& app);
-  RenderPass _forwardPass;
-  FrameBuffer _forwardFrameBuffer;
+  void _createGBufferPass(Application& app);
+  RenderPass m_gBufferPass;
+  FrameBuffer m_gBufferFrameBufferA;
+  FrameBuffer m_gBufferFrameBufferB;
 
   void _createDeferredPass(Application& app);
-  RenderPass _deferredPass;
-  SwapChainFrameBufferCollection _swapChainFrameBuffers;
-  std::unique_ptr<DescriptorSetAllocator> _pDeferredMaterialAllocator;
-  std::unique_ptr<Material> _pDeferredMaterial;
+  RenderPass m_deferredPass;
+  SwapChainFrameBufferCollection m_swapChainFrameBuffers;
 
-  void _renderForwardPass(
+  void _renderGBufferPass(
       Application& app,
       VkCommandBuffer commandBuffer,
       const FrameContext& frame);
 
-  std::unique_ptr<ScreenSpaceReflection> _pSSR;
-  float _exposure = 0.3f;
+  uint32_t m_writeIndex = 0;
 
-  bool _flagReset = false;
-  uint32_t _activeParticleCount = 100000;//0;
-  uint32_t _inputMask = 0;
+  ScreenSpaceReflection m_ssr;
+  float m_exposure = 0.3f;
+
+  bool m_flagReset = false;
+  uint32_t m_activeParticleCount = 100000; // 0;
+  uint32_t m_inputMask = 0;
 };
 } // namespace ParticleSystem
 } // namespace AltheaDemo
