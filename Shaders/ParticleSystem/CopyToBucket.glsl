@@ -7,7 +7,7 @@ layout(local_size_x = LOCAL_SIZE_X) in;
 
 void main() {
   uint particleIdx = uint(gl_GlobalInvocationID.x);
-  if (particleIdx >= particleCount) {
+  if (particleIdx >= simUniforms.particleCount) {
     return;
   }
 

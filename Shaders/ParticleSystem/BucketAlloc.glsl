@@ -7,14 +7,14 @@ layout(local_size_x = LOCAL_SIZE_X) in;
 
 void main() {
   uint slotIdx = uint(gl_GlobalInvocationID.x);
-  if (slotIdx >= spatialHashSize) {
+  if (slotIdx >= simUniforms.spatialHashSize) {
     return;
   }
 
   // Is this hacky??
-  if (slotIdx < freeListsCount)
+  if (slotIdx < simUniforms.freeListsCount)
   {
-    nextFreeBucket[slotIdx] = 0;
+    getBucketFreeList(slotIdx) = 0;
   }
 
   // ?????

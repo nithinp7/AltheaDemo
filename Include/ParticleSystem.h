@@ -42,6 +42,7 @@ struct PushConstants {
   uint32_t globalResourcesHandle;
   uint32_t globalUniformsHandle;
   uint32_t simUniformsHandle;
+  uint32_t iteration;
 };
 
 struct Particle {
@@ -65,8 +66,6 @@ struct SimUniforms {
   // Uniform grid params
   glm::mat4 gridToWorld;
   glm::mat4 worldToGrid;
-
-  glm::mat4 inverseView;
 
   glm::vec3 interactionLocation;
   uint32_t padding;

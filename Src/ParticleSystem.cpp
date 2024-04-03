@@ -50,11 +50,6 @@ using namespace AltheaEngine;
 
 #define GEN_SHADER_DEBUG_INFO
 
-namespace {
-struct SolverPushConstants {
-  uint32_t iteration;
-};
-} // namespace
 namespace AltheaDemo {
 namespace ParticleSystem {
 
@@ -217,8 +212,6 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   // simUniforms.gridToWorld = glm::scale(glm::mat4(1.0f), glm::vec3(0.05f));
   // simUniforms.gridToWorld[3] = glm::vec4(-100.0f, -100.0f, -100.0f, 1.0f);
   simUniforms.worldToGrid = glm::inverse(simUniforms.gridToWorld);
-
-  simUniforms.inverseView = globalUniforms.inverseView;
 
   if (m_flagReset) {
     m_flagReset = false;
@@ -407,8 +400,7 @@ void ParticleSystem::_createSimResources(
             "/Shaders/ParticleSystem/ProjectedJacobiStep.comp.glsl",
         shaderDefs);
     builder.layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout())
-        .addPushConstants<PushConstants>()
-        .addPushConstants<SolverPushConstants>(VK_SHADER_STAGE_COMPUTE_BIT);
+        .addPushConstants<PushConstants>();
 
     m_computePasses.emplace_back(app, std::move(builder));
   }
@@ -436,6 +428,7 @@ void ParticleSystem::_createGBufferPass(Application& app) {
   }
 
   // Render floor
+#if 0
   {
     SubpassBuilder& subpassBuilder = subpassBuilders.emplace_back();
     GBufferResources::setupAttachments(subpassBuilder);
@@ -447,6 +440,7 @@ void ParticleSystem::_createGBufferPass(Application& app) {
         .layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout())
         .addPushConstants<PushConstants>();
   }
+#endif
 
   std::vector<Attachment> attachments =
       m_globalResources.getGBuffer().getAttachmentDescriptions();
@@ -546,11 +540,13 @@ void ParticleSystem::_renderGBufferPass(
         m_activeParticleCount);
 
     // Draw floor
+#if 0
     pass.nextSubpass();
     pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
     pass.getDrawContext().bindDescriptorSets();
     pass.getDrawContext().updatePushConstants(m_push, 0);
     pass.getDrawContext().draw(3);
+#endif
   }
 }
 
@@ -882,8 +878,7 @@ void ParticleSystem::draw(
             0,
             nullptr);
 
-        SolverPushConstants constants{};
-        constants.iteration = iter;
+        m_push.iteration = iter;
         vkCmdPushConstants(
             commandBuffer,
             m_computePasses[JACOBI_STEP_PASS].getLayout(),
@@ -891,13 +886,6 @@ void ParticleSystem::draw(
             0,
             sizeof(PushConstants),
             &m_push);
-        vkCmdPushConstants(
-            commandBuffer,
-            m_computePasses[JACOBI_STEP_PASS].getLayout(),
-            VK_SHADER_STAGE_COMPUTE_BIT,
-            sizeof(PushConstants),
-            sizeof(SolverPushConstants),
-            &constants);
         vkCmdDispatch(commandBuffer, groupCountX, 1, 1);
       }
     }

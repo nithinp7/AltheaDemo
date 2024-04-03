@@ -13,12 +13,8 @@
 
 layout(local_size_x = LOCAL_SIZE_X) in;
 
-#include "Particle.glsl"
 #include "SimResources.glsl"
-
-layout(push_constant) uniform PushConstants {
-  uint iteration;
-} pushConstants;
+#include <Misc/Input.glsl>
 
 // shared uint[LOCAL_SIZE_X] ss
 
@@ -44,16 +40,16 @@ void checkPair(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 par
 // #define HACKY_ADHESION
 #ifdef HACKY_ADHESION
   float adhesionBuffer = 0.01;
-  float innerRadius = particleRadius - adhesionBuffer;
+  float innerRadius = simUniforms.particleRadius - adhesionBuffer;
   float minDist = 2.0 * innerRadius;
   float minDistSq = 4.0 * innerRadius * innerRadius;
 #else
-  float radius = 1. * particleRadius;//0.5 * particleRadius;
+  float radius = 1. * simUniforms.particleRadius;//0.5 * simUniforms.particleRadius;
   float minDist = 2.0 * radius;
   float minDistSq = 4.0 * radius * radius;
 #endif
   // float sep = dist - 2.0 * innerRadius;
-  // float sep = dist - 2.0 * particleRadius;
+  // float sep = dist - 2.0 * simUniforms.particleRadius;
 
   if (distSq < minDistSq) {
     // particle.debug = 1; // mark collision
@@ -189,8 +185,8 @@ void checkWallCollisions(inout vec3 deltaPos, inout uint collidingParticlesCount
 
   vec3 gridLength = vec3(60.0);
   // gridLength[0] = 60.0 + 20.0 * sin(0.25 * time);// 5.0
-  vec3 minPos = vec3(particleRadius);
-  vec3 maxPos = gridLength - vec3(particleRadius);
+  vec3 minPos = vec3(simUniforms.particleRadius);
+  vec3 maxPos = gridLength - vec3(simUniforms.particleRadius);
   // for (int i = 0; i < 3; ++i)
   int i = 1;
   {
@@ -210,7 +206,7 @@ void checkWallCollisions(inout vec3 deltaPos, inout uint collidingParticlesCount
   }
 
 #if 1
-if (bool(inputMask & INPUT_MASK_MOUSE_LEFT))
+if (bool(globals.inputMask & INPUT_BIT_LEFT_MOUSE))
 {
   // TODO: Create the projected cam position and upload in 
   // uniforms, there is more flexibility that way and is probably
@@ -218,8 +214,8 @@ if (bool(inputMask & INPUT_MASK_MOUSE_LEFT))
   float camRadius = CAMERA_RADIUS;
   float camRadiusSq = camRadius * camRadius;
 
-  vec3 cameraPos = inverseView[3].xyz;
-  vec3 dir = normalize(-inverseView[2].xyz);
+  vec3 cameraPos = globals.inverseView[3].xyz;
+  vec3 dir = normalize(-globals.inverseView[2].xyz);
 
   // Solve for t to find whether and where the camera ray intersects the
   // floor plane
@@ -263,7 +259,7 @@ if (bool(inputMask & INPUT_MASK_MOUSE_LEFT))
 
 void main() {
   uint particleIdx = uint(gl_GlobalInvocationID.x);
-  if (particleIdx >= particleCount) {
+  if (particleIdx >= simUniforms.particleCount) {
     return;
   }
 
@@ -274,7 +270,7 @@ void main() {
   
   thisParticle[gl_SubgroupInvocationID] = ThisParticle(particlePos, globalParticleIdx);
 
-  vec3 gridPos = (worldToGrid * vec4(particlePos, 1.0)).xyz;
+  vec3 gridPos = (simUniforms.worldToGrid * vec4(particlePos, 1.0)).xyz;
   vec3 gridCellF = floor(gridPos);
   ivec3 gridCell = ivec3(gridCellF);
   vec3 cellLocalPos = gridPos - gridCellF;
@@ -293,7 +289,9 @@ void main() {
   // other particles from any of the 8 cells immediately surrounding it, so
   // check each one for potential collisions.
   for (int i = 0; i < 8; ++i) {
-    uint bucketEnd = getSpatialHashSlot(gridCell.x + (i>>2), gridCell.y + ((i>>1)&1), gridCell.z + (i&1));
+    uint hash = hashCoords(gridCell.x + (i>>2), gridCell.y + ((i>>1)&1), gridCell.z + (i&1));
+    uint bucketEnd = getSpatialHashSlot(hash % simUniforms.spatialHashSize);
+    
     //if (bucketEnd != INVALID_INDEX) 
     {
       checkBucket(deltaPos, collidingParticlesCount, particlePos, globalParticleIdx, bucketEnd);
@@ -309,7 +307,7 @@ void main() {
   if (collidingParticlesCount > 0)
   {
     float mag = length(deltaPos) + 0.0001;
-    float k = clamp(mag, 0.0, 0.25 * particleRadius) / mag;
+    float k = clamp(mag, 0.0, 0.25 * simUniforms.particleRadius) / mag;
     // k *= 1.0 / mag;
     // float k = 1./mag;//5 / float(collidingParticlesCount);
     // k /= float(pushConstants.iteration + 1);

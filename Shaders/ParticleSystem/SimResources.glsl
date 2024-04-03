@@ -1,6 +1,9 @@
 #ifndef _SIMRESOURCES_
 #define _SIMRESOURCES_
 
+#include <Global/GlobalResources.glsl>
+#include <Global/GlobalUniforms.glsl>
+
 #include "Hash.glsl"
 
 #define INPUT_MASK_MOUSE_LEFT 1
@@ -9,23 +12,21 @@
 
 #define INVALID_INDEX 0xFFFFFFFF
 
-#ifndef SIM_RESOURCES_SET
-#define SIM_RESOURCES_SET 0
-#endif
-
 #extension GL_EXT_nonuniform_qualifier : enable
 
 layout(push_constant) uniform PushConstant {
   uint globalResourcesHandle;
   uint globalUniformsHandle;
   uint simUniformsHandle;
+  uint iteration; // TODO: This is hacky, sort out how to do multiple push constants...
 } pushConstants;
+
+#define resources RESOURCE(globalResources, pushConstants.globalResourcesHandle)
+#define globals RESOURCE(globalUniforms, pushConstants.globalUniformsHandle)
 
 UNIFORM_BUFFER(_simUniforms, SimUniforms{
   mat4 gridToWorld;
   mat4 worldToGrid;
-
-  mat4 inverseView;
 
   vec3 interactionLocation;
   uint padding;
@@ -74,41 +75,41 @@ BUFFER_RW(_particlesHeap, PARTICLES_BUFFER{
 #define getParticle(particleIdx)                    \
     _particlesHeap[                                 \
       simUniforms.particlesHeap +                   \
-      particleIdx / simUniforms.particlesPerBuffer] \
+      (particleIdx) / simUniforms.particlesPerBuffer] \
         .particles[                                 \
-          particleIdx % simUniforms.particlesPerBuffer]
+          (particleIdx) % simUniforms.particlesPerBuffer]
 
 BUFFER_RW(_spatialHashHeap, SPATIAL_HASH_HEAP{
   uint spatialHash[];
 });
-#define getSpatialHashSlot(uint slotIdx)                    \
+#define getSpatialHashSlot(slotIdx)                    \
     _spatialHashHeap[                                       \
       simUniforms.spatialHashHeap +                         \
-      slotIdx / simUniforms.spatialHashEntriesPerBuffer]    \
+      (slotIdx) / simUniforms.spatialHashEntriesPerBuffer]    \
         .spatialHash[                                       \
-          slotIdx % simUniforms.spatialHashEntriesPerBuffer]
+          (slotIdx) % simUniforms.spatialHashEntriesPerBuffer]
 
 // TODO: These should probably be heaps as well??
 BUFFER_RW(_nextFreeBucket, NEXT_FREE_BUCKET{
   uint freeList[];
 });
 #define getBucketFreeList(freeListIdx)  \
-    _nextFreeBucket[giUniforms.nextFreeBucket].freeList[freeListIdx]
+    _nextFreeBucket[simUniforms.nextFreeBucket].freeList[freeListIdx]
 
 BUFFER_RW(_bucketHeap, PARTICLE_BUCKETS{
   ParticleBucket buckets[];
 });
 #define getBucket(bucketIdx)                            \
     _bucketHeap[                                        \
-      simUniforms.particleBucketsHeap +                 \
-      bucketIdx / simUniforms.particleBucketsPerBuffer] \
+      simUniforms.bucketHeap +                 \
+      (bucketIdx) / simUniforms.particleBucketsPerBuffer] \
         .buckets[                                       \
-          bucketIdx % simUniforms.particleBucketsPerBuffer]
+          (bucketIdx) % simUniforms.particleBucketsPerBuffer]
 
 // A "u32 globalParticleIdx" has a bottom 4-bits representing a bucket-local
 // index (0-15), the rest of the bits are the index of the bucket itself
 #define getParticleEntry(globalParticleIdx)        \
-    getBucket(globalParticleIdx >> 4).particles[globalParticleIdx & 0xF]
+    getBucket((globalParticleIdx) >> 4).particles[(globalParticleIdx) & 0xF]
 
 vec3 getPosition(uint globalParticleIdx, uint phase) {
   return getParticleEntry(globalParticleIdx).positions[phase].xyz;
@@ -122,7 +123,7 @@ void setPosition(uint globalParticleIdx, vec3 pos, uint phase) {
 // pre-sizing pass. Returns the slot idx of the grid cell
 uint incrementCellParticleCount(int i, int j, int k) {
   uint gridCellHash = hashCoords(i, j, k);
-  uint slotIdx = gridCellHash % spatialHashSize;
+  uint slotIdx = gridCellHash % simUniforms.spatialHashSize;
   
   atomicAdd(getSpatialHashSlot(slotIdx), 1);
 
@@ -135,10 +136,10 @@ void allocateBucketForCell(uint slotIdx) {
   uint particleCount = getSpatialHashSlot(slotIdx);
 
   if (particleCount != INVALID_INDEX) {
-    uint freeListIdx = slotIdx % freeListsCount;
+    uint freeListIdx = slotIdx % simUniforms.freeListsCount;
     // // TODO: Measure how much contention is seen here...
     uint freeListCounter = atomicAdd(getBucketFreeList(freeListIdx), 1);
-    uint bucketIdx = (freeListCounter * freeListsCount + freeListIdx) % particleBucketCount;
+    uint bucketIdx = (freeListCounter * simUniforms.freeListsCount + freeListIdx) % simUniforms.particleBucketCount;
     uint globalIdx = bucketIdx << 4;
 
     getSpatialHashSlot(slotIdx) = globalIdx;
@@ -158,16 +159,8 @@ uint hashInsertPosition(uint slotIdx, vec3 position) {
 
 uint spatialHashAtomicExchange(int i, int j, int k, uint newValue) {
   uint gridCellHash = hashCoords(i, j, k);
-  uint slotIdx = gridCellHash % spatialHashSize;
+  uint slotIdx = gridCellHash % simUniforms.spatialHashSize;
 
   return atomicExchange(getSpatialHashSlot(slotIdx), newValue);
-}
-
-
-uint getSpatialHashSlot(int i, int j, int k) {
-  uint gridCellHash = hashCoords(i, j, k);
-  uint slotIdx = gridCellHash % spatialHashSize;
-
-  return getSpatialHashSlot(slotIdx);
 }
 #endif // _SIMRESOURCES_

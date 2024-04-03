@@ -1,7 +1,6 @@
 #ifndef _PBFLUIDS_
 #define _PBFLUIDS_
 
-#include "Particle.glsl"
 
 // An SPH kernel
 float gaussianKernel(float d, float h) {

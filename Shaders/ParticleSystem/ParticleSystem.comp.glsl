@@ -3,19 +3,19 @@
 
 layout(local_size_x = LOCAL_SIZE_X) in;
 
-#include "Particle.glsl"
+#include <Misc/Input.glsl>
 #include "SimResources.glsl"
 #include "Hash.glsl"
 
 void main() {
   uint particleIdx = uint(gl_GlobalInvocationID.x);
-  if (particleIdx >= particleCount) {
+  if (particleIdx >= simUniforms.particleCount) {
     return;
   }
 
-  bool newlyAdded = particleIdx >= (particleCount - addedParticles);
+  bool newlyAdded = particleIdx >= (simUniforms.particleCount - simUniforms.addedParticles);
 
-  float dt = deltaTime;
+  float dt = simUniforms.deltaTime;
 
   Particle particle = getParticle(particleIdx);
 
@@ -26,7 +26,7 @@ void main() {
   // if (false)
   if (!newlyAdded)
   {
-    uint phase = jacobiIters % 2;
+    uint phase = simUniforms.jacobiIters % 2;
     ParticleBucketEntry particleEntry = getParticleEntry(particle.globalIndex);
     vec3 nextPos = particleEntry.positions[phase].xyz;
     vec3 stabilization = nextPos - particleEntry.positions[1-phase].xyz;
@@ -45,7 +45,7 @@ void main() {
   }
 
   float friction = 0.;//4;//5;
-  if (particle.position.y <= particleRadius * 1.5)
+  if (particle.position.y <= simUniforms.particleRadius * 1.5)
     velocity.xz -= friction * velocity.xz * dt;
 
   // apply gravity and drag
@@ -64,7 +64,7 @@ void main() {
 
   // setPosition(particleIdx, projectedPos, 0);
 
-  vec3 gridPos = (worldToGrid * vec4(particle.position, 1.0)).xyz;
+  vec3 gridPos = (simUniforms.worldToGrid * vec4(particle.position, 1.0)).xyz;
   ivec3 gridCell = ivec3(floor(gridPos));
 
   particle.position += velocity * dt;
@@ -78,13 +78,13 @@ void main() {
   // particle.nextParticleLink = spatialHashAtomicExchange(gridCell.x, gridCell.y, gridCell.z, particleIdx);
 
 #if 1
-if (particleIdx >= (particleCount - addedParticles))
+if (particleIdx >= (simUniforms.particleCount - simUniforms.addedParticles))
 {
     vec3 col = vec3(1.0, 0.2, 0.1);
     uvec3 ucol = uvec3(255.0 * col.xyz);
     particle.debug = (ucol.x << 16) | (ucol.y << 8) | ucol.z;
 }
-if (bool(inputMask & INPUT_MASK_SPACEBAR))
+if (bool(globals.inputMask & INPUT_BIT_SPACE))
 {
   vec3 col = fract(particle.position / 50.0);
   uvec3 ucol = uvec3(255.0 * col.xyz);
@@ -98,5 +98,5 @@ if (bool(inputMask & INPUT_MASK_SPACEBAR))
 #endif
 
   // Write-back the modified particle data
-  setParticle(particleIdx, particle);
+  getParticle(particleIdx) = particle;
 }
