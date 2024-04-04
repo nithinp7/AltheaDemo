@@ -52,6 +52,11 @@ using namespace AltheaEngine;
 
 namespace AltheaDemo {
 namespace ParticleSystem {
+struct DeferredPassPushConstants {
+  uint32_t globalResources;
+  uint32_t globalUniforms;
+  uint32_t reflectionBuffer;
+};
 
 ParticleSystem::ParticleSystem() {}
 
@@ -305,6 +310,7 @@ void ParticleSystem::_createGlobalResources(
       app,
       commandBuffer,
       m_heap.getDescriptorSetLayout());
+  m_ssr.getReflectionBuffer().registerToHeap(m_heap);
 }
 
 void ParticleSystem::_createSimResources(
@@ -494,7 +500,7 @@ void ParticleSystem::_createDeferredPass(Application& app) {
 
         // Pipeline resource layouts
         .layoutBuilder.addDescriptorSet(m_heap.getDescriptorSetLayout())
-        .addPushConstants<PushConstants>();
+        .addPushConstants<DeferredPassPushConstants>();
   }
 
   m_deferredPass = RenderPass(
@@ -913,9 +919,15 @@ void ParticleSystem::draw(
     // Bind global descriptor sets
     pass.setGlobalDescriptorSets(gsl::span(&set, 1));
 
+    DeferredPassPushConstants push{};
+    push.globalResources = m_globalResources.getHandle().index;
+    push.globalUniforms = m_globalUniforms.getCurrentBindlessHandle(frame).index;
+    push.reflectionBuffer = m_ssr.getReflectionBuffer().getHandle().index;
+
     {
       const DrawContext& context = pass.getDrawContext();
       context.bindDescriptorSets();
+      context.updatePushConstants(push, 0);
       context.draw(3);
     }
 
