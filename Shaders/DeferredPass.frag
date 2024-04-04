@@ -21,6 +21,7 @@ layout(push_constant) uniform PushConstants {
   uint globalResources;
   uint globalUniforms;
   uint reflectionBuffer;
+  uint writeIndex;
 } pushConstants;
 
 #define globals RESOURCE(globalUniforms, pushConstants.globalUniforms)
@@ -30,7 +31,7 @@ layout(push_constant) uniform PushConstants {
 #define irradianceMap RESOURCE(textureHeap, resources.ibl.irradianceMapHandle)
 #define brdfLut RESOURCE(textureHeap, resources.ibl.brdfLutHandle)
 
-#define gBufferDepth RESOURCE(textureHeap, resources.gBuffer.depthAHandle)
+#define gBufferDepth RESOURCE(textureHeap, (resources.gBuffer.depthAHandle + pushConstants.writeIndex))
 #define gBufferNormal RESOURCE(textureHeap, resources.gBuffer.normalHandle)
 #define gBufferAlbedo RESOURCE(textureHeap, resources.gBuffer.albedoHandle)
 #define gBufferMetallicRoughnessOcclusion RESOURCE(textureHeap, resources.gBuffer.metallicRoughnessOcclusionHandle)
@@ -202,9 +203,5 @@ void main() {
   material = vec3(1.0) - exp(-material * globals.exposure);
 #endif
 
-  // outColor = vec4(fract(0.1 * position), 1.0);
   outColor = vec4(material, 1.0);
-  // outColor = vec4(metallicRoughnessOcclusion.rgb, 1.0);
-  // outColor = vec4(irradianceColor, 1.0);
-  // outColor = vec4(reflectedColor.rgb, 1.0);
 }

@@ -56,6 +56,7 @@ struct DeferredPassPushConstants {
   uint32_t globalResources;
   uint32_t globalUniforms;
   uint32_t reflectionBuffer;
+  uint32_t writeIndex;
 };
 
 ParticleSystem::ParticleSystem() {}
@@ -248,6 +249,7 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
 
   simUniforms.particlesHeap = m_particleBuffer.getBuffer(0).getHandle().index;
   simUniforms.spatialHashHeap = m_spatialHash.getBuffer(0).getHandle().index;
+  simUniforms.bucketHeap = m_buckets.getBuffer(0).getHandle().index;
   simUniforms.nextFreeBucket = m_freeBucketCounter.getHandle().index;
 
   m_simUniforms.updateUniforms(simUniforms, frame);
@@ -344,8 +346,7 @@ void ParticleSystem::_createSimResources(
     spatialHashHeap.back().registerToHeap(m_heap);
   }
 
-  m_spatialHash =
-      StructuredBufferHeap<uint32_t>(std::move(spatialHashHeap));
+  m_spatialHash = StructuredBufferHeap<uint32_t>(std::move(spatialHashHeap));
 
   m_freeBucketCounter = StructuredBuffer<uint32_t>(app, LOCAL_SIZE_X);
   m_freeBucketCounter.registerToHeap(m_heap);
@@ -921,9 +922,10 @@ void ParticleSystem::draw(
 
     DeferredPassPushConstants push{};
     push.globalResources = m_globalResources.getHandle().index;
-    push.globalUniforms = m_globalUniforms.getCurrentBindlessHandle(frame).index;
+    push.globalUniforms =
+        m_globalUniforms.getCurrentBindlessHandle(frame).index;
     push.reflectionBuffer = m_ssr.getReflectionBuffer().getHandle().index;
-
+    push.writeIndex = m_writeIndex;
     {
       const DrawContext& context = pass.getDrawContext();
       context.bindDescriptorSets();
