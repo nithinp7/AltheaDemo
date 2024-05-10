@@ -24,6 +24,13 @@ layout(push_constant) uniform PushConstant {
 #define resources RESOURCE(globalResources, pushConstants.globalResourcesHandle)
 #define globals RESOURCE(globalUniforms, pushConstants.globalUniformsHandle)
 
+struct LiveValues {
+  float slider1;
+  float slider2;
+  bool checkbox1;
+  bool checkbox2;
+};
+
 UNIFORM_BUFFER(_simUniforms, SimUniforms{
   mat4 gridToWorld;
   mat4 worldToGrid;
@@ -50,6 +57,8 @@ UNIFORM_BUFFER(_simUniforms, SimUniforms{
   uint spatialHashHeap;
   uint bucketHeap;
   uint nextFreeBucket;
+
+  LiveValues liveValues;
 });
 #define simUniforms _simUniforms[pushConstants.simUniformsHandle]
 
@@ -110,6 +119,12 @@ BUFFER_RW(_bucketHeap, PARTICLE_BUCKETS{
 // index (0-15), the rest of the bits are the index of the bucket itself
 #define getParticleEntry(globalParticleIdx)        \
     getBucket((globalParticleIdx) >> 4).particles[(globalParticleIdx) & 0xF]
+
+// #define getPosition(globalParticleIdx, phase)      \
+//     getParticleEntry(globalParticleIdx).positions[phase].xyz;
+
+// #define setPosition(globalParticleIdx, pos, phase) \
+//   {getParticleEntry(globalParticleIdx).positions[phase].xyz = pos;}
 
 vec3 getPosition(uint globalParticleIdx, uint phase) {
   return getParticleEntry(globalParticleIdx).positions[phase].xyz;

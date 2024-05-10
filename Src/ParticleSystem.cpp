@@ -7,6 +7,7 @@
 #include <Althea/Cubemap.h>
 #include <Althea/DescriptorSet.h>
 #include <Althea/GraphicsPipeline.h>
+#include <Althea/Gui.h>
 #include <Althea/InputManager.h>
 #include <Althea/InputMask.h>
 #include <Althea/ModelViewProjection.h>
@@ -29,14 +30,14 @@
 
 using namespace AltheaEngine;
 
-#define PARTICLE_COUNT 500000      // 500000 // 200000
+#define PARTICLE_COUNT 5000000      // 500000 // 200000
 #define PARTICLES_PER_BUFFER 50000 // 100000 // 50000
 
 #define SPATIAL_HASH_SIZE (3 * PARTICLE_COUNT)
 #define SPATIAL_HASH_ENTRIES_PER_BUFFER (PARTICLE_COUNT / 4)
 
 // TODO: Probably waaay too many
-#define PARTICLE_BUCKET_COUNT 500000      //(PARTICLE_COUNT / 4)
+#define PARTICLE_BUCKET_COUNT 5000000      //(PARTICLE_COUNT / 4)
 #define PARTICLE_BUCKETS_PER_BUFFFER 10000 //(PARTICLE_BUCKET_COUNT)
 
 #define TIME_SUBSTEPS 2
@@ -44,9 +45,6 @@ using namespace AltheaEngine;
 #define PARTICLE_RADIUS 0.1f
 
 #define LOCAL_SIZE_X 32
-
-#define INSTANCED_MODE
-// #define COHERENT_INSTANCED_MODE
 
 #define GEN_SHADER_DEBUG_INFO
 
@@ -144,6 +142,8 @@ void ParticleSystem::createRenderState(Application& app) {
   m_pCameraController->getCamera().setAspectRatio(
       (float)extent.width / (float)extent.height);
 
+  Gui::createRenderState(app);
+
   SingleTimeCommandBuffer commandBuffer(app);
   _createGlobalResources(app, commandBuffer);
   _createSimResources(app, commandBuffer);
@@ -153,6 +153,8 @@ void ParticleSystem::createRenderState(Application& app) {
 }
 
 void ParticleSystem::destroyRenderState(Application& app) {
+  Gui::destroyRenderState(app);
+
   m_models.clear();
 
   m_gBufferPass = {};
@@ -178,7 +180,35 @@ void ParticleSystem::destroyRenderState(Application& app) {
   m_heap = {};
 }
 
+static LiveValues s_liveValues;
+
+static void updateUi() {
+  Gui::startRecordingImgui();
+  const ImGuiViewport* main_viewport = ImGui::GetMainViewport();
+  ImGui::SetNextWindowPos(
+      ImVec2(main_viewport->WorkPos.x + 650, main_viewport->WorkPos.y + 20),
+      ImGuiCond_FirstUseEver);
+  ImGui::SetNextWindowSize(ImVec2(440, 200), ImGuiCond_FirstUseEver);
+
+  if (ImGui::Begin("Live Edit")) {
+    ImGui::Text("Slider1:");
+    ImGui::SliderFloat("##slider1", &s_liveValues.slider1, 0.0, 1.0);
+    ImGui::Text("Slider2:");
+    ImGui::SliderFloat("##slider2", &s_liveValues.slider2, 0.0, 1.0);
+    ImGui::Text("Checkbox1:");
+    ImGui::Checkbox("##checkbox1", &s_liveValues.checkbox1);
+    ImGui::Text("Checkbox2:");
+    ImGui::Checkbox("##checkbox2", &s_liveValues.checkbox2);
+  }
+
+  ImGui::End();
+
+  Gui::finishRecordingImgui();
+}
+
 void ParticleSystem::tick(Application& app, const FrameContext& frame) {
+  updateUi();
+
   // Use fixed delta time
 
   const Camera& camera = m_pCameraController->getCamera();
@@ -252,6 +282,8 @@ void ParticleSystem::tick(Application& app, const FrameContext& frame) {
   simUniforms.bucketHeap = m_buckets.getBuffer(0).getHandle().index;
   simUniforms.nextFreeBucket = m_freeBucketCounter.getHandle().index;
 
+  simUniforms.liveValues = s_liveValues;
+
   m_simUniforms.updateUniforms(simUniforms, frame);
 
   m_push.globalResourcesHandle = m_globalResources.getHandle().index;
@@ -305,7 +337,8 @@ void ParticleSystem::_createGlobalResources(
       commandBuffer,
       m_sphere.vertices,
       m_sphere.indices,
-      6);
+      6,
+      1.3f * PARTICLE_RADIUS);
 
   // Set up SSR resources
   m_ssr = ScreenSpaceReflection(
@@ -935,6 +968,8 @@ void ParticleSystem::draw(
 
     m_writeIndex ^= 1;
   }
+
+  Gui::draw(app, frame, commandBuffer);
 }
 } // namespace ParticleSystem
 } // namespace AltheaDemo

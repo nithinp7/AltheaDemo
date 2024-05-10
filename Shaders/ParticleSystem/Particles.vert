@@ -6,14 +6,13 @@
 // Per-vertex attributes
 layout(location=0) in vec3 vertexPos;
 
-layout(location=0) out vec3 worldPos;
-layout(location=1) out vec3 normal;
-layout(location=2) out vec3 color;
+layout(location=0) out vec3 normal;
+layout(location=1) out vec3 color;
 
 void main() {
   Particle particle = getParticle(gl_InstanceIndex);
 
-  worldPos = particle.position + 1.3 * simUniforms.particleRadius * vertexPos;
+  vec3 worldPos = particle.position + vertexPos;//1.3 * simUniforms.particleRadius * vertexPos;
   normal = vertexPos;
 
   gl_Position = globals.projection * globals.view * vec4(worldPos, 1.0);

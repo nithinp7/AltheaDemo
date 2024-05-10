@@ -17,18 +17,23 @@ layout(local_size_x = LOCAL_SIZE_X) in;
 #include <Misc/Input.glsl>
 
 // shared uint[LOCAL_SIZE_X] ss
+#define getPosition(globalParticleIdx)      \
+    getParticleEntry(globalParticleIdx).positions[pushConstants.iteration % 2].xyz;
 
-vec3 getPosition(uint globalParticleIdx)
-{
-  uint phase = pushConstants.iteration % 2;
-  return getPosition(globalParticleIdx, phase);
-}
+#define setPosition(globalParticleIdx, pos) \
+  {getParticleEntry(globalParticleIdx).positions[(pushConstants.iteration + 1) % 2].xyz = pos;}
 
-void setPosition(uint globalParticleIdx, vec3 pos)
-{
-  uint phase = (pushConstants.iteration + 1) % 2;
-  setPosition(globalParticleIdx, pos, phase);
-}
+// vec3 getPosition(uint globalParticleIdx)
+// {
+//   uint phase = pushConstants.iteration % 2;
+//   return getPosition(globalParticleIdx, phase);
+// }
+
+// void setPosition(uint globalParticleIdx, vec3 pos)
+// {
+//   uint phase = (pushConstants.iteration + 1) % 2;
+//   setPosition(globalParticleIdx, pos, phase);
+// }
 
 void checkPair(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 particlePos, uint particleIdx, vec3 otherParticlePos, uint otherParticleIdx)
 {
@@ -137,6 +142,7 @@ void checkBucket(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 p
 
   uint iters = (taskCount-1) / gl_SubgroupSize + 1;
 
+  // #pragma optionNV (unroll all)
   for (uint i = 0; i < particleCount; ++i)
   {
     uint taskId = taskStart + i;
@@ -148,13 +154,14 @@ void checkBucket(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 p
 
   // for (uint taskId = threadId; taskId < taskCount; taskId += gl_SubgroupSize)
   uint givenTaskStart = iters * threadId;
+  // #pragma optionNV (unroll all)
   for (uint taskId = givenTaskStart; taskId < min(givenTaskStart + iters, taskCount); ++taskId)
   {    
     processTask(taskId);
   }
 
   subgroupBarrier();
-  
+  // #pragma optionNV (unroll all)
   for (uint i = taskStart; i < taskEnd; ++i)
   {
     TaskOutput partialResult = taskOutputs[i];
@@ -184,11 +191,11 @@ void checkWallCollisions(inout vec3 deltaPos, inout uint collidingParticlesCount
   float wallBias = 1.0;
 
   vec3 gridLength = vec3(60.0);
-  // gridLength[0] = 60.0 + 20.0 * sin(0.25 * time);// 5.0
+  if (simUniforms.liveValues.checkbox1)
+    gridLength[0] = 60.0 * simUniforms.liveValues.slider1 + 20.0 * sin(0.25 * simUniforms.time);// 5.0
   vec3 minPos = vec3(simUniforms.particleRadius);
   vec3 maxPos = gridLength - vec3(simUniforms.particleRadius);
-  // for (int i = 0; i < 3; ++i)
-  int i = 1;
+  for (int i = 0; i < 3; ++i)
   {
     if (particlePos[i] <= minPos[i])
     {
@@ -205,8 +212,7 @@ void checkWallCollisions(inout vec3 deltaPos, inout uint collidingParticlesCount
 #endif
   }
 
-#if 1
-if (bool(globals.inputMask & INPUT_BIT_LEFT_MOUSE))
+if (!simUniforms.liveValues.checkbox1 && bool(globals.inputMask & INPUT_BIT_LEFT_MOUSE))
 {
   // TODO: Create the projected cam position and upload in 
   // uniforms, there is more flexibility that way and is probably
@@ -254,7 +260,6 @@ if (bool(globals.inputMask & INPUT_BIT_LEFT_MOUSE))
     ++collidingParticlesCount;
   }
 }
-#endif
 }
 
 void main() {

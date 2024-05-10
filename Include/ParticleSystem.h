@@ -38,6 +38,13 @@ class Application;
 namespace AltheaDemo {
 namespace ParticleSystem {
 
+struct LiveValues {
+  float slider1;
+  float slider2;
+  bool checkbox1;
+  bool checkbox2;
+};
+
 struct PushConstants {
   uint32_t globalResourcesHandle;
   uint32_t globalUniformsHandle;
@@ -89,6 +96,8 @@ struct SimUniforms {
   uint32_t spatialHashHeap;
   uint32_t bucketHeap;
   uint32_t nextFreeBucket;
+
+  LiveValues liveValues;
 };
 
 #define SIM_PASS 0
