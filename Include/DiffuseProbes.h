@@ -102,9 +102,6 @@ private:
   FrameBuffer m_compositingFrameBufferA;
   FrameBuffer m_compositingFrameBufferB;
 
-  void reservoirBarrier(VkCommandBuffer commandBuffer);
-  void probeBarrier(VkCommandBuffer commandBuffer);
-
   struct RtTarget {
     ImageResource target{};
     ImageHandle targetImageHandle{};
@@ -113,7 +110,7 @@ private:
   RtTarget m_rtTarget;
 
   TransientUniforms<GlobalIllumination::Uniforms> m_giUniforms;
-  std::vector<StructuredBuffer<GlobalIllumination::Reservoir>> m_reservoirHeap;
+  StructuredBufferHeap<GlobalIllumination::Reservoir> m_reservoirHeap;
 
   StructuredBuffer<GlobalIllumination::Probe> m_probes;
   StructuredBuffer<uint32_t> m_spatialHash;

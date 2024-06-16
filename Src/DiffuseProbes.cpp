@@ -160,13 +160,13 @@ void DiffuseProbes::destroyRenderState(Application& app) {
   m_globalUniforms = {};
   m_primitiveConstantsBuffer = {};
 
-  m_reservoirHeap.clear();
+  m_reservoirHeap = {};
 
   m_heap = {};
 }
 
 static GlobalIllumination::LiveEditValues s_liveValues{};
-static bool s_bLightSamplingMode = false;
+static bool s_bLightSamplingMode = true;
 static bool s_bDisableEnvMap = false;
 
 static void updateUi(bool bEnable) {
@@ -279,7 +279,7 @@ void DiffuseProbes::tick(Application& app, const FrameContext& frame) {
 
   giUniforms.writeIndex = m_targetIndex;
 
-  giUniforms.reservoirHeap = m_reservoirHeap[0].getHandle().index;
+  giUniforms.reservoirHeap = m_reservoirHeap.getFirstBufferHandle().index;
   giUniforms.reservoirsPerBuffer = RESERVOIR_COUNT_PER_BUFFER;
 
   giUniforms.frameNumber = m_frameNumber;
@@ -380,17 +380,9 @@ void DiffuseProbes::createGlobalResources(
     uint32_t reservoirCount = 2 * extent.width * extent.height;
     uint32_t bufferCount =
         (reservoirCount - 1) / RESERVOIR_COUNT_PER_BUFFER + 1;
-
-    m_reservoirHeap.reserve(bufferCount);
-
-    for (uint32_t bufferIdx = 0; bufferIdx < bufferCount; ++bufferIdx) {
-      auto& buffer =
-          m_reservoirHeap.emplace_back(app, RESERVOIR_COUNT_PER_BUFFER);
-      buffer.zeroBuffer(commandBuffer);
-      // These buffers are registered sequentially, we use this assumption in
-      // the shader
-      buffer.registerToHeap(m_heap);
-    }
+    m_reservoirHeap = StructuredBufferHeap<GlobalIllumination::Reservoir>(app, bufferCount, RESERVOIR_COUNT_PER_BUFFER);
+    m_reservoirHeap.zeroBuffer(commandBuffer);
+    m_reservoirHeap.registerToHeap(m_heap);
   }
 }
 
@@ -741,62 +733,40 @@ void DiffuseProbes::draw(
     vkCmdDispatch(commandBuffer, groupCount, groupCount, 1);
   }
 
-  probeBarrier(commandBuffer);
+  m_probes.rwBarrier(commandBuffer);
+  m_probeController.barrier(
+      commandBuffer,
+      VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
+      VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT,
+      VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT |
+          VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
+          VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
 
   // Direct Sampling
   {
-    vkCmdBindPipeline(
-        commandBuffer,
-        VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
-        m_directSamplingPass);
-    vkCmdBindDescriptorSets(
-        commandBuffer,
-        VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
-        m_directSamplingPass.getLayout(),
-        0,
-        1,
-        &heapSet,
-        0,
-        nullptr);
-    vkCmdPushConstants(
-        commandBuffer,
-        m_directSamplingPass.getLayout(),
-        VK_SHADER_STAGE_ALL,
-        0,
-        sizeof(RTPush),
-        &push);
+    m_directSamplingPass.bindPipeline(commandBuffer);
+    m_directSamplingPass.bindDescriptorSet(commandBuffer, heapSet);
+    m_directSamplingPass.setPushConstants(commandBuffer, push);
     m_directSamplingPass.traceRays(app.getSwapChainExtent(), commandBuffer);
   }
 
-  reservoirBarrier(commandBuffer);
+  m_reservoirHeap.rwBarrier(commandBuffer);
 
   // Spatial Resampling
   {
-    vkCmdBindPipeline(
-        commandBuffer,
-        VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
-        m_spatialResamplingPass);
-    vkCmdBindDescriptorSets(
-        commandBuffer,
-        VK_PIPELINE_BIND_POINT_RAY_TRACING_KHR,
-        m_spatialResamplingPass.getLayout(),
-        0,
-        1,
-        &heapSet,
-        0,
-        nullptr);
-    vkCmdPushConstants(
-        commandBuffer,
-        m_spatialResamplingPass.getLayout(),
-        VK_SHADER_STAGE_ALL,
-        0,
-        sizeof(RTPush),
-        &push);
+    m_spatialResamplingPass.bindPipeline(commandBuffer);
+    m_spatialResamplingPass.bindDescriptorSet(commandBuffer, heapSet);
+    m_spatialResamplingPass.setPushConstants(commandBuffer, push);
     m_spatialResamplingPass.traceRays(app.getSwapChainExtent(), commandBuffer);
   }
 
-  reservoirBarrier(commandBuffer);
-
+  m_reservoirHeap.barrier(
+      commandBuffer,
+      VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT,
+      VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
+      VK_ACCESS_SHADER_READ_BIT,
+      VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
   m_rtTarget.target.image.transitionLayout(
       commandBuffer,
       VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL,
@@ -854,68 +824,9 @@ void DiffuseProbes::draw(
     }
   }
 
-  if (!app.getInputManager().getMouseCursorHidden())
-    Gui::draw(app, frame, commandBuffer);
+  Gui::draw(app, frame, commandBuffer);
 
   m_targetIndex ^= 1;
-}
-
-void DiffuseProbes::reservoirBarrier(VkCommandBuffer commandBuffer) {
-  for (auto& buffer : m_reservoirHeap) {
-    VkBufferMemoryBarrier barrier{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-    barrier.buffer = buffer.getAllocation().getBuffer();
-    barrier.offset = 0;
-    barrier.size = buffer.getSize();
-    barrier.srcAccessMask =
-        VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-    barrier.dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-    vkCmdPipelineBarrier(
-        commandBuffer,
-        VK_PIPELINE_STAGE_RAY_TRACING_SHADER_BIT_KHR,
-        VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-        0,
-        0,
-        nullptr,
-        1,
-        &barrier,
-        0,
-        nullptr);
-  }
-}
-
-void DiffuseProbes::probeBarrier(VkCommandBuffer commandBuffer) {
-  VkBufferMemoryBarrier barriers[2];
-  barriers[0] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-  barriers[0].buffer = m_probes.getAllocation().getBuffer();
-  barriers[0].offset = 0;
-  barriers[0].size = m_probes.getSize();
-  barriers[0].srcAccessMask =
-      VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-  barriers[0].dstAccessMask = VK_ACCESS_SHADER_READ_BIT;
-
-  barriers[1] = {VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-  barriers[1].buffer = m_probeController.getAllocation().getBuffer();
-  barriers[1].offset = 0;
-  barriers[1].size = m_probeController.getSize();
-  barriers[1].srcAccessMask =
-      VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_SHADER_WRITE_BIT;
-  barriers[1].dstAccessMask =
-      VK_ACCESS_SHADER_READ_BIT | VK_ACCESS_INDIRECT_COMMAND_READ_BIT;
-
-  vkCmdPipelineBarrier(
-      commandBuffer,
-      VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT,
-      VK_PIPELINE_STAGE_DRAW_INDIRECT_BIT |
-          VK_PIPELINE_STAGE_VERTEX_SHADER_BIT |
-          VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT,
-      0,
-      0,
-      nullptr,
-      2,
-      barriers,
-      0,
-      nullptr);
 }
 } // namespace DiffuseProbes
 } // namespace AltheaDemo
