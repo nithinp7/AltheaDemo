@@ -304,7 +304,8 @@ void ParticleSystem::_resetParticles(
     uint32_t localIdx = particleIdx % PARTICLES_PER_BUFFER;
 
     // glm::vec3 position(rand() % 10, rand() % 10, rand() % 10);
-    glm::vec3 position(rand() % 30, rand() % 300, rand() % 30);
+    glm::vec3 position(rand() % 300, rand() % 3000, rand() % 300);
+    position *= 0.1f;
     position += glm::vec3(35.0);
 
     // position += glm::vec3(10.0f);

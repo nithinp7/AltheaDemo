@@ -6,6 +6,8 @@
 
 #include "Hash.glsl"
 
+#define PARTICLES_PER_BUCKET 16
+
 #define INPUT_MASK_MOUSE_LEFT 1
 #define INPUT_MASK_MOUSE_RIGHT 2
 #define INPUT_MASK_SPACEBAR 4
@@ -68,7 +70,7 @@ struct ParticleBucketEntry {
 };
 
 struct ParticleBucket {
-  ParticleBucketEntry particles[16];
+  ParticleBucketEntry particles[PARTICLES_PER_BUCKET];
 };
 
 struct Particle {
@@ -120,10 +122,10 @@ BUFFER_RW(_bucketHeap, PARTICLE_BUCKETS{
 #define getParticleEntry(globalParticleIdx)        \
     getBucket((globalParticleIdx) >> 4).particles[(globalParticleIdx) & 0xF]
 
-// #define getPosition(globalParticleIdx, phase)      \
+// #define getPosition(globalParticleIdx, phase)      \\
 //     getParticleEntry(globalParticleIdx).positions[phase].xyz;
 
-// #define setPosition(globalParticleIdx, pos, phase) \
+// #define setPosition(globalParticleIdx, pos, phase) \\
 //   {getParticleEntry(globalParticleIdx).positions[phase].xyz = pos;}
 
 vec3 getPosition(uint globalParticleIdx, uint phase) {

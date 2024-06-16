@@ -38,7 +38,7 @@ void main() {
     float friction = 2.0;
     vec3 projection = dot(stabilization, velocity) * stabilization;
     vec3 rejection = velocity - projection;
-    velocity -= rejection * friction * dt;
+    // velocity -= rejection * friction * dt;
 
     particle.position = nextPos;
     particle.prevPosition = nextPos;

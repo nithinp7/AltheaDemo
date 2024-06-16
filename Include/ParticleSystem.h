@@ -31,6 +31,8 @@
 
 using namespace AltheaEngine;
 
+#define PARTICLES_PER_BUCKET 16
+
 namespace AltheaEngine {
 class Application;
 } // namespace AltheaEngine
@@ -65,7 +67,7 @@ struct ParticleEntry {
 };
 
 struct ParticleBucket {
-  ParticleEntry particles[16];
+  ParticleEntry particles[PARTICLES_PER_BUCKET];
 };
 
 // TODO: Determine alignment / padding

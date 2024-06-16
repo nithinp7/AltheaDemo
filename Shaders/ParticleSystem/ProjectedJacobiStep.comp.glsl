@@ -23,59 +23,22 @@ layout(local_size_x = LOCAL_SIZE_X) in;
 #define setPosition(globalParticleIdx, pos) \
   {getParticleEntry(globalParticleIdx).positions[(pushConstants.iteration + 1) % 2].xyz = pos;}
 
-// vec3 getPosition(uint globalParticleIdx)
-// {
-//   uint phase = pushConstants.iteration % 2;
-//   return getPosition(globalParticleIdx, phase);
-// }
+#include "PBFluids.glsl"
 
-// void setPosition(uint globalParticleIdx, vec3 pos)
-// {
-//   uint phase = (pushConstants.iteration + 1) % 2;
-//   setPosition(globalParticleIdx, pos, phase);
-// }
-
-void checkPair(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 particlePos, uint particleIdx, vec3 otherParticlePos, uint otherParticleIdx)
+void checkPair(inout vec3 relPos, inout float partialDensity, vec3 particlePos, uint particleIdx, vec3 otherParticlePos, uint otherParticleIdx)
 {
-  // TODO: Should use nextPos or prevPos?
   vec3 diff = otherParticlePos - particlePos;// - 0.1 * deltaPos;
-  // float dist = length(diff);
   float distSq = dot(diff, diff);
 
-// #define HACKY_ADHESION
-#ifdef HACKY_ADHESION
-  float adhesionBuffer = 0.01;
-  float innerRadius = simUniforms.particleRadius - adhesionBuffer;
-  float minDist = 2.0 * innerRadius;
-  float minDistSq = 4.0 * innerRadius * innerRadius;
-#else
-  float radius = 1. * simUniforms.particleRadius;//0.5 * simUniforms.particleRadius;
-  float minDist = 2.0 * radius;
-  float minDistSq = 4.0 * radius * radius;
-#endif
-  // float sep = dist - 2.0 * innerRadius;
-  // float sep = dist - 2.0 * simUniforms.particleRadius;
+  partialDensity = 0.0;
 
-  if (distSq < minDistSq) {
-    // particle.debug = 1; // mark collision
-    float dist = sqrt(distSq);
-    if (dist > 0.000001)
-      diff /= dist;
-    else if (particleIdx < otherParticleIdx)
-      diff = vec3(1.0, 0.0, 0.0);
-    else 
-      diff = vec3(-1.0, 0.0, 0.0);
-
-    float sep = dist - minDist;
-
-    float bias = 0.5;
-    float k = 1.0;// / float(jacobiIters);
-
-    deltaPos += k * bias * sep * diff;
-    collidingParticlesCount++;
+  float r = 2.0 * simUniforms.particleRadius;//0.5 * simUniforms.particleRadius;
+  float r2 = r * r;
+  if (distSq < r2) 
+  {
+    relPos = diff * smoothingKernelDeriv(r2, distSq);
+    partialDensity = smoothingKernel(r2, distSq);
   }
-  // else 
-  //   collidingParticlesCount++; // ??
 }
 
 // Assuming subgroup size of 32
@@ -92,8 +55,8 @@ struct TaskInput {
 };
 
 struct TaskOutput {
-  vec3 deltaPos;
-  uint collidingParticlesCount;
+  vec3 relPos;
+  float partialDensity;
 };
 
 // TODO: Use a smaller size and refuse to process more than that many?
@@ -113,8 +76,8 @@ void processTask(uint taskId)
   
   if (particle.particleIdx != inp.otherParticleIdx)
     checkPair(
-        outp.deltaPos, 
-        outp.collidingParticlesCount, 
+        outp.relPos, 
+        outp.partialDensity, 
         particle.pos, 
         particle.particleIdx, 
         otherParticlePos, 
@@ -123,7 +86,7 @@ void processTask(uint taskId)
   taskOutputs[taskId] = outp;  
 }
 
-void checkBucket(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 particlePos, uint thisParticleIdx, uint bucketEnd)
+void checkBucket(inout vec3 deltaPos, inout float density, inout uint collidingParticlesCount, vec3 particlePos, uint thisParticleIdx, uint bucketEnd)
 {
   uint threadId = gl_SubgroupInvocationID;
   
@@ -165,12 +128,16 @@ void checkBucket(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 p
   for (uint i = taskStart; i < taskEnd; ++i)
   {
     TaskOutput partialResult = taskOutputs[i];
-    deltaPos += partialResult.deltaPos;
-    collidingParticlesCount += partialResult.collidingParticlesCount;
+    if (partialResult.partialDensity > 0.0)
+    {
+      density += partialResult.partialDensity;
+      deltaPos += partialResult.relPos;
+      collidingParticlesCount++;
+    }
   }
 }
 
-void checkBucket2(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 particlePos, uint thisParticleIdx, uint bucketEnd)
+void checkBucket2(inout vec3 deltaPos, inout float density, inout uint collidingParticlesCount, vec3 particlePos, uint thisParticleIdx, uint bucketEnd)
 {
   uint bucketStart = bucketEnd & ~0xF;
   for (uint globalParticleIdx = bucketStart; globalParticleIdx < bucketEnd; ++globalParticleIdx)
@@ -179,7 +146,21 @@ void checkBucket2(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 
     if (globalParticleIdx != thisParticleIdx)
     {
       vec3 otherParticlePos = getPosition(globalParticleIdx);
-      checkPair(deltaPos, collidingParticlesCount, particlePos, thisParticleIdx, otherParticlePos, globalParticleIdx);
+      vec3 dp;
+      float d;
+
+      checkPair(
+          dp, 
+          d, 
+          particlePos, 
+          thisParticleIdx, 
+          otherParticlePos, 
+          globalParticleIdx);
+      if (d > 0.0) {
+        deltaPos += dp;
+        density += d;
+        collidingParticlesCount++;
+      }
     }
   }
 }
@@ -190,7 +171,7 @@ void checkWallCollisions(inout vec3 deltaPos, inout uint collidingParticlesCount
 
   float wallBias = 1.0;
 
-  vec3 gridLength = vec3(60.0);
+  vec3 gridLength =  vec3(60.0);
   if (simUniforms.liveValues.checkbox1)
     gridLength[0] = 60.0 * simUniforms.liveValues.slider1 + 20.0 * sin(0.25 * simUniforms.time);// 5.0
   vec3 minPos = vec3(simUniforms.particleRadius);
@@ -199,67 +180,65 @@ void checkWallCollisions(inout vec3 deltaPos, inout uint collidingParticlesCount
   {
     if (particlePos[i] <= minPos[i])
     {
-      deltaPos[i] += k * wallBias * (minPos[i] - particlePos[i]);
+      deltaPos[i] += (minPos[i] - particlePos[i]);
       ++collidingParticlesCount;
     }  
 
-#if 1
     if (i != 1 && particlePos[i] >= maxPos[i])
     {
-      deltaPos[i] -= k * wallBias * (particlePos[i] - maxPos[i]);
+      deltaPos[i] -= (particlePos[i] - maxPos[i]);
       ++collidingParticlesCount;
     }
-#endif
   }
 
-if (!simUniforms.liveValues.checkbox1 && bool(globals.inputMask & INPUT_BIT_LEFT_MOUSE))
-{
-  // TODO: Create the projected cam position and upload in 
-  // uniforms, there is more flexibility that way and is probably
-  // more efficient
-  float camRadius = CAMERA_RADIUS;
-  float camRadiusSq = camRadius * camRadius;
-
-  vec3 cameraPos = globals.inverseView[3].xyz;
-  vec3 dir = normalize(-globals.inverseView[2].xyz);
-
-  // Solve for t to find whether and where the camera ray intersects the
-  // floor plane
-  // c.y + t * d.y = 0
-
-  float t = -1.0;
-  if (abs(dir.y) > 0.0001)
+  if (!simUniforms.liveValues.checkbox1 && bool(globals.inputMask & INPUT_BIT_LEFT_MOUSE))
   {
-    t = -cameraPos.y / dir.y;
-  } 
+    // TODO: Create the projected cam position and upload in 
+    // uniforms, there is more flexibility that way and is probably
+    // more efficient
+    float camRadius = CAMERA_RADIUS;
+    float camRadiusSq = camRadius * camRadius;
 
-  if (t < 0.0)
-  {
-    t = 10.0;
-    //return;
-  }
+    vec3 cameraPos = globals.inverseView[3].xyz;
+    vec3 dir = normalize(-globals.inverseView[2].xyz);
 
-  t = clamp(t, 0.0, 10.0);
+    // Solve for t to find whether and where the camera ray intersects the
+    // floor plane
+    // c.y + t * d.y = 0
 
-  vec3 userBallPos = cameraPos + t * dir;// + vec3(0.0, 5.0, 0.0);
-  vec3 camDiff = particlePos - userBallPos;
-  float camDistSq = dot(camDiff, camDiff) + 0.01;
-  if (camDistSq < camRadiusSq)
-  {
-    float camDist = sqrt(camDistSq);
-    if (camDistSq > 0.25 * camRadiusSq)
+    float t = -1.0;
+    if (abs(dir.y) > 0.0001)
     {
-      // if (bool(inputMask & INPUT_MASK_MOUSE_LEFT))
-        deltaPos += - 1.* camDiff / camDist / camDistSq;
-    }
-    else 
+      t = -cameraPos.y / dir.y;
+    } 
+
+    if (t < 0.0)
     {
-      deltaPos += 5.0 * CAMERA_STRENGTH * camDistSq * camDiff / camDist;
+      t = 10.0;
+      //return;
     }
-    // deltaPos += CAMERA_STRENGTH * camRadius * camDiff / camDist;
-    ++collidingParticlesCount;
+
+    t = clamp(t, 0.0, 10.0);
+
+    vec3 userBallPos = cameraPos + t * dir;// + vec3(0.0, 5.0, 0.0);
+    vec3 camDiff = particlePos - userBallPos;
+    float camDistSq = dot(camDiff, camDiff) + 0.01;
+    if (camDistSq < camRadiusSq)
+    {
+      float camDist = sqrt(camDistSq);
+      if (camDistSq > 0.25 * camRadiusSq)
+      {
+        // if (bool(inputMask & INPUT_MASK_MOUSE_LEFT))
+          deltaPos += - 1.* camDiff / camDist / camDistSq;
+      }
+      else 
+      {
+        deltaPos += 5.0 * CAMERA_STRENGTH * camDistSq * camDiff / camDist;
+      }
+      // deltaPos += CAMERA_STRENGTH * camRadius * camDiff / camDist;
+      ++collidingParticlesCount;
+    }
   }
-}
 }
 
 void main() {
@@ -286,7 +265,8 @@ void main() {
   if (cellLocalPos.z < 0.5)
     --gridCell.z;
 
-  vec3 deltaPos = vec3(0.0);
+  vec3 comSum = vec3(0.0);
+  float density = 0.0; // ??
   uint collidingParticlesCount = 0;
   bool anyParticleCollisions = false;
 
@@ -299,25 +279,38 @@ void main() {
     
     //if (bucketEnd != INVALID_INDEX) 
     {
-      checkBucket(deltaPos, collidingParticlesCount, particlePos, globalParticleIdx, bucketEnd);
+      checkBucket(comSum, density, collidingParticlesCount, particlePos, globalParticleIdx, bucketEnd);
     }
   }
   
   if (collidingParticlesCount > 0)
     anyParticleCollisions = true;
 
-  checkWallCollisions(deltaPos, collidingParticlesCount, particlePos);
+  vec3 deltaPos = vec3(0.0);
 
-  // deltaPos /= float(jacobiIters);
+  vec3 wallDisp = vec3(0.0);
+  uint hasWallCollisions = 0;
+  checkWallCollisions(wallDisp, hasWallCollisions, particlePos);
+  if (hasWallCollisions > 0)
+  {
+    deltaPos += 0.5 * wallDisp;
+  }
+
   if (collidingParticlesCount > 0)
   {
-    float mag = length(deltaPos) + 0.0001;
-    float k = clamp(mag, 0.0, 0.25 * simUniforms.particleRadius) / mag;
-    // k *= 1.0 / mag;
-    // float k = 1./mag;//5 / float(collidingParticlesCount);
-    // k /= float(pushConstants.iteration + 1);
-    // k = pow(1.0 - k, 1.0 / float(pushConstants.iteration + 1));
-    particlePos += k * deltaPos;
+    float targetDensity = 0.2;
+    vec3 com = comSum / float(collidingParticlesCount + 1);
+    // deltaPos += 0.5 * (targetDensity - density) * com; 
+  }
+
+  float mag = length(deltaPos);
+  if (mag > 0.001)
+  {
+    // deltaPos /= mag;// + 0.0001;
+    // mag = clamp(mag, 0.0, 1. * simUniforms.particleRadius);
+    // deltaPos *= mag;
+
+    particlePos += deltaPos;
   }
 
   setPosition(globalParticleIdx, particlePos);
