@@ -121,7 +121,6 @@ void RayTracedReflectionsDemo::createRenderState(Application& app) {
 
 void RayTracedReflectionsDemo::destroyRenderState(Application& app) {
   this->_models.clear();
-  Primitive::resetPrimitiveIndexCount();
 
   this->_pForwardPass.reset();
   this->_gBufferResources = {};
@@ -186,37 +185,37 @@ void RayTracedReflectionsDemo::_createModels(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
 
-  this->_models.emplace_back(
-      app,
-      commandBuffer,
-      GEngineDirectory + "/Content/Models/DamagedHelmet.glb");
-  this->_models.back().setModelTransform(glm::scale(
-      glm::translate(glm::mat4(1.0f), glm::vec3(36.0f, 0.0f, 0.0f)),
-      glm::vec3(4.0f)));
+  // this->_models.emplace_back(
+  //     app,
+  //     commandBuffer,
+  //     GEngineDirectory + "/Content/Models/DamagedHelmet.glb");
+  // this->_models.back().setModelTransform(glm::scale(
+  //     glm::translate(glm::mat4(1.0f), glm::vec3(36.0f, 0.0f, 0.0f)),
+  //     glm::vec3(4.0f)));
 
-  this->_models.emplace_back(
-      app,
-      commandBuffer,
-      GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf");
-  this->_models.back().setModelTransform(glm::scale(
-      glm::translate(glm::mat4(1.0f), glm::vec3(50.0f, -1.0f, 0.0f)),
-      glm::vec3(8.0f)));
+  // this->_models.emplace_back(
+  //     app,
+  //     commandBuffer,
+  //     GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf");
+  // this->_models.back().setModelTransform(glm::scale(
+  //     glm::translate(glm::mat4(1.0f), glm::vec3(50.0f, -1.0f, 0.0f)),
+  //     glm::vec3(8.0f)));
 
-  this->_models.emplace_back(
-      app,
-      commandBuffer,
-      GEngineDirectory + "/Content/Models/MetalRoughSpheres.glb");
-  this->_models.back().setModelTransform(glm::scale(
-      glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f)),
-      glm::vec3(4.0f)));
+  // this->_models.emplace_back(
+  //     app,
+  //     commandBuffer,
+  //     GEngineDirectory + "/Content/Models/MetalRoughSpheres.glb");
+  // this->_models.back().setModelTransform(glm::scale(
+  //     glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f)),
+  //     glm::vec3(4.0f)));
 
-  this->_models.emplace_back(
-      app,
-      commandBuffer,
-      GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf");
-  this->_models.back().setModelTransform(glm::translate(
-      glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)),
-      glm::vec3(10.0f, -1.0f, 0.0f)));
+  // this->_models.emplace_back(
+  //     app,
+  //     commandBuffer,
+  //     GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf");
+  // this->_models.back().setModelTransform(glm::translate(
+  //     glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)),
+  //     glm::vec3(10.0f, -1.0f, 0.0f)));
 }
 
 void RayTracedReflectionsDemo::_createGlobalResources(
@@ -243,11 +242,11 @@ void RayTracedReflectionsDemo::_createGlobalResources(
       for (const Primitive& primitive : model.getPrimitives()) {
         this->_primitiveConstantsBuffer.setElement(
             primitive.getConstants(),
-            primitive.getPrimitiveIndex());
+            0);
       }
     }
 
-    this->_primitiveConstantsBuffer.upload(app, commandBuffer);
+    this->_primitiveConstantsBuffer.upload(app, (VkCommandBuffer)commandBuffer);
 
     this->_textureHeap = TextureHeap(this->_models);
     this->_vertexBufferHeap = BufferHeap::CreateVertexBufferHeap(this->_models);
@@ -528,9 +527,9 @@ void RayTracedReflectionsDemo::draw(
     // Bind global descriptor sets
     pass.setGlobalDescriptorSets(gsl::span(&globalDescriptorSet, 1));
     // Draw models
-    for (const Model& model : this->_models) {
-      pass.draw(model);
-    }
+    // for (const Model& model : this->_models) {
+    //   pass.draw(model);
+    // }
   }
 
   this->_gBufferResources.transitionToTextures(commandBuffer);

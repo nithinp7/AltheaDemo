@@ -41,8 +41,8 @@ namespace DiffuseProbes {
 
 namespace {
 struct GBufferPush {
-  glm::mat4 transform;
-  uint32_t primitiveIdx;
+  uint32_t matrixBufferHandle;
+  uint32_t primConstantsBuffer;
   uint32_t globalResourcesHandle;
   uint32_t globalUniformsHandle;
 };
@@ -131,7 +131,6 @@ void DiffuseProbes::createRenderState(Application& app) {
 
 void DiffuseProbes::destroyRenderState(Application& app) {
   m_models.clear();
-  Primitive::resetPrimitiveIndexCount();
 
   Gui::destroyRenderState(app);
 
@@ -158,7 +157,6 @@ void DiffuseProbes::destroyRenderState(Application& app) {
 
   m_globalResources = {};
   m_globalUniforms = {};
-  m_primitiveConstantsBuffer = {};
 
   m_reservoirHeap = {};
 
@@ -299,6 +297,7 @@ void DiffuseProbes::createModels(
   m_models.emplace_back(
       app,
       commandBuffer,
+      m_heap,
       GEngineDirectory + "/Content/Models/DamagedHelmet.glb");
   m_models.back().setModelTransform(glm::scale(
       glm::translate(glm::mat4(1.0f), glm::vec3(36.0f, 0.0f, 0.0f)),
@@ -307,6 +306,7 @@ void DiffuseProbes::createModels(
   m_models.emplace_back(
       app,
       commandBuffer,
+      m_heap,
       GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf");
   m_models.back().setModelTransform(glm::scale(
       glm::translate(glm::mat4(1.0f), glm::vec3(50.0f, -1.0f, 0.0f)),
@@ -315,6 +315,7 @@ void DiffuseProbes::createModels(
   m_models.emplace_back(
       app,
       commandBuffer,
+      m_heap,
       GEngineDirectory + "/Content/Models/MetalRoughSpheres.glb");
   m_models.back().setModelTransform(glm::scale(
       glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f)),
@@ -323,6 +324,7 @@ void DiffuseProbes::createModels(
   m_models.emplace_back(
       app,
       commandBuffer,
+      m_heap,
       GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf");
   m_models.back().setModelTransform(glm::translate(
       glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)),
@@ -336,30 +338,7 @@ void DiffuseProbes::createGlobalResources(
   m_heap = GlobalHeap(app);
 
   // Create GLTF resource heaps
-  {
-    createModels(app, commandBuffer);
-
-    for (Model& model : m_models)
-      model.registerToHeap(m_heap);
-
-    uint32_t primCount = 0;
-    for (const Model& model : m_models)
-      primCount += static_cast<uint32_t>(model.getPrimitivesCount());
-
-    m_primitiveConstantsBuffer =
-        StructuredBuffer<PrimitiveConstants>(app, primCount);
-
-    for (const Model& model : m_models) {
-      for (const Primitive& primitive : model.getPrimitives()) {
-        m_primitiveConstantsBuffer.setElement(
-            primitive.getConstants(),
-            primitive.getPrimitiveIndex());
-      }
-    }
-
-    m_primitiveConstantsBuffer.upload(app, commandBuffer);
-    m_primitiveConstantsBuffer.registerToHeap(m_heap);
-  }
+  createModels(app, commandBuffer);
 
   // Create acceleration structure for models
   m_accelerationStructure = AccelerationStructure(app, commandBuffer, m_models);
@@ -370,7 +349,7 @@ void DiffuseProbes::createGlobalResources(
       commandBuffer,
       m_heap,
       {}, // point lights...
-      m_primitiveConstantsBuffer.getHandle());
+      {});
   m_globalUniforms = GlobalUniformsResource(app, m_heap);
 
   // TODO: Make this buffer smaller...
@@ -380,7 +359,10 @@ void DiffuseProbes::createGlobalResources(
     uint32_t reservoirCount = 2 * extent.width * extent.height;
     uint32_t bufferCount =
         (reservoirCount - 1) / RESERVOIR_COUNT_PER_BUFFER + 1;
-    m_reservoirHeap = StructuredBufferHeap<GlobalIllumination::Reservoir>(app, bufferCount, RESERVOIR_COUNT_PER_BUFFER);
+    m_reservoirHeap = StructuredBufferHeap<GlobalIllumination::Reservoir>(
+        app,
+        bufferCount,
+        RESERVOIR_COUNT_PER_BUFFER);
     m_reservoirHeap.zeroBuffer(commandBuffer);
     m_reservoirHeap.registerToHeap(m_heap);
   }
@@ -403,13 +385,9 @@ void DiffuseProbes::createGBufferPass(
     builder
         .pipelineBuilder
         // Vertex shader
-        .addVertexShader(
-            GEngineDirectory + "/Shaders/GltfForwardBindless.vert",
-            defs)
+        .addVertexShader(GEngineDirectory + "/Shaders/Gltf/Gltf.vert", defs)
         // Fragment shader
-        .addFragmentShader(
-            GEngineDirectory + "/Shaders/GltfForwardBindless.frag",
-            defs)
+        .addFragmentShader(GEngineDirectory + "/Shaders/Gltf/Gltf.frag", defs)
 
         // Pipeline resource layouts
         .layoutBuilder
@@ -578,7 +556,7 @@ void DiffuseProbes::createProbeResources(
       1,
       VK_BUFFER_USAGE_INDIRECT_BUFFER_BIT);
   m_probeController.setElement(indirectCmd, 0);
-  m_probeController.upload(app, commandBuffer);
+  m_probeController.upload(app, (VkCommandBuffer)commandBuffer);
   m_probeController.registerToHeap(m_heap);
 
   m_probes = StructuredBuffer<GlobalIllumination::Probe>(app, PROBE_COUNT);
@@ -678,9 +656,10 @@ void DiffuseProbes::draw(
 
     const DrawContext& context = draw.getDrawContext();
     for (const Model& model : m_models) {
+      gBufPush.matrixBufferHandle = model.getTransformsHandle(frame).index;
       for (const Primitive& primitive : model.getPrimitives()) {
-        gBufPush.transform = primitive.computeWorldTransform();
-        gBufPush.primitiveIdx = primitive.getPrimitiveIndex();
+        gBufPush.primConstantsBuffer =
+            primitive.getConstantBufferHandle().index;
 
         context.updatePushConstants(gBufPush, 0);
 

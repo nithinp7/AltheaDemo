@@ -74,7 +74,6 @@ private:
   GlobalHeap m_heap;
   GlobalResources m_globalResources;
   GlobalUniformsResource m_globalUniforms;
-  StructuredBuffer<PrimitiveConstants> m_primitiveConstantsBuffer;
   AccelerationStructure m_accelerationStructure;
 
   void

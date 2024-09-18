@@ -76,7 +76,6 @@ private:
   GlobalResources m_globalResources;
   GlobalUniformsResource m_globalUniforms;
   PointLightCollection m_pointLights;
-  StructuredBuffer<PrimitiveConstants> m_primitiveConstantsBuffer; 
   AccelerationStructure m_accelerationStructure;
 
   void createGBufferPass(Application& app, SingleTimeCommandBuffer& commandBuffer);

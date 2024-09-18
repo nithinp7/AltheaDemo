@@ -118,7 +118,6 @@ void RayTracingDemo::createRenderState(Application& app) {
 
 void RayTracingDemo::destroyRenderState(Application& app) {
   this->_models.clear();
-  Primitive::resetPrimitiveIndexCount();
 
   this->_accelerationStructure = {};
   this->_rayTracingTarget = {};
@@ -179,29 +178,29 @@ void RayTracingDemo::_createModels(
     SingleTimeCommandBuffer& commandBuffer) {
 
   // TODO: BINDLESS!!
-  this->_models.emplace_back(
-      app,
-      commandBuffer,
-      GEngineDirectory + "/Content/Models/DamagedHelmet.glb");
-  this->_models.back().setModelTransform(glm::scale(
-      glm::translate(glm::mat4(1.0f), glm::vec3(36.0f, 0.0f, 0.0f)),
-      glm::vec3(4.0f)));
+  // this->_models.emplace_back(
+  //     app,
+  //     commandBuffer,
+  //     GEngineDirectory + "/Content/Models/DamagedHelmet.glb");
+  // this->_models.back().setModelTransform(glm::scale(
+  //     glm::translate(glm::mat4(1.0f), glm::vec3(36.0f, 0.0f, 0.0f)),
+  //     glm::vec3(4.0f)));
 
-  this->_models.emplace_back(
-      app,
-      commandBuffer,
-      GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf");
-  this->_models.back().setModelTransform(glm::scale(
-      glm::translate(glm::mat4(1.0f), glm::vec3(50.0f, -1.0f, 0.0f)),
-      glm::vec3(8.0f)));
+  // this->_models.emplace_back(
+  //     app,
+  //     commandBuffer,
+  //     GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf");
+  // this->_models.back().setModelTransform(glm::scale(
+  //     glm::translate(glm::mat4(1.0f), glm::vec3(50.0f, -1.0f, 0.0f)),
+  //     glm::vec3(8.0f)));
 
-  this->_models.emplace_back(
-      app,
-      commandBuffer,
-      GEngineDirectory + "/Content/Models/MetalRoughSpheres.glb");
-  this->_models.back().setModelTransform(glm::scale(
-      glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f)),
-      glm::vec3(4.0f)));
+  // this->_models.emplace_back(
+  //     app,
+  //     commandBuffer,
+  //     GEngineDirectory + "/Content/Models/MetalRoughSpheres.glb");
+  // this->_models.back().setModelTransform(glm::scale(
+  //     glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f)),
+  //     glm::vec3(4.0f)));
 
   /*this->_models.emplace_back(
       app,
@@ -235,11 +234,11 @@ void RayTracingDemo::_createGlobalResources(
       for (const Primitive& primitive : model.getPrimitives()) {
         this->_primitiveConstantsBuffer.setElement(
             primitive.getConstants(),
-            primitive.getPrimitiveIndex());
+            0);
       }
     }
 
-    this->_primitiveConstantsBuffer.upload(app, commandBuffer);
+    this->_primitiveConstantsBuffer.upload(app, (VkCommandBuffer)commandBuffer);
 
     this->_textureHeap = TextureHeap(this->_models);
     this->_vertexBufferHeap = BufferHeap::CreateVertexBufferHeap(this->_models);

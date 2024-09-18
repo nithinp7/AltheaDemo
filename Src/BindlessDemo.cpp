@@ -30,11 +30,10 @@ namespace AltheaDemo {
 namespace BindlessDemo {
 namespace {
 struct ForwardPassPushConstants {
-  glm::mat4 model;
-  uint32_t primitiveIdx;
-
-  uint32_t globalResources;
-  uint32_t globalUniforms;
+  uint32_t matrixBufferHandle;
+  uint32_t primConstantsBuffer;
+  uint32_t globalResourcesHandle;
+  uint32_t globalUniformsHandle;
 };
 
 struct DeferredPassPushConstants {
@@ -106,15 +105,12 @@ void BindlessDemo::createRenderState(Application& app) {
 }
 
 void BindlessDemo::destroyRenderState(Application& app) {
-  Primitive::resetPrimitiveIndexCount();
-
   Gui::destroyRenderState(app);
 
   this->_models.clear();
 
   this->_pForwardPass.reset();
   this->_forwardFrameBuffer = {};
-  this->_primitiveConstantsBuffer = {};
 
   this->_pDeferredPass.reset();
   this->_swapChainFrameBuffers = {};
@@ -192,6 +188,7 @@ void BindlessDemo::_createModels(
   this->_models.emplace_back(
       app,
       commandBuffer,
+      _globalHeap,
       GEngineDirectory + "/Content/Models/DamagedHelmet.glb");
   this->_models.back().setModelTransform(glm::scale(
       glm::translate(glm::mat4(1.0f), glm::vec3(36.0f, 0.0f, 0.0f)),
@@ -200,6 +197,7 @@ void BindlessDemo::_createModels(
   this->_models.emplace_back(
       app,
       commandBuffer,
+      _globalHeap,
       GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf");
   this->_models.back().setModelTransform(glm::scale(
       glm::translate(glm::mat4(1.0f), glm::vec3(50.0f, -1.0f, 0.0f)),
@@ -208,6 +206,7 @@ void BindlessDemo::_createModels(
   this->_models.emplace_back(
       app,
       commandBuffer,
+      _globalHeap,
       GEngineDirectory + "/Content/Models/MetalRoughSpheres.glb");
   this->_models.back().setModelTransform(glm::scale(
       glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f)),
@@ -216,6 +215,7 @@ void BindlessDemo::_createModels(
   this->_models.emplace_back(
       app,
       commandBuffer,
+      _globalHeap,
       GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf");
   this->_models.back().setModelTransform(glm::translate(
       glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)),
@@ -231,31 +231,6 @@ void BindlessDemo::_createGlobalResources(
   // Create GLTF resource heaps
   {
     this->_createModels(app, commandBuffer);
-
-    for (Model& model : this->_models) {
-      model.registerToHeap(this->_globalHeap);
-    }
-
-    uint32_t primCount = 0;
-    for (const Model& model : this->_models)
-      primCount += static_cast<uint32_t>(model.getPrimitivesCount());
-
-    this->_primitiveConstantsBuffer =
-        StructuredBuffer<PrimitiveConstants>(app, primCount);
-
-    for (const Model& model : this->_models) {
-      for (const Primitive& primitive : model.getPrimitives()) {
-        this->_primitiveConstantsBuffer.setElement(
-            primitive.getConstants(),
-            primitive.getPrimitiveIndex());
-      }
-    }
-
-    // The primitive constant buffers contain all the bindless
-    // indices for the primitive texture resources
-    this->_primitiveConstantsBuffer.upload(app, commandBuffer);
-    this->_primitiveConstantsBuffer.registerToHeap(this->_globalHeap);
-
     // this->_textureHeap = TextureHeap(this->_models);
   }
 
@@ -267,7 +242,7 @@ void BindlessDemo::_createGlobalResources(
         this->_globalHeap,
         9,
         true,
-        this->_primitiveConstantsBuffer.getHandle());
+        {});
     for (uint32_t i = 0; i < 3; ++i) {
       for (uint32_t j = 0; j < 3; ++j) {
         PointLight light;
@@ -291,7 +266,7 @@ void BindlessDemo::_createGlobalResources(
       commandBuffer,
       this->_globalHeap,
       this->_pointLights.getShadowMapHandle(),
-      this->_primitiveConstantsBuffer.getHandle());
+      {});
 
   // Set up SSR resources
   this->_SSR = ScreenSpaceReflection(
@@ -318,11 +293,11 @@ void BindlessDemo::_createForwardPass(Application& app) {
         .pipelineBuilder
         // Vertex shader
         .addVertexShader(
-            GEngineDirectory + "/Shaders/GltfForwardBindless.vert",
+            GEngineDirectory + "/Shaders/Gltf/Gltf.vert",
             defs)
         // Fragment shader
         .addFragmentShader(
-            GEngineDirectory + "/Shaders/GltfForwardBindless.frag",
+            GEngineDirectory + "/Shaders/Gltf/Gltf.frag",
             defs)
 
         // Pipeline resource layouts
@@ -441,9 +416,9 @@ void BindlessDemo::draw(
   // Forward pass
   {
     ForwardPassPushConstants push{};
-    push.globalResources =
+    push.globalResourcesHandle =
         this->_globalResources.getConstants().getHandle().index;
-    push.globalUniforms =
+    push.globalUniformsHandle =
         this->_globalUniforms.getCurrentBindlessHandle(frame).index;
 
     ActiveRenderPass pass = this->_pForwardPass->begin(
@@ -457,10 +432,9 @@ void BindlessDemo::draw(
 
     // Draw models
     for (const Model& model : this->_models) {
+      push.matrixBufferHandle = model.getTransformsHandle(frame).index;
       for (const Primitive& primitive : model.getPrimitives()) {
-        push.model = primitive.computeWorldTransform();
-        push.primitiveIdx =
-            static_cast<uint32_t>(primitive.getPrimitiveIndex());
+        push.primConstantsBuffer = primitive.getConstantBufferHandle().index;
 
         pass.getDrawContext().setFrontFaceDynamic(primitive.getFrontFace());
         pass.getDrawContext().updatePushConstants(push, 0);

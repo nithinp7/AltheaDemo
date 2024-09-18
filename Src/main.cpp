@@ -19,10 +19,10 @@ int main() {
   //app.createGame<DemoScene::DemoScene>(); // BROKEN
   // app.createGame<RayTracingDemo::RayTracingDemo>();
   // app.createGame<RayTracedReflectionsDemo::RayTracedReflectionsDemo>();
-  // app.createGame<BindlessDemo::BindlessDemo>();
+  app.createGame<BindlessDemo::BindlessDemo>();
   // app.createGame<ParticleSystem::ParticleSystem>();
   // app.createGame<PathTracing::PathTracing>();
-  app.createGame<DiffuseProbes::DiffuseProbes>();
+  // app.createGame<DiffuseProbes::DiffuseProbes>();
   // app.createGame<SphericalHarmonics::SphericalHarmonics>();
 
   try {

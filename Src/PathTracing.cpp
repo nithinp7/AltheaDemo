@@ -36,8 +36,8 @@ namespace PathTracing {
 
 namespace {
 struct GBufferPush {
-  glm::mat4 transform;
-  uint32_t primitiveIdx;
+  uint32_t matrixBufferHandle;
+  uint32_t primConstantsBuffer;
   uint32_t globalResourcesHandle;
   uint32_t globalUniformsHandle;
 };
@@ -123,7 +123,6 @@ void PathTracing::createRenderState(Application& app) {
 
 void PathTracing::destroyRenderState(Application& app) {
   m_models.clear();
-  Primitive::resetPrimitiveIndexCount();
 
   Gui::destroyRenderState(app);
 
@@ -142,7 +141,6 @@ void PathTracing::destroyRenderState(Application& app) {
   m_globalResources = {};
   m_globalUniforms = {};
   m_pointLights = {};
-  m_primitiveConstantsBuffer = {};
 
   m_reservoirHeap.clear();
 
@@ -166,9 +164,17 @@ static void updateUi() {
         0.0f,
         1.0f);
     ImGui::Text("Slider1:");
-    ImGui::SliderFloat("##temporalblend1", &s_liveValues.depthDiscrepancyTolerance, 0.0, 1.0);
+    ImGui::SliderFloat(
+        "##temporalblend1",
+        &s_liveValues.depthDiscrepancyTolerance,
+        0.0,
+        1.0);
     ImGui::Text("Slider2:");
-    ImGui::SliderFloat("##temporalblend2", &s_liveValues.spatialResamplingRadius, 0.0, 1.0);
+    ImGui::SliderFloat(
+        "##temporalblend2",
+        &s_liveValues.spatialResamplingRadius,
+        0.0,
+        1.0);
     // ImGui::Text("Checkbox1:");
     // ImGui::Checkbox("##checkbox1", &s_liveValues.checkbox1);
     // ImGui::Text("Checkbox2:");
@@ -181,8 +187,8 @@ static void updateUi() {
 }
 
 void PathTracing::tick(Application& app, const FrameContext& frame) {
-  ++m_frameNumber; 
-  
+  ++m_frameNumber;
+
   updateUi();
 
   const Camera& camera = m_pCameraController->getCamera();
@@ -268,6 +274,7 @@ void PathTracing::createModels(
   m_models.emplace_back(
       app,
       commandBuffer,
+      m_heap,
       GEngineDirectory + "/Content/Models/DamagedHelmet.glb");
   m_models.back().setModelTransform(glm::scale(
       glm::translate(glm::mat4(1.0f), glm::vec3(36.0f, 0.0f, 0.0f)),
@@ -276,6 +283,7 @@ void PathTracing::createModels(
   m_models.emplace_back(
       app,
       commandBuffer,
+      m_heap,
       GEngineDirectory + "/Content/Models/FlightHelmet/FlightHelmet.gltf");
   m_models.back().setModelTransform(glm::scale(
       glm::translate(glm::mat4(1.0f), glm::vec3(50.0f, -1.0f, 0.0f)),
@@ -284,6 +292,7 @@ void PathTracing::createModels(
   m_models.emplace_back(
       app,
       commandBuffer,
+      m_heap,
       GEngineDirectory + "/Content/Models/MetalRoughSpheres.glb");
   m_models.back().setModelTransform(glm::scale(
       glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f)),
@@ -292,6 +301,7 @@ void PathTracing::createModels(
   m_models.emplace_back(
       app,
       commandBuffer,
+      m_heap,
       GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf");
   m_models.back().setModelTransform(glm::translate(
       glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)),
@@ -305,30 +315,7 @@ void PathTracing::createGlobalResources(
   m_heap = GlobalHeap(app);
 
   // Create GLTF resource heaps
-  {
-    createModels(app, commandBuffer);
-
-    for (Model& model : m_models)
-      model.registerToHeap(m_heap);
-
-    uint32_t primCount = 0;
-    for (const Model& model : m_models)
-      primCount += static_cast<uint32_t>(model.getPrimitivesCount());
-
-    m_primitiveConstantsBuffer =
-        StructuredBuffer<PrimitiveConstants>(app, primCount);
-
-    for (const Model& model : m_models) {
-      for (const Primitive& primitive : model.getPrimitives()) {
-        m_primitiveConstantsBuffer.setElement(
-            primitive.getConstants(),
-            primitive.getPrimitiveIndex());
-      }
-    }
-
-    m_primitiveConstantsBuffer.upload(app, commandBuffer);
-    m_primitiveConstantsBuffer.registerToHeap(m_heap);
-  }
+  createModels(app, commandBuffer);
 
   // Create acceleration structure for models
   m_accelerationStructure = AccelerationStructure(app, commandBuffer, m_models);
@@ -341,7 +328,7 @@ void PathTracing::createGlobalResources(
         m_heap,
         9,
         true,
-        m_primitiveConstantsBuffer.getHandle());
+        {});
     for (uint32_t i = 0; i < 3; ++i) {
       for (uint32_t j = 0; j < 3; ++j) {
         PointLight light;
@@ -365,7 +352,7 @@ void PathTracing::createGlobalResources(
       commandBuffer,
       m_heap,
       m_pointLights.getShadowMapHandle(),
-      m_primitiveConstantsBuffer.getHandle());
+      {});
   m_globalUniforms = GlobalUniformsResource(app, m_heap);
 
   // TODO: Make this buffer smaller...
@@ -407,11 +394,11 @@ void PathTracing::createGBufferPass(
         .pipelineBuilder
         // Vertex shader
         .addVertexShader(
-            GEngineDirectory + "/Shaders/GltfForwardBindless.vert",
+            GEngineDirectory + "/Shaders/Gltf/Gltf.vert",
             defs)
         // Fragment shader
         .addFragmentShader(
-            GEngineDirectory + "/Shaders/GltfForwardBindless.frag",
+            GEngineDirectory + "/Shaders/Gltf/Gltf.frag",
             defs)
 
         // Pipeline resource layouts
@@ -462,7 +449,8 @@ void PathTracing::createSamplingPasses(
     samplerOptions.magFilter = VK_FILTER_NEAREST;
 
     m_rtTarget.target.image = Image(app, imageOptions);
-    m_rtTarget.target.view = ImageView(app, m_rtTarget.target.image, viewOptions);
+    m_rtTarget.target.view =
+        ImageView(app, m_rtTarget.target.image, viewOptions);
     m_rtTarget.target.sampler = Sampler(app, samplerOptions);
 
     m_rtTarget.targetImageHandle = m_heap.registerImage();
@@ -584,9 +572,9 @@ void PathTracing::draw(
 
     const DrawContext& context = draw.getDrawContext();
     for (const Model& model : m_models) {
+      push.matrixBufferHandle = model.getTransformsHandle(frame).index;
       for (const Primitive& primitive : model.getPrimitives()) {
-        push.transform = primitive.computeWorldTransform();
-        push.primitiveIdx = primitive.getPrimitiveIndex();
+        push.primConstantsBuffer = primitive.getConstantBufferHandle().index;
 
         context.updatePushConstants(push, 0);
 
@@ -672,13 +660,13 @@ void PathTracing::draw(
   }
 
   reservoirBarrier(commandBuffer);
-  
+
   m_rtTarget.target.image.transitionLayout(
       commandBuffer,
       VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
       VK_ACCESS_SHADER_READ_BIT,
       VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
-  
+
   // Display pass
   {
     RTPush push{};

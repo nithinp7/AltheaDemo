@@ -71,7 +71,6 @@ private:
   std::vector<Model> _models;
 
   void _createForwardPass(Application& app);
-  StructuredBuffer<PrimitiveConstants> _primitiveConstantsBuffer; 
   std::unique_ptr<RenderPass> _pForwardPass;
   FrameBuffer _forwardFrameBuffer;
 
