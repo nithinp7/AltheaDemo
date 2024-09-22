@@ -26,7 +26,6 @@
 #include <Althea/ShaderBindingTable.h>
 #include <Althea/StructuredBuffer.h>
 #include <Althea/Texture.h>
-#include <Althea/TextureHeap.h>
 #include <Althea/TransientUniforms.h>
 #include <Althea/UniformBuffer.h>
 #include <Althea/Common/GlobalIllumination.h>

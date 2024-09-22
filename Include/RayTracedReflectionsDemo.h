@@ -20,7 +20,6 @@
 #include <Althea/StructuredBuffer.h>
 #include <Althea/Texture.h>
 #include <Althea/TransientUniforms.h>
-#include <Althea/TextureHeap.h>
 #include <Althea/AccelerationStructure.h>
 #include <Althea/BufferHeap.h>
 #include <Althea/RayTracedReflection.h>
@@ -84,7 +83,6 @@ private:
 
   void _createForwardPass(Application& app);
   StructuredBuffer<PrimitiveConstants> _primitiveConstantsBuffer; 
-  TextureHeap _textureHeap;
   BufferHeap _vertexBufferHeap;
   BufferHeap _indexBufferHeap;
   AccelerationStructure _accelerationStructure;
@@ -95,7 +93,6 @@ private:
   std::unique_ptr<RenderPass> _pDeferredPass;
   SwapChainFrameBufferCollection _swapChainFrameBuffers;
   std::unique_ptr<DescriptorSetAllocator> _pDeferredMaterialAllocator;
-  std::unique_ptr<Material> _pDeferredMaterial;
 
   ShaderDefines _shaderDefs;
   std::unique_ptr<RayTracedReflection> _pRTR;

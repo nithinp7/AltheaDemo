@@ -23,7 +23,6 @@
 #include <Althea/TransientUniforms.h>
 #include <Althea/UniformBuffer.h>
 #include <Althea/ShaderBindingTable.h>
-#include <Althea/TextureHeap.h>
 #include <Althea/StructuredBuffer.h>
 #include <Althea/Primitive.h>
 #include <Althea/BufferHeap.h>

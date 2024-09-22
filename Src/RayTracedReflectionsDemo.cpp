@@ -126,14 +126,12 @@ void RayTracedReflectionsDemo::destroyRenderState(Application& app) {
   this->_gBufferResources = {};
   this->_forwardFrameBuffer = {};
   this->_primitiveConstantsBuffer = {};
-  this->_textureHeap = {};
   this->_vertexBufferHeap = {};
   this->_indexBufferHeap = {};
   this->_accelerationStructure = {};
 
   this->_pDeferredPass.reset();
   this->_swapChainFrameBuffers = {};
-  this->_pDeferredMaterial.reset();
   this->_pDeferredMaterialAllocator.reset();
 
   this->_pGlobalResources.reset();
@@ -248,7 +246,6 @@ void RayTracedReflectionsDemo::_createGlobalResources(
 
     this->_primitiveConstantsBuffer.upload(app, (VkCommandBuffer)commandBuffer);
 
-    this->_textureHeap = TextureHeap(this->_models);
     this->_vertexBufferHeap = BufferHeap::CreateVertexBufferHeap(this->_models);
     this->_indexBufferHeap = BufferHeap::CreateIndexBufferHeap(this->_models);
     this->_accelerationStructure =
@@ -268,10 +265,6 @@ void RayTracedReflectionsDemo::_createGlobalResources(
         .addStorageBufferBinding(VK_SHADER_STAGE_ALL)
         // Shadow map texture.
         .addTextureBinding(VK_SHADER_STAGE_ALL)
-        // Texture heap.
-        .addTextureHeapBinding(
-            this->_textureHeap.getSize(),
-            VK_SHADER_STAGE_ALL)
         // Primitive constants heap.
         .addStorageBufferBinding(VK_SHADER_STAGE_ALL)
         // Vertex buffer heap
@@ -329,7 +322,6 @@ void RayTracedReflectionsDemo::_createGlobalResources(
     assignment.bindTexture(
         this->_pointLights.getShadowMapArrayView(),
         this->_pointLights.getShadowMapSampler());
-    assignment.bindTextureHeap(this->_textureHeap);
     assignment.bindStorageBuffer(
         this->_primitiveConstantsBuffer.getAllocation(),
         this->_primitiveConstantsBuffer.getSize(),
@@ -338,9 +330,6 @@ void RayTracedReflectionsDemo::_createGlobalResources(
     assignment.bindBufferHeap(this->_indexBufferHeap);
   }
 
-  this->_shaderDefs.emplace(
-      "TEXTURE_HEAP_COUNT",
-      std::to_string(this->_textureHeap.getSize()));
   this->_shaderDefs.emplace(
       "VERTEX_BUFFER_HEAP_COUNT",
       std::to_string(this->_vertexBufferHeap.getSize()));
@@ -369,13 +358,8 @@ void RayTracedReflectionsDemo::_createGlobalResources(
             app,
             deferredMaterialLayout,
             1);
-    this->_pDeferredMaterial =
-        std::make_unique<Material>(app, *this->_pDeferredMaterialAllocator);
 
     // Bind G-Buffer resources as textures in the deferred pass
-    ResourcesAssignment& assignment = this->_pDeferredMaterial->assign();
-    this->_gBufferResources.bindTextures(assignment);
-    this->_pRTR->bindTexture(assignment);
   }
 }
 
@@ -390,9 +374,6 @@ void RayTracedReflectionsDemo::_createForwardPass(Application& app) {
     Primitive::buildPipeline(subpassBuilder.pipelineBuilder);
 
     ShaderDefines defs;
-    defs.emplace(
-        "TEXTURE_HEAP_COUNT",
-        std::to_string(this->_textureHeap.getSize()));
 
     subpassBuilder
         .pipelineBuilder
@@ -553,7 +534,6 @@ void RayTracedReflectionsDemo::draw(
 
     {
       const DrawContext& context = pass.getDrawContext();
-      context.bindDescriptorSets(*this->_pDeferredMaterial);
       context.draw(3);
     }
 

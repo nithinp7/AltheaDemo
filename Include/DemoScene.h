@@ -86,7 +86,7 @@ private:
   std::unique_ptr<RenderPass> _pDeferredPass;
   SwapChainFrameBufferCollection _swapChainFrameBuffers;
   std::unique_ptr<DescriptorSetAllocator> _pDeferredMaterialAllocator;
-  std::unique_ptr<Material> _pDeferredMaterial;
+  // std::unique_ptr<Material> _pDeferredMaterial;
 
   std::unique_ptr<ScreenSpaceReflection> _pSSR;
   float _exposure = 0.3f;

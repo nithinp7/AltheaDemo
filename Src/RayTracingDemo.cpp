@@ -14,6 +14,7 @@
 #include <Althea/Skybox.h>
 #include <Althea/Utilities.h>
 #include <Althea/VertexBuffer.h>
+#include <Althea/DefaultTextures.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -146,7 +147,8 @@ void RayTracingDemo::_createGlobalResources(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
   m_heap = GlobalHeap(app);
-
+  AltheaEngine::registerDefaultTexturesToHeap(m_heap);
+  
   _createModels(app, commandBuffer);
 
   m_globalUniforms = GlobalUniformsResource(app, m_heap);

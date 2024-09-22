@@ -127,7 +127,7 @@ void DemoScene::destroyRenderState(Application& app) {
 
   this->_pDeferredPass.reset();
   this->_swapChainFrameBuffers = {};
-  this->_pDeferredMaterial.reset();
+  // this->_pDeferredMaterial.reset();
   this->_pDeferredMaterialAllocator.reset();
 
   this->_pGlobalResources.reset();
@@ -310,13 +310,13 @@ void DemoScene::_createGlobalResources(
             app,
             deferredMaterialLayout,
             1);
-    this->_pDeferredMaterial =
-        std::make_unique<Material>(app, *this->_pDeferredMaterialAllocator);
+    // this->_pDeferredMaterial =
+    //     std::make_unique<Material>(app, *this->_pDeferredMaterialAllocator);
 
     // Bind G-Buffer resources as textures in the deferred pass
-    ResourcesAssignment& assignment = this->_pDeferredMaterial->assign();
-    this->_gBufferResources.bindTextures(assignment);
-    this->_pSSR->bindTexture(assignment);
+    // ResourcesAssignment& assignment = this->_pDeferredMaterial->assign();
+    // this->_gBufferResources.bindTextures(assignment);
+    // this->_pSSR->bindTexture(assignment);
   }
 }
 
@@ -482,7 +482,7 @@ void DemoScene::draw(
 
     {
       const DrawContext& context = pass.getDrawContext();
-      context.bindDescriptorSets(*this->_pDeferredMaterial);
+      // context.bindDescriptorSets(*this->_pDeferredMaterial);
       context.draw(3);
     }
   }

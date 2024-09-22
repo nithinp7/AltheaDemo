@@ -20,7 +20,6 @@
 #include <Althea/StructuredBuffer.h>
 #include <Althea/Texture.h>
 #include <Althea/TransientUniforms.h>
-#include <Althea/TextureHeap.h>
 #include <Althea/GlobalHeap.h>
 #include <Althea/GlobalUniforms.h>
 #include <Althea/GlobalResources.h>
