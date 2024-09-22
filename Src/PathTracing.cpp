@@ -322,13 +322,8 @@ void PathTracing::createGlobalResources(
   m_accelerationStructure.registerToHeap(m_heap);
 
   {
-    m_pointLights = PointLightCollection(
-        app,
-        commandBuffer,
-        m_heap,
-        9,
-        true,
-        {});
+    m_pointLights =
+        PointLightCollection(app, commandBuffer, m_heap, 9, true, {});
     for (uint32_t i = 0; i < 3; ++i) {
       for (uint32_t j = 0; j < 3; ++j) {
         PointLight light;
@@ -347,12 +342,10 @@ void PathTracing::createGlobalResources(
     }
   }
 
-  m_globalResources = GlobalResources(
-      app,
-      commandBuffer,
-      m_heap,
-      m_pointLights.getShadowMapHandle(),
-      {});
+  GlobalResourcesBuilder resourcesBuilder{};
+  resourcesBuilder.shadowMapArrayHandle = m_pointLights.getShadowMapHandle();
+  m_globalResources =
+      GlobalResources(app, commandBuffer, m_heap, resourcesBuilder);
   m_globalUniforms = GlobalUniformsResource(app, m_heap);
 
   // TODO: Make this buffer smaller...
@@ -393,13 +386,9 @@ void PathTracing::createGBufferPass(
     builder
         .pipelineBuilder
         // Vertex shader
-        .addVertexShader(
-            GEngineDirectory + "/Shaders/Gltf/Gltf.vert",
-            defs)
+        .addVertexShader(GEngineDirectory + "/Shaders/Gltf/Gltf.vert", defs)
         // Fragment shader
-        .addFragmentShader(
-            GEngineDirectory + "/Shaders/Gltf/Gltf.frag",
-            defs)
+        .addFragmentShader(GEngineDirectory + "/Shaders/Gltf/Gltf.frag", defs)
 
         // Pipeline resource layouts
         .layoutBuilder

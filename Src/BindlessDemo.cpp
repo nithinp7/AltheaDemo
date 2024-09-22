@@ -155,7 +155,8 @@ void BindlessDemo::tick(Application& app, const FrameContext& frame) {
   globalUniforms.inverseProjection = glm::inverse(globalUniforms.projection);
   globalUniforms.view = camera.computeView();
   globalUniforms.inverseView = glm::inverse(globalUniforms.view);
-  globalUniforms.lightCount = static_cast<int>(this->_pointLights.getCount());
+  globalUniforms.lightCount =
+      0; // static_cast<int>(this->_pointLights.getCount());
   globalUniforms.lightBufferHandle =
       this->_pointLights.getCurrentLightBufferHandle(frame).index;
   globalUniforms.time = static_cast<float>(frame.currentTime);
@@ -261,12 +262,11 @@ void BindlessDemo::_createGlobalResources(
     }
   }
 
-  this->_globalResources = GlobalResources(
-      app,
-      commandBuffer,
-      this->_globalHeap,
-      this->_pointLights.getShadowMapHandle(),
-      {});
+  GlobalResourcesBuilder resourcesBuilder{};
+  resourcesBuilder.shadowMapArrayHandle =
+      this->_pointLights.getShadowMapHandle();
+  this->_globalResources =
+      GlobalResources(app, commandBuffer, this->_globalHeap, resourcesBuilder);
 
   // Set up SSR resources
   this->_SSR = ScreenSpaceReflection(
@@ -292,13 +292,9 @@ void BindlessDemo::_createForwardPass(Application& app) {
     subpassBuilder
         .pipelineBuilder
         // Vertex shader
-        .addVertexShader(
-            GEngineDirectory + "/Shaders/Gltf/Gltf.vert",
-            defs)
+        .addVertexShader(GEngineDirectory + "/Shaders/Gltf/Gltf.vert", defs)
         // Fragment shader
-        .addFragmentShader(
-            GEngineDirectory + "/Shaders/Gltf/Gltf.frag",
-            defs)
+        .addFragmentShader(GEngineDirectory + "/Shaders/Gltf/Gltf.frag", defs)
 
         // Pipeline resource layouts
         .layoutBuilder
@@ -329,15 +325,14 @@ void BindlessDemo::_createDeferredPass(Application& app) {
   VkClearValue depthClear;
   depthClear.depthStencil = {1.0f, 0};
 
-  std::vector<Attachment> attachments = {
-      Attachment{
-          ATTACHMENT_FLAG_COLOR,
-          app.getSwapChainImageFormat(),
-          colorClear,
-          false, // forPresent is false since the imGUI pass follows the
-                 // deferred pass
-          false,
-          true}};
+  std::vector<Attachment> attachments = {Attachment{
+      ATTACHMENT_FLAG_COLOR,
+      app.getSwapChainImageFormat(),
+      colorClear,
+      false, // forPresent is false since the imGUI pass follows the
+             // deferred pass
+      false,
+      true}};
 
   std::vector<SubpassBuilder> subpassBuilders;
 
@@ -399,19 +394,19 @@ void BindlessDemo::draw(
     VkCommandBuffer commandBuffer,
     const FrameContext& frame) {
 
-  this->_pointLights.updateResource(frame);
+  // this->_pointLights.updateResource(frame);
   this->_globalResources.getGBuffer().transitionToAttachment(commandBuffer);
 
   VkDescriptorSet heapDescriptorSet = this->_globalHeap.getDescriptorSet();
 
   // Draw point light shadow maps
-  this->_pointLights.drawShadowMaps(
-      app,
-      commandBuffer,
-      frame,
-      this->_models,
-      heapDescriptorSet,
-      this->_globalResources.getHandle());
+  // this->_pointLights.drawShadowMaps(
+  //     app,
+  //     commandBuffer,
+  //     frame,
+  //     this->_models,
+  //     heapDescriptorSet,
+  //     this->_globalResources.getHandle());
 
   // Forward pass
   {

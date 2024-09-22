@@ -344,12 +344,9 @@ void DiffuseProbes::createGlobalResources(
   m_accelerationStructure = AccelerationStructure(app, commandBuffer, m_models);
   m_accelerationStructure.registerToHeap(m_heap);
 
-  m_globalResources = GlobalResources(
-      app,
-      commandBuffer,
-      m_heap,
-      {}, // point lights...
-      {});
+  GlobalResourcesBuilder resourcesBuilder{};
+  m_globalResources =
+      GlobalResources(app, commandBuffer, m_heap, resourcesBuilder);
   m_globalUniforms = GlobalUniformsResource(app, m_heap);
 
   // TODO: Make this buffer smaller...

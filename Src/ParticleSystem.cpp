@@ -30,7 +30,7 @@
 
 using namespace AltheaEngine;
 
-#define PARTICLE_COUNT 5000000      // 500000 // 200000
+#define PARTICLE_COUNT 5000000     // 500000 // 200000
 #define PARTICLES_PER_BUFFER 50000 // 100000 // 50000
 
 #define SPATIAL_HASH_SIZE (3 * PARTICLE_COUNT)
@@ -329,7 +329,9 @@ void ParticleSystem::_createGlobalResources(
     SingleTimeCommandBuffer& commandBuffer) {
   m_heap = GlobalHeap(app);
 
-  m_globalResources = GlobalResources(app, commandBuffer, m_heap, {}, {});
+  GlobalResourcesBuilder resourcesBuilder{};
+  m_globalResources =
+      GlobalResources(app, commandBuffer, m_heap, resourcesBuilder);
   m_globalUniforms = GlobalUniformsResource(app, m_heap);
 
   // TODO: Create LODs for particles

@@ -27,6 +27,9 @@
 #include <Althea/StructuredBuffer.h>
 #include <Althea/Primitive.h>
 #include <Althea/BufferHeap.h>
+#include <Althea/GlobalUniforms.h>
+#include <Althea/GlobalResources.h>
+#include <Althea/GlobalHeap.h>
 #include <glm/glm.hpp>
 
 #include <vector>
@@ -39,18 +42,6 @@ class Application;
 
 namespace AltheaDemo {
 namespace RayTracingDemo {
-
-// TODO: move this into engine
-struct GlobalUniforms {
-  glm::mat4 projection;
-  glm::mat4 inverseProjection;
-  glm::mat4 view;
-  glm::mat4 inverseView;
-  int lightCount;
-  float time;
-  float exposure;
-};
-
 class RayTracingDemo : public IGameInstance {
 public:
   RayTracingDemo();
@@ -69,37 +60,22 @@ public:
       const FrameContext& frame) override;
 
 private:
-  bool _adjustingExposure = false;
-
-  std::unique_ptr<CameraController> _pCameraController;
+  std::unique_ptr<CameraController> m_pCameraController;
 
   void _createGlobalResources(
       Application& app,
       SingleTimeCommandBuffer& commandBuffer);
-  std::unique_ptr<PerFrameResources> _pGlobalResources;
-  std::unique_ptr<TransientUniforms<GlobalUniforms>> _pGlobalUniforms;
-  PointLightCollection _pointLights;
-  IBLResources _iblResources;
-  StructuredBuffer<PrimitiveConstants> _primitiveConstantsBuffer; 
-  TextureHeap _textureHeap;
-  BufferHeap _vertexBufferHeap;
-  BufferHeap _indexBufferHeap;
+  GlobalHeap m_heap;
+  GlobalResources m_globalResources;
+  GlobalUniformsResource m_globalUniforms;
 
   void _createModels(Application& app, SingleTimeCommandBuffer& commandBuffer);
-  std::vector<Model> _models;
+  std::vector<Model> m_models;
 
   void _createRayTracingPass(Application& app, SingleTimeCommandBuffer& commandBuffer);
-  std::unique_ptr<DescriptorSetAllocator> _pRayTracingMaterialAllocator;
-  std::unique_ptr<Material> _pRayTracingMaterial;
-  std::unique_ptr<RayTracingPipeline> _pRayTracingPipeline;
-  ImageResource _rayTracingTarget;
-  AccelerationStructure _accelerationStructure;
-  std::unique_ptr<DescriptorSetAllocator> _pDisplayPassMaterialAllocator;
-  std::unique_ptr<Material> _pDisplayPassMaterial;
-  std::unique_ptr<RenderPass> _pDisplayPass;
-  SwapChainFrameBufferCollection _displayPassSwapChainFrameBuffers;
-
-  float _exposure = 0.3f;
+  RayTracingPipeline m_rayTracingPipeline;
+  RenderPass m_displayPass;
+  SwapChainFrameBufferCollection m_displayPassSwapChainFrameBuffers;
 };
 } // namespace RayTracingDemo
 } // namespace AltheaDemo
