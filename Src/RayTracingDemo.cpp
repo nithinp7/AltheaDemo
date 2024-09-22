@@ -97,7 +97,9 @@ void RayTracingDemo::tick(Application& app, const FrameContext& frame) {
   globalUniforms.lightCount = 0;
   globalUniforms.time = static_cast<float>(frame.currentTime);
   globalUniforms.exposure = 0.3f;
-
+  // TODO: need to retain this in the engine
+  static uint32_t frameCount = 0;
+  globalUniforms.frameCount = frameCount++;
   m_globalUniforms.getCurrentUniformBuffer(frame).updateUniforms(
       globalUniforms);
 }
