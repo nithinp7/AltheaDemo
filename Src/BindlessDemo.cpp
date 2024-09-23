@@ -3,6 +3,7 @@
 #include <Althea/Application.h>
 #include <Althea/Camera.h>
 #include <Althea/Cubemap.h>
+#include <Althea/DefaultTextures.h>
 #include <Althea/DescriptorSet.h>
 #include <Althea/GraphicsPipeline.h>
 #include <Althea/Gui.h>
@@ -39,7 +40,6 @@ struct ForwardPassPushConstants {
 struct DeferredPassPushConstants {
   uint32_t globalResources;
   uint32_t globalUniforms;
-  uint32_t reflectionBuffer;
 };
 } // namespace
 
@@ -73,7 +73,7 @@ void BindlessDemo::initGame(Application& app) {
   input.addKeyBinding(
       {GLFW_KEY_R, GLFW_PRESS, GLFW_MOD_CONTROL},
       [&app, that = this]() {
-        that->_pointLights.getShadowMapPass().tryRecompile(app);
+        // that->_pointLights.getShadowMapPass().tryRecompile(app);
         that->_pForwardPass->tryRecompile(app);
         that->_pDeferredPass->tryRecompile(app);
       });
@@ -157,29 +157,32 @@ void BindlessDemo::tick(Application& app, const FrameContext& frame) {
   globalUniforms.inverseView = glm::inverse(globalUniforms.view);
   globalUniforms.lightCount =
       0; // static_cast<int>(this->_pointLights.getCount());
-  globalUniforms.lightBufferHandle =
-      this->_pointLights.getCurrentLightBufferHandle(frame).index;
+  globalUniforms.lightBufferHandle = {};
+  // this->_pointLights.getCurrentLightBufferHandle(frame).index;
   globalUniforms.time = static_cast<float>(frame.currentTime);
   globalUniforms.exposure = this->_exposure;
+
+  static uint32_t frameCount = 0;
+  globalUniforms.frameCount = frameCount++;
 
   this->_globalUniforms.getCurrentUniformBuffer(frame).updateUniforms(
       globalUniforms);
 
-  for (uint32_t i = 0; i < this->_pointLights.getCount(); ++i) {
-    PointLight light = this->_pointLights.getLight(i);
+  // for (uint32_t i = 0; i < this->_pointLights.getCount(); ++i) {
+  //   PointLight light = this->_pointLights.getLight(i);
 
-    light.position = 40.0f * glm::vec3(
-                                 static_cast<float>(i / 3),
-                                 -0.1f,
-                                 (static_cast<float>(i % 3) - 1.5f) * 0.5f);
+  //   light.position = 40.0f * glm::vec3(
+  //                                static_cast<float>(i / 3),
+  //                                -0.1f,
+  //                                (static_cast<float>(i % 3) - 1.5f) * 0.5f);
 
-    light.position.x += 5.5f * cos(1.5f * frame.currentTime + i);
-    light.position.z += 5.5f * sin(1.5 * frame.currentTime + i);
+  //   light.position.x += 5.5f * cos(1.5f * frame.currentTime + i);
+  //   light.position.z += 5.5f * sin(1.5 * frame.currentTime + i);
 
-    this->_pointLights.setLight(i, light);
-  }
+  //   this->_pointLights.setLight(i, light);
+  // }
 
-  this->_pointLights.updateResource(frame);
+  // this->_pointLights.updateResource(frame);
 }
 
 void BindlessDemo::_createModels(
@@ -213,20 +216,21 @@ void BindlessDemo::_createModels(
       glm::translate(glm::mat4(1.0f), glm::vec3(10.0f, 0.0f, 0.0f)),
       glm::vec3(4.0f)));
 
-  this->_models.emplace_back(
-      app,
-      commandBuffer,
-      _globalHeap,
-      GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf");
-  this->_models.back().setModelTransform(glm::translate(
-      glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)),
-      glm::vec3(10.0f, -1.0f, 0.0f)));
+  // this->_models.emplace_back(
+  //     app,
+  //     commandBuffer,
+  //     _globalHeap,
+  //     GEngineDirectory + "/Content/Models/Sponza/glTF/Sponza.gltf");
+  // this->_models.back().setModelTransform(glm::translate(
+  //     glm::scale(glm::mat4(1.0f), glm::vec3(10.0f)),
+  //     glm::vec3(10.0f, -1.0f, 0.0f)));
 }
 
 void BindlessDemo::_createGlobalResources(
     Application& app,
     SingleTimeCommandBuffer& commandBuffer) {
   this->_globalHeap = GlobalHeap(app);
+  AltheaEngine::registerDefaultTexturesToHeap(_globalHeap);
   this->_globalUniforms = GlobalUniformsResource(app, this->_globalHeap);
 
   // Create GLTF resource heaps
@@ -236,6 +240,7 @@ void BindlessDemo::_createGlobalResources(
   }
 
   // Global resources
+#if 0
   {
     this->_pointLights = PointLightCollection(
         app,
@@ -261,19 +266,20 @@ void BindlessDemo::_createGlobalResources(
       }
     }
   }
+#endif
 
   GlobalResourcesBuilder resourcesBuilder{};
-  resourcesBuilder.shadowMapArrayHandle =
-      this->_pointLights.getShadowMapHandle();
+  resourcesBuilder.shadowMapArrayHandle = {};
+  // this->_pointLights.getShadowMapHandle();
   this->_globalResources =
       GlobalResources(app, commandBuffer, this->_globalHeap, resourcesBuilder);
 
   // Set up SSR resources
-  this->_SSR = ScreenSpaceReflection(
-      app,
-      commandBuffer,
-      this->_globalHeap.getDescriptorSetLayout());
-  this->_SSR.getReflectionBuffer().registerToHeap(this->_globalHeap);
+  // this->_SSR = ScreenSpaceReflection(
+  //     app,
+  //     commandBuffer,
+  //     this->_globalHeap.getDescriptorSetLayout());
+  // this->_SSR.getReflectionBuffer().registerToHeap(this->_globalHeap);
 }
 
 void BindlessDemo::_createForwardPass(Application& app) {
@@ -342,16 +348,17 @@ void BindlessDemo::_createDeferredPass(Application& app) {
     subpassBuilder.colorAttachments.push_back(0);
 
     ShaderDefines defs;
-    defs.emplace("BINDLESS_SET", "0");
 
     subpassBuilder.pipelineBuilder.setCullMode(VK_CULL_MODE_FRONT_BIT)
         .setDepthTesting(false)
 
         // Vertex shader
-        .addVertexShader(GProjectDirectory + "/Shaders/DeferredPass.vert", defs)
+        .addVertexShader(
+            GEngineDirectory + "/Shaders/Deferred/DeferredPass.vert",
+            defs)
         // Fragment shader
         .addFragmentShader(
-            GProjectDirectory + "/Shaders/DeferredPass.frag",
+            GEngineDirectory + "/Shaders/Deferred/DeferredPassBrdfTest.frag",
             defs)
 
         // Pipeline resource layouts
@@ -443,16 +450,16 @@ void BindlessDemo::draw(
   this->_globalResources.getGBuffer().transitionToTextures(commandBuffer);
 
   // Reflection buffer and convolution
-  {
-    this->_SSR.captureReflection(
-        app,
-        commandBuffer,
-        heapDescriptorSet,
-        frame,
-        this->_globalUniforms.getCurrentBindlessHandle(frame),
-        this->_globalResources.getHandle());
-    this->_SSR.convolveReflectionBuffer(app, commandBuffer, frame);
-  }
+  // {
+  //   this->_SSR.captureReflection(
+  //       app,
+  //       commandBuffer,
+  //       heapDescriptorSet,
+  //       frame,
+  //       this->_globalUniforms.getCurrentBindlessHandle(frame),
+  //       this->_globalResources.getHandle());
+  //   this->_SSR.convolveReflectionBuffer(app, commandBuffer, frame);
+  // }
 
   // Deferred pass
   {
@@ -460,7 +467,6 @@ void BindlessDemo::draw(
     push.globalResources = this->_globalResources.getHandle().index;
     push.globalUniforms =
         this->_globalUniforms.getCurrentBindlessHandle(frame).index;
-    push.reflectionBuffer = this->_SSR.getReflectionBuffer().getHandle().index;
 
     ActiveRenderPass pass = this->_pDeferredPass->begin(
         app,
