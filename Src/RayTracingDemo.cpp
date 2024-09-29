@@ -4,17 +4,18 @@
 #include <Althea/BufferUtilities.h>
 #include <Althea/Camera.h>
 #include <Althea/Cubemap.h>
+#include <Althea/DefaultTextures.h>
 #include <Althea/DescriptorSet.h>
 #include <Althea/GraphicsPipeline.h>
 #include <Althea/IndexBuffer.h>
 #include <Althea/InputManager.h>
+#include <Althea/InputMask.h>
 #include <Althea/ModelViewProjection.h>
 #include <Althea/Primitive.h>
 #include <Althea/SingleTimeCommandBuffer.h>
 #include <Althea/Skybox.h>
 #include <Althea/Utilities.h>
 #include <Althea/VertexBuffer.h>
-#include <Althea/DefaultTextures.h>
 #include <glm/glm.hpp>
 #include <glm/gtc/constants.hpp>
 #include <glm/gtc/matrix_transform.hpp>
@@ -31,13 +32,6 @@ using namespace AltheaEngine;
 
 namespace AltheaDemo {
 namespace RayTracingDemo {
-
-namespace {
-struct RtPush {
-  uint32_t globalResourcesHandle;
-  uint32_t globalUniformsHandle;
-};
-} // namespace
 
 RayTracingDemo::RayTracingDemo() {}
 
@@ -84,8 +78,24 @@ void RayTracingDemo::destroyRenderState(Application& app) {
   m_heap = {};
 }
 
+static bool s_bIsCameraFrozen = true;
+static uint32_t s_lastInputMask = 0;
+
 void RayTracingDemo::tick(Application& app, const FrameContext& frame) {
-  m_pCameraController->tick(frame.deltaTime);
+  uint32_t inputMask = GInputManager->getCurrentInputMask();
+  uint32_t changedInputs = inputMask ^ s_lastInputMask;
+  if (changedInputs & INPUT_BIT_SPACE) {
+    s_bIsCameraFrozen = !(inputMask & INPUT_BIT_SPACE);
+  }
+  s_lastInputMask = inputMask;
+
+  if (s_bIsCameraFrozen) {
+    m_pCameraController->setMouseDisabled();
+  } else {
+    m_pCameraController->setMouseEnabled();
+    m_pCameraController->tick(frame.deltaTime);
+  }
+
   const Camera& camera = m_pCameraController->getCamera();
 
   const glm::mat4& projection = camera.getProjection();
@@ -113,10 +123,10 @@ void RayTracingDemo::_createModels(
       app,
       commandBuffer,
       m_heap,
-      GEngineDirectory + "/Content/Models/DamagedHelmet.glb");
-  m_models.back().setModelTransform(glm::scale(
-      glm::translate(glm::mat4(1.0f), glm::vec3(36.0f, 0.0f, 0.0f)),
-      glm::vec3(4.0f)));
+      GEngineDirectory + "/Content/Models/DamagedHelmet.glb",
+      glm::scale(
+          glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -10.0f)),
+          glm::vec3(4.0f)));
 
   // m_models.emplace_back(
   //     app,
@@ -148,7 +158,7 @@ void RayTracingDemo::_createGlobalResources(
     SingleTimeCommandBuffer& commandBuffer) {
   m_heap = GlobalHeap(app);
   AltheaEngine::registerDefaultTexturesToHeap(m_heap);
-  
+
   _createModels(app, commandBuffer);
 
   m_globalUniforms = GlobalUniformsResource(app, m_heap);
@@ -248,6 +258,10 @@ void RayTracingDemo::draw(
   push.globalResourcesHandle = m_globalResources.getHandle().index;
   push.globalUniformsHandle =
       m_globalUniforms.getCurrentBindlessHandle(frame).index;
+  static uint32_t s_accumulatedFrames = 0;
+  if (!s_bIsCameraFrozen)
+    s_accumulatedFrames = 0;
+  push.accumulatedFramesCount = s_accumulatedFrames++;
 
   m_rayTracingPipeline.bindPipeline(commandBuffer);
   m_rayTracingPipeline.setPushConstants(commandBuffer, push);
