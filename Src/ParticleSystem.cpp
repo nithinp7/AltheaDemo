@@ -62,7 +62,6 @@ ParticleSystem::ParticleSystem() {}
 void ParticleSystem::initGame(Application& app) {
   const VkExtent2D& windowDims = app.getSwapChainExtent();
   m_pCameraController = std::make_unique<CameraController>(
-      app.getInputManager(),
       90.0f,
       (float)windowDims.width / (float)windowDims.height);
   m_pCameraController->setMaxSpeed(50.0f);
@@ -347,8 +346,7 @@ void ParticleSystem::_createGlobalResources(
   m_ssr = ScreenSpaceReflection(
       app,
       commandBuffer,
-      m_heap.getDescriptorSetLayout());
-  m_ssr.getReflectionBuffer().registerToHeap(m_heap);
+      m_heap);
 }
 
 void ParticleSystem::_createSimResources(
@@ -943,7 +941,7 @@ void ParticleSystem::draw(
   // Reflection buffer and convolution
   {
     m_ssr.captureReflection(app, commandBuffer, set, frame, {}, {});
-    m_ssr.convolveReflectionBuffer(app, commandBuffer, frame);
+    m_ssr.convolveReflectionBuffer(app, commandBuffer, set, frame);
   }
 
   // Deferred pass

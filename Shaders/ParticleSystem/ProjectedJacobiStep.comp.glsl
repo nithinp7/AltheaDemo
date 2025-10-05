@@ -41,6 +41,28 @@ void checkPair(inout vec3 relPos, inout float partialDensity, vec3 particlePos, 
   }
 }
 
+void checkParticleCollision(
+  inout vec3 deltaPos, vec3 particlePos, vec3 otherParticlePos)
+{
+  // TODO: Should use nextPos or prevPos?
+  vec3 diff = otherParticlePos - particlePos;
+  float dist = length(diff);
+  float sep = dist - 2.0 * simUniforms.particleRadius;
+
+  if (sep <= 0.0) {
+    // particle.debug = 1; // mark collision
+    if (dist < 0.00001)
+      diff = vec3(1.0, 0.0, 0.0);
+    else
+      diff /= dist;
+
+    float bias = 0.5;
+    float k = 1.0 / float(simUniforms.jacobiIters);
+
+    deltaPos += k * bias * sep * diff;
+  }
+}
+
 // Assuming subgroup size of 32
 struct ThisParticle
 {
@@ -74,14 +96,19 @@ void processTask(uint taskId)
   
   TaskOutput outp = TaskOutput(vec3(0.0), 0);
   
-  if (particle.particleIdx != inp.otherParticleIdx)
-    checkPair(
-        outp.relPos, 
-        outp.partialDensity, 
-        particle.pos, 
-        particle.particleIdx, 
-        otherParticlePos, 
-        inp.otherParticleIdx);
+  if (particle.particleIdx != inp.otherParticleIdx) {
+    /*checkPair(
+      outp.relPos,
+      outp.partialDensity,
+      particle.pos,
+      particle.particleIdx,
+      otherParticlePos,
+      inp.otherParticleIdx);*/
+    checkParticleCollision(
+      outp.relPos,
+      particle.pos,
+      otherParticlePos);
+  }
 
   taskOutputs[taskId] = outp;  
 }
@@ -300,15 +327,15 @@ void main() {
   {
     float targetDensity = 0.2;
     vec3 com = comSum / float(collidingParticlesCount + 1);
-    // deltaPos += 0.5 * (targetDensity - density) * com; 
+    //deltaPos += 0.5 * (targetDensity - density) * com; 
   }
 
   float mag = length(deltaPos);
   if (mag > 0.001)
   {
-    // deltaPos /= mag;// + 0.0001;
-    // mag = clamp(mag, 0.0, 1. * simUniforms.particleRadius);
-    // deltaPos *= mag;
+     deltaPos /= mag;// + 0.0001;
+     mag = clamp(mag, 0.0, 1. * simUniforms.particleRadius);
+     deltaPos *= mag;
 
     particlePos += deltaPos;
   }

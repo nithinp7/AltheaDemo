@@ -83,20 +83,20 @@ struct Particle {
 BUFFER_RW(_particlesHeap, PARTICLES_BUFFER{
   Particle particles[];
 });
-#define getParticle(particleIdx)                    \
-    _particlesHeap[                                 \
-      simUniforms.particlesHeap +                   \
-      (particleIdx) / simUniforms.particlesPerBuffer] \
-        .particles[                                 \
+#define getParticle(particleIdx)                        \
+    _particlesHeap[                                     \
+      simUniforms.particlesHeap +                       \
+      (particleIdx) / simUniforms.particlesPerBuffer]   \
+        .particles[                                     \
           (particleIdx) % simUniforms.particlesPerBuffer]
 
 BUFFER_RW(_spatialHashHeap, SPATIAL_HASH_HEAP{
   uint spatialHash[];
 });
-#define getSpatialHashSlot(slotIdx)                    \
+#define getSpatialHashSlot(slotIdx)                         \
     _spatialHashHeap[                                       \
       simUniforms.spatialHashHeap +                         \
-      (slotIdx) / simUniforms.spatialHashEntriesPerBuffer]    \
+      (slotIdx) / simUniforms.spatialHashEntriesPerBuffer]  \
         .spatialHash[                                       \
           (slotIdx) % simUniforms.spatialHashEntriesPerBuffer]
 

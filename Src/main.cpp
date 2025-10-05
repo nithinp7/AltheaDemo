@@ -6,6 +6,7 @@
 #include "DiffuseProbes.h"
 #include "ParticleSystem.h"
 #include "SphericalHarmonics.h"
+#include "HlslTest.h"
 
 #include <Althea/Application.h>
 
@@ -15,15 +16,16 @@ using namespace AltheaEngine;
 using namespace AltheaDemo;
 
 int main() {
-  Application app("Althea Demo", "../..", "../../Extern/Althea");
+  Application app("Althea Demo", "..", "../Extern/Althea");
   //app.createGame<DemoScene::DemoScene>(); // BROKEN
-  app.createGame<RayTracingDemo::RayTracingDemo>();
+  // app.createGame<RayTracingDemo::RayTracingDemo>();
   // app.createGame<RayTracedReflectionsDemo::RayTracedReflectionsDemo>();
-  // app.createGame<BindlessDemo::BindlessDemo>();
-  // app.createGame<ParticleSystem::ParticleSystem>();
+  //app.createGame<BindlessDemo::BindlessDemo>();
+  //app.createGame<ParticleSystem::ParticleSystem>();
   // app.createGame<PathTracing::PathTracing>();
   // app.createGame<DiffuseProbes::DiffuseProbes>();
-  // app.createGame<SphericalHarmonics::SphericalHarmonics>();
+  //app.createGame<SphericalHarmonics::SphericalHarmonics>();
+  app.createGame<HlslTest::HlslTest>();
 
   try {
     app.run();

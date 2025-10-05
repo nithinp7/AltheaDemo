@@ -48,7 +48,6 @@ BindlessDemo::BindlessDemo() {}
 void BindlessDemo::initGame(Application& app) {
   const VkExtent2D& windowDims = app.getSwapChainExtent();
   this->_pCameraController = std::make_unique<CameraController>(
-      app.getInputManager(),
       90.0f,
       (float)windowDims.width / (float)windowDims.height);
   this->_pCameraController->setMaxSpeed(15.0f);

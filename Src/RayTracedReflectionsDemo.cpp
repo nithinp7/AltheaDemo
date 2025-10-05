@@ -33,7 +33,6 @@ RayTracedReflectionsDemo::RayTracedReflectionsDemo() {}
 void RayTracedReflectionsDemo::initGame(Application& app) {
   const VkExtent2D& windowDims = app.getSwapChainExtent();
   this->_pCameraController = std::make_unique<CameraController>(
-      app.getInputManager(),
       90.0f,
       (float)windowDims.width / (float)windowDims.height);
   this->_pCameraController->setMaxSpeed(15.0f);
@@ -337,14 +336,15 @@ void RayTracedReflectionsDemo::_createGlobalResources(
       "INDEX_BUFFER_HEAP_COUNT",
       std::to_string(this->_indexBufferHeap.getSize()));
 
+  // TODO: requires global bindless heap now...
   // Set up reflection resources
-  this->_pRTR = std::make_unique<RayTracedReflection>(
-      app,
-      commandBuffer,
-      this->_pGlobalResources->getLayout(),
-      this->_accelerationStructure.getTLAS(),
-      this->_gBufferResources,
-      this->_shaderDefs);
+  // this->_pRTR = std::make_unique<RayTracedReflection>(
+  //     app,
+  //     commandBuffer,
+  //     this->_pGlobalResources->getLayout(),
+  //     this->_accelerationStructure.getTLAS(),
+  //     this->_gBufferResources,
+  //     this->_shaderDefs);
 
   // Deferred pass resources (GBuffer)
   {
@@ -519,7 +519,7 @@ void RayTracedReflectionsDemo::draw(
   {
     this->_pRTR
         ->captureReflection(app, commandBuffer, globalDescriptorSet, frame);
-    this->_pRTR->convolveReflectionBuffer(app, commandBuffer, frame);
+    this->_pRTR->convolveReflectionBuffer(app, commandBuffer, globalDescriptorSet, frame);
   }
 
   // Deferred pass

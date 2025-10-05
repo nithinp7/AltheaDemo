@@ -33,7 +33,6 @@ DemoScene::DemoScene() {}
 void DemoScene::initGame(Application& app) {
   const VkExtent2D& windowDims = app.getSwapChainExtent();
   this->_pCameraController = std::make_unique<CameraController>(
-      app.getInputManager(),
       90.0f,
       (float)windowDims.width / (float)windowDims.height);
   this->_pCameraController->setMaxSpeed(15.0f);
@@ -292,11 +291,12 @@ void DemoScene::_createGlobalResources(
         this->_pointLights.getShadowMapSampler());
   }
 
+  // TODO: SSR now needs a bindless heap
   // Set up SSR resources
-  this->_pSSR = std::make_unique<ScreenSpaceReflection>(
-      app,
-      commandBuffer,
-      this->_pGlobalResources->getLayout());
+  // this->_pSSR = std::make_unique<ScreenSpaceReflection>(
+  //     app,
+  //     commandBuffer,
+  //     this->_pGlobalResources->getLayout());
 
   // Deferred pass resources (GBuffer)
   {
@@ -467,7 +467,7 @@ void DemoScene::draw(
   {
     this->_pSSR
         ->captureReflection(app, commandBuffer, globalDescriptorSet, frame, {}, {});
-    this->_pSSR->convolveReflectionBuffer(app, commandBuffer, frame);
+    this->_pSSR->convolveReflectionBuffer(app, commandBuffer, globalDescriptorSet, frame);
   }
 
   // Deferred pass

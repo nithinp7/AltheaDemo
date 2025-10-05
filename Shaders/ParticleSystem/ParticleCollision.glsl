@@ -1,7 +1,8 @@
 #ifndef _PARTICLECOLLISION_
 #define _PARTICLECOLLISION_
 
-void checkParticleCollision(inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 particlePos, vec3 otherParticlePos)
+void checkParticleCollision(
+  inout vec3 deltaPos, inout uint collidingParticlesCount, vec3 particlePos, vec3 otherParticlePos)
 {
   // TODO: Should use nextPos or prevPos?
   vec3 diff = otherParticlePos - particlePos;

@@ -38,7 +38,6 @@ RayTracingDemo::RayTracingDemo() {}
 void RayTracingDemo::initGame(Application& app) {
   const VkExtent2D& windowDims = app.getSwapChainExtent();
   m_pCameraController = std::make_unique<CameraController>(
-      app.getInputManager(),
       90.0f,
       (float)windowDims.width / (float)windowDims.height);
   m_pCameraController->setMaxSpeed(15.0f);
